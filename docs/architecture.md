@@ -114,7 +114,8 @@ The server enforces loopback Host/Origin checks and a process-scoped token on wr
 It does not expose API keys or accept output/input path strings from the browser.
 API settings live in process memory (user-facing rules: [openrouter.md](openrouter.md)); each
 live run receives an agent constructed from a snapshot of the current configuration.
-User FASTA contents (up to 1 MB) are staged in a temporary local file for the run
+Dashboard runs require an uploaded FASTA (the bundled example is uploaded like any
+other file). Its contents (up to 1 MB) are staged in a temporary local file for the run
 and removed afterward. Run IDs and filenames are constrained; symlinked reports
 and directories are refused. This is a local demo server, not a shared hosted service.
 

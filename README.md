@@ -14,7 +14,8 @@
 需要 Python 3.11+，无需安装依赖。
 
 **浏览器面板（Windows）**：下载 ZIP 并解压，双击 `start-dashboard.bat`，
-在打开的页面点击 **启动演示**。浏览器没有自动打开时，访问 `http://127.0.0.1:8765`。
+在打开的页面的 00 框上传细菌 FASTA 文件（示例：`examples/toy_genome.fasta`），再点击 **开始**。
+浏览器没有自动打开时，访问 `http://127.0.0.1:8765`。
 运行期间保留终端窗口。
 
 WSL / Ubuntu 使用 `python3 -m phage_lab dashboard`；端口被占用时加 `--port 8766`。
@@ -32,7 +33,7 @@ python3 -m phage_lab demo
 `--agent openrouter`模式，经 OpenRouter 调用模型，选择候选、分配设备和恢复动作，本地校验后执行
 API 出错时会生成失败报告，不会自动切回规则模式。
 
-在面板左侧填写 API Key 和模型 ID，保存后启动演示。
+展开面板左侧的 RUN CONFIGURATION，填写 API Key 和模型 ID，保存后上传 FASTA 并点击开始。
 密钥只保存在本次服务进程的内存中。命令行模式改用环境变量。详见 [OpenRouter 接入说明](docs/openrouter.md)。
 
 ## 运行结果

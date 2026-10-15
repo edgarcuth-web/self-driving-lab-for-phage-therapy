@@ -17,7 +17,6 @@ from .devices import FAULT_MODES, OPERATIONS
 from .provenance import source_identity
 from .workflow import run_demo
 
-ROOT = Path(__file__).resolve().parent.parent
 WEB = Path(__file__).resolve().parent / "web"
 RUN_ID = re.compile(r"\d{8}T\d{6}Z-[0-9a-f]{10}")
 MAX_INPUT = 1_000_000
@@ -142,9 +141,8 @@ class RunManager:
             raise ValueError("Seed must be a 32-bit integer.")
         if agent not in ("rule", "openrouter") or fault not in FAULT_MODES or (step is not None and step not in OPERATIONS):
             raise ValueError("Unknown agent, fault or step.")
-        if genome is not None and (not isinstance(genome, str) or not genome.strip()
-                                   or len(genome.encode("utf-8")) > MAX_INPUT):
-            raise ValueError("FASTA upload must be nonempty and at most 1 MB.")
+        if not isinstance(genome, str) or not genome.strip() or len(genome.encode("utf-8")) > MAX_INPUT:
+            raise ValueError("FASTA upload is required, must be nonempty and at most 1 MB.")
         with self.lock:
             if self.busy:
                 raise RuntimeError("A run is already active.")
@@ -166,10 +164,8 @@ class RunManager:
         try:
             self.output_root.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(prefix=".input-", dir=self.output_root) as temporary:
-                path = ROOT / "examples" / "toy_genome.fasta"
-                if genome is not None:
-                    path = Path(temporary) / "input.fasta"
-                    path.write_text(genome, encoding="utf-8")
+                path = Path(temporary) / "input.fasta"
+                path.write_text(genome, encoding="utf-8")
                 asyncio.run(run_demo(path, self.output_root, seed=seed,
                                     fault=fault, fault_step=step, time_scale=self.time_scale,
                                     echo=False, on_event=self._event, agent=decision_agent))
