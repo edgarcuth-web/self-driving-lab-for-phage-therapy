@@ -6,7 +6,7 @@
 
 1. 启动 `start-dashboard.bat` 或运行 `python3 -m phage_lab dashboard`。
 2. 展开左侧 RUN CONFIGURATION，填写 API Key 和模型代号并保存。
-3. 在 00 框上传 FASTA 文件，点击 **开始**。
+3. 在流程栏第一格（00 · 上传）选择 FASTA 文件，点击 **开始**。
 
 模型代号原样提交给 OpenRouter，不查询模型列表或补前缀。支持填写简称或完整 ID；是否可用由 OpenRouter 返回结果决定。
 

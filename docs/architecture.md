@@ -1,4 +1,4 @@
-# Architecture and v0.2 contract
+# Architecture
 
 ## Responsibilities
 
@@ -14,8 +14,8 @@
 | `web/` | Buildless dashboard; actual events drive displayed state |
 
 The task template is fixed: `synthesize`, `prepare`, `transfer`, `infect`, `measure`.
-Each task depends on the preceding task. This first milestone schedules one
-logical sample sequentially. The simulator uses two devices per capability.
+Each task depends on the preceding task. The scheduler runs one logical sample
+sequentially. The simulator uses two devices per capability.
 
 All five operations are abstract simulation stages. They do not contain real
 laboratory quantities, timings, synthesis sequences or vendor integrations.
@@ -43,7 +43,7 @@ Driver instances keep a per-command ledger in memory. Same ID and payload return
 the existing job, even after completion. A conflicting payload is rejected.
 A higher attempt number can create a new job only after the previous attempt has
 acknowledged cancellation. On another device the scheduler enforces this condition.
-This does not claim distributed exactly-once execution or durability across restarts.
+The ledger is in memory only; it does not survive restarts.
 
 ## Recovery state machine
 
@@ -76,15 +76,13 @@ the AI is not told which hidden fault was injected.
 
 Candidate scores depend on the input's normalized fingerprint. Synthetic readings
 depend on the seed and selected IDs, independently of ranking scores and device
-attempts. Therefore a failover does not magically improve the measured value.
-These values are test fixtures, not a mechanistic model or predicted probabilities.
+attempts, so a failover cannot change the measured value.
 
 ## Data and reports
 
-FASTA contents and headers remain local and are never copied into run records.
-The normalized fingerprint, length and contig count are recorded. In live mode
-these metadata, candidate fixtures, manifests and observed device states are sent
-to OpenRouter and the selected provider; the raw genome is not sent.
+Run records keep only the normalized fingerprint, length and contig count of the
+input. Live mode sends these plus candidate fixtures, manifests and device states
+to OpenRouter; FASTA contents and headers stay local.
 
 `events.jsonl` is flushed after each append. `report.json` and `report.md` are written
 via temporary files at a terminal state. Power loss or forced process termination
@@ -97,8 +95,7 @@ is always `not_assessed`. When any step is missing, the report quality is `incom
 ## Dashboard and local API
 
 `python -m phage_lab dashboard` serves `http://127.0.0.1:8765`. The controller is
-the same `run_demo` used by the CLI. It runs in a worker thread, while a lightweight
-event callback identifies the active run. Each browser polls the ordered file-backed
+the same `run_demo` used by the CLI, running in a worker thread. Each browser polls the ordered file-backed
 events every 500 ms. Refreshes and server restarts can read saved reports.
 
 | Route | Purpose |
@@ -117,7 +114,7 @@ live run receives an agent constructed from a snapshot of the current configurat
 Dashboard runs require an uploaded FASTA (the bundled example is uploaded like any
 other file). Its contents (up to 1 MB) are staged in a temporary local file for the run
 and removed afterward. Run IDs and filenames are constrained; symlinked reports
-and directories are refused. This is a local demo server, not a shared hosted service.
+and directories are refused.
 
 The UI renders decision text as text, never HTML, and loads no external assets.
 Only one run can be active per dashboard process; durable resume and cross-process
@@ -126,12 +123,10 @@ resource locking are not implemented.
 ## Source identity without Git
 
 Every new run records `source.version`, `source.source_sha256`, `source.source_files`,
-`source.git_commit` and `source.git_dirty`. Git fields are null for ZIP downloads or
-when Git is unavailable. A parent directory's unrelated repository is not used.
-The fingerprint hashes a sorted manifest of runtime Python, web assets, example
-input and the Windows launcher after CRLF normalization. Run data, secrets and
-user genomes are excluded. It is a content identity, not a signature or proof that
-an earlier historical run used that code. Existing records are not rewritten.
+`source.git_commit` and `source.git_dirty`. `source_sha256` hashes runtime Python, web
+assets, the example input and the Windows launcher (CRLF-normalized), so ZIP downloads
+can be compared without Git. Git fields are null when the project root is not itself
+a Git checkout.
 
 ## Source references
 

@@ -122,12 +122,11 @@ function updateAgent() {
     $("api-settings").open = !available;
     state.apiInitialized = true;
   }
-  // Never silently change a user-selected provider.
   text(
     "agent-note",
     $("agent").value === "openrouter"
       ? "使用已配置的 OpenRouter API；只发送摘要，不发送原始序列。"
-      : "固定规则模式，不调用 AI。可在上方填写 OpenRouter API 配置。",
+      : "固定规则模式，不调用 AI。",
   );
   updateControls();
 }
@@ -155,6 +154,7 @@ async function saveApiConfig(clear = false) {
     state.configRevision++;
     $("api-key").value = "";
     $("api-model").value = state.meta.model || "";
+    // Switch provider only on an explicit save; polling never changes the user's choice.
     if (!clear) $("agent").value = "openrouter";
     updateAgent();
     showError("");
@@ -163,7 +163,7 @@ async function saveApiConfig(clear = false) {
       "api-message",
       clear
         ? "本次配置已清除。可重新填写，或选择离线规则。"
-        : "已保存并选择 OpenRouter。上传 FASTA 后点击开始即可验证 API 并运行。仅保存配置不会产生 API 调用。",
+        : "已保存并选择 OpenRouter。上传 FASTA 后点击开始。",
     );
   } catch (error) {
     $("api-message").className = "error-message";
@@ -686,10 +686,25 @@ $("reset-genome").addEventListener("click", () => {
 $("refresh-history").addEventListener("click", () =>
   refreshHistory().catch((error) => showError(error.message)),
 );
+// localStorage can throw (private mode, blocked storage); layout prefs are best-effort.
+const prefs = {
+  get(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {}
+  },
+};
 const sidebarLimits = { min: 200, max: 480, collapseBelow: 140, step: 16 };
 function storedSidebar() {
   try {
-    return JSON.parse(localStorage.getItem("phage-lab-sidebar")) || {};
+    return JSON.parse(prefs.get("phage-lab-sidebar")) || {};
   } catch {
     return {};
   }
@@ -701,15 +716,8 @@ function setSidebar(width, collapsed, persist = true) {
   $("sidebar-expand").hidden = !collapsed;
   $("sidebar-resizer").setAttribute("aria-valuenow", collapsed ? 0 : Math.round(width || sidebarWidth()));
   if (!persist) return;
-  try {
-    const saved = storedSidebar();
-    localStorage.setItem(
-      "phage-lab-sidebar",
-      JSON.stringify({ width: width || saved.width || null, collapsed }),
-    );
-  } catch {
-    // Storage may be unavailable; the layout still works for this page view.
-  }
+  const saved = storedSidebar();
+  prefs.set("phage-lab-sidebar", JSON.stringify({ width: width || saved.width || null, collapsed }));
 }
 function sidebarWidth() {
   return $("sidebar").getBoundingClientRect().width;
@@ -770,12 +778,7 @@ $("sidebar-resizer").setAttribute("aria-valuemax", sidebarLimits.max);
 function setTimelineCollapsed(collapsed, persist = true) {
   $("timeline-panel").classList.toggle("collapsed", collapsed);
   $("timeline-toggle").setAttribute("aria-expanded", String(!collapsed));
-  if (!persist) return;
-  try {
-    localStorage.setItem("phage-lab-timeline-collapsed", collapsed ? "1" : "0");
-  } catch {
-    // Storage may be unavailable; the toggle still works for this page view.
-  }
+  if (persist) prefs.set("phage-lab-timeline-collapsed", collapsed ? "1" : "0");
 }
 $("timeline-toggle").addEventListener("click", () => {
   const collapsed = !$("timeline-panel").classList.contains("collapsed");
@@ -785,14 +788,6 @@ $("timeline-toggle").addEventListener("click", () => {
     timeline.scrollTop = timeline.scrollHeight;
   }
 });
-{
-  let collapsed = false;
-  try {
-    collapsed = localStorage.getItem("phage-lab-timeline-collapsed") === "1";
-  } catch {
-    // Default to expanded when storage is unavailable.
-  }
-  setTimelineCollapsed(collapsed, false);
-}
+setTimelineCollapsed(prefs.get("phage-lab-timeline-collapsed") === "1", false);
 render();
 poll();
