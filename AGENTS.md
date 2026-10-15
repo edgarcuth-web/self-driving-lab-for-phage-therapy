@@ -13,6 +13,9 @@ the outcome. Keep the one-command offline demo working.
 - `phage_lab/devices.py`: device contract, manifests, asynchronous simulators.
 - `phage_lab/workflow.py`: fixed task template, validation, scheduler, recovery.
 - `phage_lab/records.py`: append-only events and final JSON/Markdown reports.
+- `phage_lab/provenance.py`: runtime source fingerprint, with optional Git metadata.
+- `phage_lab/dashboard.py`: loopback HTTP server, run management and artifact reads.
+- `phage_lab/web/`: buildless HTML/CSS/JS dashboard for actual scheduler events.
 - `phage_lab/__main__.py`: command-line entry point.
 
 ## Invariants
@@ -35,12 +38,23 @@ the outcome. Keep the one-command offline demo working.
   Claude receives summary metadata only, not FASTA contents or headers.
 - Simulation determinism concerns decisions and generated values, not run IDs,
   event timestamps or wall-clock timing. Live model decisions can vary.
+- ZIP downloads must work without Git. Record the source fingerprint on new runs;
+  never guess a commit for a historical run or a ZIP.
+- Bind the dashboard only to loopback. Keep Host/Origin and per-session mutation
+  token checks; never return API keys or accept arbitrary filesystem paths.
+- Render model output and report data as text, never HTML. Use the actual event
+  stream for UI state; label offline and live modes accurately.
 
 ## Development
 
 Python 3.11+; standard library only for the first milestone. Avoid new services,
 frameworks or dependencies unless the task needs them. Keep user instructions
 short, in Chinese, and separate offline setup from API setup.
+
+Dashboard assets are buildless; do not introduce npm dependencies just for layout.
+The Windows ZIP entry point is `start-dashboard.bat`; the CLI is
+`python -m phage_lab dashboard`. Test via ephemeral local HTTP servers. Browser
+visual QA must be reported separately from API or JavaScript syntax checks.
 
 Run from repository root:
 

@@ -1,4 +1,4 @@
-# Architecture and v0.1 contract
+# Architecture and v0.2 contract
 
 ## Responsibilities
 
@@ -9,6 +9,9 @@
 | `workflow.py` | Validate decisions; enforce dependencies; reconcile and bound attempts |
 | `devices.py` | Discoverable manifests; asynchronous jobs; one in-flight job per device |
 | `records.py` | Ordered append-only events, partial results and final reports |
+| `provenance.py` | Source SHA-256 and optional Git commit; works without `.git` |
+| `dashboard.py` | Loopback HTTP API, single active run, uploads, history and downloads |
+| `web/` | Buildless dashboard; actual events drive displayed state |
 
 The task template is fixed: `synthesize`, `prepare`, `transfer`, `infect`, `measure`.
 Each task depends on the preceding task. This first milestone schedules one
@@ -90,6 +93,47 @@ a distinct directory, so a later run does not overwrite the earlier report.
 
 `succeeded` means all template steps returned successfully. Biological efficacy
 is always `not_assessed`. When any step is missing, the report quality is `incomplete`.
+
+## Dashboard and local API
+
+`python -m phage_lab dashboard` serves `http://127.0.0.1:8765`. The controller is
+the same `run_demo` used by the CLI. It runs in a worker thread, while a lightweight
+event callback identifies the active run. Each browser polls the ordered file-backed
+events every 500 ms. Refreshes and server restarts can read saved reports.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/status` | Connection state, configured model ID, source identity, local mutation token |
+| `POST /api/runs` | Start a validated run; return 409 while another run is active |
+| `GET /api/runs` | Up to 20 recent runs from the configured output directory |
+| `GET /api/runs/<id>?after=<seq>` | Events newer than the cursor and final report when available |
+| `GET /api/runs/<id>/download/<filename>` | Only report.md, report.json or events.jsonl |
+
+The server enforces loopback Host/Origin checks and a process-scoped token on writes.
+It does not expose API keys or accept output/input path strings from the browser.
+User FASTA contents (up to 1 MB) are staged in a temporary local file for the run
+and removed afterward. Run IDs and filenames are constrained; symlinked reports
+and directories are refused. This is a local demo server, not a shared hosted service.
+
+The UI labels the decision provider, distinguishes injected faults from controller
+observations, displays cancellation-before-retry evidence and makes partial/failure
+reports downloadable. It never renders decision text as HTML. It has no external
+assets, script dependencies or invented live measurements.
+
+Only one run can be active per dashboard process. Closing the process during a run
+can interrupt it; durable job resume and cross-process resource locking are not
+implemented. Do not run another CLI or dashboard against the same physical resources
+when real drivers are introduced. Current devices remain entirely simulated.
+
+## Source identity without Git
+
+Every new run records `source.version`, `source.source_sha256`, `source.source_files`,
+`source.git_commit` and `source.git_dirty`. Git fields are null for ZIP downloads or
+when Git is unavailable. A parent directory's unrelated repository is not used.
+The fingerprint hashes a sorted manifest of runtime Python, web assets, example
+input and the Windows launcher after CRLF normalization. Run data, secrets and
+user genomes are excluded. It is a content identity, not a signature or proof that
+an earlier historical run used that code. Existing records are not rewritten.
 
 ## Source references
 

@@ -12,13 +12,14 @@ def utc_now() -> str:
 
 
 class RunRecords:
-    def __init__(self, output_root: Path, echo: bool = True):
+    def __init__(self, output_root: Path, echo: bool = True, on_event=None):
         self.run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid4().hex[:10]
         self.directory = output_root / self.run_id
         self.directory.mkdir(parents=True, exist_ok=False)
         self._events = (self.directory / "events.jsonl").open("x", encoding="utf-8")
         self.echo = echo
         self.sequence = 0
+        self.on_event = on_event
 
     def emit(self, event: str, **details) -> None:
         self.sequence += 1
@@ -26,6 +27,8 @@ class RunRecords:
                   "event": event, "details": details}
         self._events.write(json.dumps(record, ensure_ascii=False) + "\n")
         self._events.flush()
+        if self.on_event is not None:
+            self.on_event(record)
         if self.echo:
             print(f"[{self.sequence:02d}] {event} {json.dumps(details, ensure_ascii=False)}", flush=True)
 
@@ -68,5 +71,9 @@ def render_report(report: dict) -> str:
                   json.dumps(report["recoveries"], ensure_ascii=False, indent=2), "```"])
     if report.get("error"):
         lines.extend(["", "## 未完成原因", "", "```json", json.dumps(report["error"], ensure_ascii=False), "```"])
+    if report.get("source"):
+        lines.extend(["", "## 运行代码版本", "", "```json",
+                      json.dumps(report["source"], ensure_ascii=False, indent=2), "```",
+                      "", "ZIP 下载没有 Git commit；source_sha256 仍可用于比较运行源码是否一致。"])
     lines.extend(["", "完整步骤结果见 report.json；顺序事件见 events.jsonl。", ""])
     return "\n".join(lines)

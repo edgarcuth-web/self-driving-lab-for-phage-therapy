@@ -8,6 +8,7 @@ from .agents import AnthropicAgent, RuleAgent
 from .biology import mock_candidates, read_fasta
 from .devices import Command, DeviceUnavailable, FaultInjector, OPERATIONS, make_devices
 from .records import RunRecords, evaluate, utc_now
+from .provenance import source_identity
 
 DEPENDENCIES = {
     "synthesize": (), "prepare": ("synthesize",), "transfer": ("prepare",),
@@ -127,11 +128,11 @@ class Scheduler:
 async def run_demo(genome_path: Path, output_root: Path, *, seed: int = 42,
                    fault: str = "hang", fault_step: str | None = None,
                    agent_mode: str = "rule", agent=None, time_scale: float = 1.0,
-                   echo: bool = True) -> tuple[dict, Path]:
+                   echo: bool = True, on_event=None) -> tuple[dict, Path]:
     if not math.isfinite(time_scale) or not 0.01 <= time_scale <= 10:
         raise ValueError("time_scale must be between 0.01 and 10.")
     injector = FaultInjector(seed, fault, fault_step)
-    records = RunRecords(output_root, echo)
+    records = RunRecords(output_root, echo, on_event=on_event)
     report = {"schema_version": 1, "started_at": utc_now(), "status": "running",
               "simulated": True, "interface": "mhs-inspired-local-v0",
               "agent": agent.name if agent else agent_mode, "seed": seed,
@@ -144,6 +145,8 @@ async def run_demo(genome_path: Path, output_root: Path, *, seed: int = 42,
     devices = make_devices(injector, records.emit, seed, time_scale)
     try:
         records.emit("run_started", agent=report["agent"], seed=seed, simulated=True)
+        report["source"] = source_identity()
+        records.emit("source_identified", **report["source"])
         if agent is None:
             if agent_mode == "rule":
                 agent = RuleAgent()

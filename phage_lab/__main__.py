@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import math
+import json
 from pathlib import Path
 import sys
 
@@ -22,7 +23,7 @@ def scale(value: str) -> float:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Simulated lab workflow with visible fault recovery.")
-    parser.add_argument("command", nargs="?", default="demo", choices=["demo"])
+    parser.add_argument("command", nargs="?", default="demo", choices=["demo", "dashboard", "version"])
     parser.add_argument("--genome", type=Path,
                         default=Path(__file__).resolve().parent.parent / "examples" / "toy_genome.fasta")
     parser.add_argument("--agent", choices=["rule", "anthropic"], default="rule")
@@ -31,7 +32,23 @@ def main(argv=None) -> int:
     parser.add_argument("--fault-step", choices=OPERATIONS)
     parser.add_argument("--time-scale", type=scale, default=1.0)
     parser.add_argument("--output-dir", type=Path, default=Path("runs"))
+    parser.add_argument("--port", type=int, default=8765, help="Local dashboard port")
+    parser.add_argument("--no-browser", action="store_true", help="Do not automatically open the dashboard")
     args = parser.parse_args(argv)
+    if args.command == "version":
+        from .provenance import source_identity
+        print(json.dumps(source_identity(), ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "dashboard":
+        if not 1024 <= args.port <= 65535:
+            parser.error("dashboard port must be between 1024 and 65535")
+        from .dashboard import serve
+        try:
+            serve(args.output_dir, args.port, args.time_scale, open_browser=not args.no_browser)
+        except OSError as exc:
+            print(f"面板无法启动：{exc}\n若端口已被占用，可以添加 --port 8766。", file=sys.stderr)
+            return 2
+        return 0
     print("SIMULATION: 候选、订单、设备和读数均为模拟。", flush=True)
     print("决策模式：" + ("离线规则（没有调用 AI）" if args.agent == "rule" else "Claude API（真实模型调用）"), flush=True)
     try:

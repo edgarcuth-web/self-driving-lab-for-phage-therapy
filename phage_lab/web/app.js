@@ -1,0 +1,297 @@
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const steps = ["synthesize", "prepare", "transfer", "infect", "measure"];
+const names = { synthesize: "合成", prepare: "制备", transfer: "转运", infect: "感染", measure: "读数" };
+const statusNames = { waiting: "等待", running: "执行中", recovering: "恢复中", succeeded: "已完成", failed: "失败", cancelled: "已取消", interrupted: "已中断" };
+const state = { meta: null, runId: null, events: [], report: null, history: [], pending: false, submitting: false, cursor: 0, polls: 0, connected: false, previousRunId: null, followActive: true };
+
+function node(tag, className, text) {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  if (text !== undefined) element.textContent = text;
+  return element;
+}
+function text(id, value) { $(id).textContent = value; }
+function showError(message) { text("error", message || ""); $("error").hidden = !message; }
+function deviceName(id) {
+  if (!id) return "设备";
+  const parts = id.split("-");
+  return `${names[parts[0]] || parts[0]}${parts[1] === "backup" ? "备用机" : "主机"}`;
+}
+async function api(path, options = {}) {
+  const response = await fetch(path, { cache: "no-store", ...options });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+  return body;
+}
+function selectRun(id) {
+  state.runId = id; state.events = []; state.report = null; state.cursor = 0;
+  render(); renderHistory();
+}
+function setConnection(connected) {
+  state.connected = connected;
+  $("connection").className = `connection ${connected ? "online" : "offline"}`;
+  text("connection-text", connected ? "本地调度器已连接" : "连接中断 · 正在重连");
+  updateControls();
+}
+function updateControls() {
+  const busy = state.submitting || state.pending || Boolean(state.meta?.busy);
+  $("start").disabled = !state.connected || busy;
+  $("configuration").disabled = busy;
+  text("start-label", state.submitting || state.pending ? "正在启动…" : busy ? "实验运行中…" : "启动演示");
+}
+function updateAgent() {
+  const available = Boolean(state.meta?.anthropic_ready);
+  $("claude-option").disabled = !available;
+  $("claude-option").textContent = available ? `Claude · ${state.meta.model}` : "Claude · 未配置 API";
+  // Never silently change a user-selected provider.
+  text("agent-note", $("agent").value === "anthropic"
+    ? "使用启动终端的 API 配置；只发送摘要，不发送原始序列。"
+    : "固定规则模式，不调用 AI。Claude 需要启动终端里的 API 配置。");
+}
+function derive() {
+  const stepStates = Object.fromEntries(steps.map((step) => [step, "waiting"]));
+  const deviceStates = Object.fromEntries(steps.flatMap((step) => ["primary", "backup"].map((suffix) => [`${step}-${suffix}`, "待命"])));
+  let plan = null, recovery = null, status = state.pending ? "starting" : "waiting", mode = null, started = null, finished = null, readout = null;
+  const faults = new Set(), completed = new Set();
+  let cancellation = null, backupSubmission = null, recoveryContext = null;
+  for (const event of state.events) {
+    const d = event.details || {};
+    switch (event.event) {
+      case "run_started": started = event.at; status = "planning"; mode = d.agent; break;
+      case "planning_requested": status = "planning"; break;
+      case "plan_accepted": plan = d; status = "running"; break;
+      case "job_submitted":
+        stepStates[d.step] = "running"; deviceStates[d.device] = "执行中";
+        if (d.attempt > 1) backupSubmission = event;
+        break;
+      case "fault_injected": faults.add(d.step); deviceStates[d.device] = "故障注入"; break;
+      case "job_timeout": stepStates[d.step] = "recovering"; deviceStates[d.device] = "待核对"; status = "recovering"; break;
+      case "job_reconciled": deviceStates[d.device] = d.state === "succeeded" ? "已完成" : "等待恢复"; break;
+      case "recovery_requested": recoveryContext = d; break;
+      case "recovery_decided": recovery = d; break;
+      case "cancellation_acknowledged": cancellation = event; deviceStates[d.device] = "已取消"; break;
+      case "recovery_executing":
+        if (d.action === "cancel_and_failover" && recoveryContext) deviceStates[recoveryContext.current_device] = "已隔离";
+        break;
+      case "reconciliation_failed": deviceStates[d.device] = "失联"; stepStates[d.step] = "failed"; break;
+      case "device_job_completed": deviceStates[d.device] = "已完成"; break;
+      case "step_completed":
+        stepStates[d.step] = "succeeded"; completed.add(d.step); status = "running";
+        if (d.step === "measure") readout = d.result;
+        break;
+      case "run_finished": status = d.status; finished = event.at; break;
+    }
+  }
+  if (state.report) {
+    status = state.report.status; mode = state.report.agent;
+    started = state.report.started_at; finished = state.report.finished_at;
+    readout = state.report.results?.measure || readout;
+  } else if (state.runId && !state.meta?.busy && state.history.find((item) => item.run_id === state.runId)?.status === "interrupted") {
+    status = "interrupted";
+    finished = state.events.at(-1)?.at;
+  }
+  if (["failed", "cancelled", "interrupted"].includes(status)) {
+    for (const step of steps) if (["running", "recovering"].includes(stepStates[step])) stepStates[step] = "failed";
+  }
+  return { stepStates, deviceStates, plan, recovery, status, mode, started, finished, readout, completed, faults,
+    recovered: [...faults].filter((step) => completed.has(step)).length, cancellation, backupSubmission };
+}
+function renderPipeline(view) {
+  $("pipeline").replaceChildren(...steps.map((step, index) => {
+    const status = view.stepStates[step], card = node("div", `stage ${status}`), top = node("div", "stage-top");
+    top.append(node("span", "stage-index", `0${index + 1}`));
+    const label = node("span", "stage-status"); label.append(node("span", "dot"), document.createTextNode(statusNames[status]));
+    top.append(label); card.append(top, node("h3", "", names[step]), node("div", "stage-operation", step.toUpperCase()));
+    return card;
+  }));
+  text("flow-caption", `${view.completed.size} / 5 步骤完成`);
+}
+function renderDevices(view) {
+  $("devices").replaceChildren(...steps.map((step) => {
+    const group = node("div", "device-group"); group.append(node("span", "device-kind", names[step]));
+    for (const suffix of ["primary", "backup"]) {
+      const status = view.deviceStates[`${step}-${suffix}`];
+      const color = status === "已完成" ? "succeeded" : status === "执行中" ? "running"
+        : ["失联", "已隔离", "故障注入"].includes(status) ? "failed" : ["待核对", "等待恢复", "已取消"].includes(status) ? "recovering" : "";
+      const device = node("div", `device-node ${color}`);
+      device.append(node("span", "", suffix === "primary" ? "主机" : "备用机"), node("span", "device-state", status));
+      group.append(device);
+    }
+    return group;
+  }));
+}
+function renderDecisions(view) {
+  text("decision-mode", view.mode === "anthropic" ? "CLAUDE API" : view.mode === "rule" ? "离线规则" : "等待决策");
+  $("candidate-list").replaceChildren(...(view.plan?.candidate_ids || []).map((id) => node("span", "candidate-chip", id)));
+  text("plan-reason", view.plan?.reason || (view.status === "planning" ? "正在等待规划结果…" : "启动后显示候选组合和设备分配依据。"));
+  $("plan-reason").className = `reason ${view.plan ? "" : "placeholder"}`;
+  const actionNames = { cancel_and_failover: "取消并换机", cancel_and_retry: "取消后重试", abort: "停止运行" };
+  text("recovery-action", actionNames[view.recovery?.action] || "");
+  const reused = view.faults.size && view.recovered && !view.recovery;
+  text("recovery-reason", view.recovery?.reason || (reused ? "状态核对确认任务已经完成，直接取回结果，没有再次提交。"
+    : view.status === "recovering" ? "已检测到超时，正在核对任务状态并等待恢复决定…" : "发生故障后，显示状态核对及恢复决定。"));
+  $("recovery-reason").className = `reason ${view.recovery || reused ? "" : "placeholder"}`;
+  const confirmed = view.cancellation && view.backupSubmission && view.cancellation.seq < view.backupSubmission.seq;
+  $("recovery-proof").hidden = !confirmed;
+  if (confirmed) text("recovery-proof", `✓ 事件 #${view.cancellation.seq} 确认取消 → #${view.backupSubmission.seq} 提交下一次任务`);
+}
+function renderResults(view) {
+  const values = view.readout?.readings;
+  if (Array.isArray(values)) {
+    $("readings").replaceChildren(...values.map((value, index) => {
+      const item = node("div", "reading"), meter = node("meter");
+      meter.min = 0; meter.max = 1; meter.value = value; meter.setAttribute("aria-label", `模拟读数 ${index + 1}：${value}`);
+      item.append(node("span", "reading-label", `READOUT 0${index + 1}`), node("strong", "", Number(value).toFixed(4)), meter);
+      return item;
+    }));
+    text("quality", "模拟读数完整");
+  } else {
+    $("readings").replaceChildren(node("p", "empty-small", "完成测量后显示模拟读数。"));
+    text("quality", ["failed", "cancelled", "interrupted"].includes(view.status) ? "结果不完整" : "等待读数");
+  }
+  text("result-message", state.report?.error || (values ? "单位：任意模拟单位。生物学结论：未评估。" : "每次运行都会保存独立的事件日志与结果报告。"));
+  for (const [id, file] of [["download-md", "report.md"], ["download-json", "report.json"], ["download-events", "events.jsonl"]]) {
+    const ready = state.runId && (file === "events.jsonl" ? state.events.length : Boolean(state.report));
+    $(id).classList.toggle("disabled", !ready); $(id).setAttribute("aria-disabled", String(!ready));
+    if (ready) $(id).href = `/api/runs/${encodeURIComponent(state.runId)}/download/${file}`;
+    else $(id).removeAttribute("href");
+  }
+  const source = state.report?.source || state.events.find((event) => event.event === "source_identified")?.details;
+  text("source-label", source ? `v${source.version} · source ${source.source_sha256.slice(0, 16)}${source.git_commit ? ` · git ${source.git_commit.slice(0, 7)}` : " · ZIP / 无 Git 记录"}`
+    : state.report ? "旧报告没有记录源码版本。" : "");
+}
+function eventDescription(event) {
+  const d = event.details || {}, step = names[d.step] || d.step || "";
+  const mapping = {
+    run_started: ["实验启动", d.agent === "anthropic" ? "使用 Claude API 决策" : "使用离线规则决策"],
+    source_identified: ["记录运行版本", `源码指纹 ${(d.source_sha256 || "").slice(0, 12)}`],
+    input_validated: ["输入校验通过", `${d.bases} bp · ${d.contigs} contig`],
+    devices_discovered: ["设备就绪", `发现 ${d.count} 台模拟设备`],
+    planning_requested: ["请求规划", "等待候选选择与设备分配"],
+    plan_accepted: ["规划通过校验", (d.candidate_ids || []).join(" + ")],
+    job_submitted: [`${step}任务已提交`, `${deviceName(d.device)} · 第 ${d.attempt} 次尝试`],
+    fault_injected: ["故障已注入", `${deviceName(d.device)} · ${{ hang: "卡死", "response-lost": "回执丢失", unreachable: "失联" }[d.fault] || d.fault}`],
+    job_timeout: ["任务等待超时", "查询原任务状态，尚未重复执行"],
+    job_reconciled: ["已核对任务状态", d.state === "succeeded" ? "设备已完成，将取回已有结果" : "原任务仍在运行"],
+    recovery_requested: ["请求恢复决策", "仅允许取消确认后的重试或换机"],
+    recovery_decided: ["恢复方案已确定", d.action === "cancel_and_failover" ? `取消后切换${deviceName(d.replacement_device_id)}` : d.action === "abort" ? "停止运行" : "取消原任务后重试"],
+    cancellation_acknowledged: ["原任务确认取消", deviceName(d.device)],
+    recovery_executing: ["执行恢复方案", `下一次任务使用${deviceName(d.device)}`],
+    reconciliation_failed: ["无法确认设备状态", "停止后续任务，避免重复执行"],
+    device_job_completed: ["设备返回结果", deviceName(d.device)],
+    step_completed: [`${step}步骤完成`, "结果已记录"],
+    run_finished: ["流程结束", `${statusNames[d.status] || d.status}${d.error ? ` · ${d.error}` : ""}`],
+  };
+  return mapping[event.event] || [event.event, ""];
+}
+function appendEvents(events) {
+  if (!events.length) return;
+  const timeline = $("timeline"), follow = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 70;
+  if (!state.events.length) timeline.replaceChildren();
+  for (const event of events) {
+    if (event.seq <= state.cursor) continue;
+    state.events.push(event); state.cursor = event.seq;
+    const [title, description] = eventDescription(event);
+    const severity = ["fault_injected", "job_timeout", "recovery_requested", "recovery_decided"].includes(event.event) ? "warning"
+      : event.event === "reconciliation_failed" || (event.event === "run_finished" && event.details.status !== "succeeded") ? "error"
+      : ["step_completed", "cancellation_acknowledged", "run_finished"].includes(event.event) ? "success" : "";
+    const item = node("div", `timeline-item ${severity}`), content = node("div"), head = node("div", "event-head");
+    const seconds = (Date.parse(event.at) - Date.parse(state.events[0].at)) / 1000;
+    head.append(node("span", "event-title", title), node("span", "event-time", `+${seconds.toFixed(1)}s`));
+    content.append(head, node("p", "event-description", description), node("div", "event-seq", `#${String(event.seq).padStart(2, "0")}`));
+    item.append(node("span", "event-dot"), content); timeline.append(item);
+  }
+  if (follow) timeline.scrollTop = timeline.scrollHeight;
+}
+function render() {
+  const view = derive();
+  const title = { waiting: "等待启动", starting: "正在启动", planning: "规划中", ...statusNames };
+  text("run-status", title[view.status] || view.status);
+  $("run-status").className = `state-text ${view.status}`;
+  text("run-id", state.runId || "选择配置后，启动一次演示");
+  $("run-id").title = state.runId || "";
+  text("completed", view.completed.size);
+  text("fault-count", `${view.faults.size} / ${view.recovered}`);
+  text("mode-label", view.mode === "anthropic" ? "真实 Claude 决策 · 模拟设备" : view.mode === "rule" ? "离线规则 · 模拟设备" : "尚未运行");
+  const elapsed = view.started ? ((view.finished ? Date.parse(view.finished) : Date.now()) - Date.parse(view.started)) / 1000 : null;
+  text("elapsed", elapsed === null ? "— s" : `${Math.max(0, elapsed).toFixed(1)} s`);
+  text("event-count", `${state.events.length} 条事件`);
+  renderPipeline(view); renderDevices(view); renderDecisions(view); renderResults(view);
+  if (!state.events.length) {
+    const empty = node("div", "timeline-empty");
+    empty.append(node("span", "empty-orbit", "◎"), node("h3", "", state.pending ? "正在启动实验" : state.runId ? "正在读取日志" : "等待实验启动"), node("p", "", "设备响应和恢复过程将在这里实时更新。"));
+    $("timeline").replaceChildren(empty);
+  }
+}
+function renderHistory() {
+  if (!state.history.length) { $("history").replaceChildren(node("p", "empty-small", "尚无运行记录")); return; }
+  $("history").replaceChildren(...state.history.slice(0, 6).map((run) => {
+    const button = node("button", `history-item ${run.run_id === state.runId ? "selected" : ""}`);
+    button.type = "button"; button.title = run.run_id;
+    button.setAttribute("aria-pressed", String(run.run_id === state.runId));
+    button.append(node("span", `legend-dot ${run.status}`), node("span", "", run.run_id.slice(0, 15)), node("span", "history-status", statusNames[run.status] || run.status));
+    button.addEventListener("click", () => { state.followActive = false; selectRun(run.run_id); });
+    return button;
+  }));
+}
+async function refreshHistory() {
+  const data = await api("/api/runs"); state.history = data.runs; renderHistory();
+}
+async function poll() {
+  try {
+    state.meta = await api("/api/status"); setConnection(true); updateAgent();
+    text("version", `v${state.meta.source.version}`);
+    if (state.polls++ % 6 === 0 || state.pending) await refreshHistory();
+    if (state.pending && state.meta.active_run && state.meta.active_run !== state.previousRunId) {
+      state.pending = false; selectRun(state.meta.active_run);
+    }
+    if (!state.pending && state.followActive && state.meta.busy && state.meta.active_run && state.runId !== state.meta.active_run) {
+      selectRun(state.meta.active_run);
+    }
+    if (!state.runId && !state.pending) {
+      const next = state.meta.active_run || state.history[0]?.run_id;
+      if (next) selectRun(next);
+    }
+    if (state.meta.last_error) { state.pending = false; showError(state.meta.last_error); }
+    if (state.runId) {
+      const id = state.runId, snapshot = await api(`/api/runs/${encodeURIComponent(id)}?after=${state.cursor}`);
+      if (id === state.runId) { appendEvents(snapshot.events); state.report = snapshot.report; }
+    }
+    updateControls(); render();
+  } catch (error) {
+    setConnection(false);
+    text("live-note", `连接异常：${error.message}`);
+  } finally {
+    if (state.connected) text("live-note", "每 0.5 秒刷新 · 事件来自实际调度器");
+    window.setTimeout(poll, 500);
+  }
+}
+$("run-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (state.submitting || state.pending || state.meta?.busy || !state.connected) return;
+  state.submitting = true; updateControls(); showError("");
+  try {
+    const seed = Number($("seed").value);
+    if (!Number.isInteger(seed)) throw new Error("随机种子必须为整数。");
+    const options = { seed, agent: $("agent").value, fault: $("fault").value, fault_step: $("fault-step").value || null };
+    const file = $("genome").files[0];
+    if (file) { if (file.size > 1000000) throw new Error("FASTA 文件不能超过 1 MB。"); options.genome_text = await file.text(); }
+    state.previousRunId = state.meta.active_run;
+    await api("/api/runs", { method: "POST", headers: { "Content-Type": "application/json", "X-Lab-Token": state.meta.token }, body: JSON.stringify(options) });
+    state.pending = true; state.followActive = true; selectRun(null); state.polls = 0;
+  } catch (error) { showError(error.message); }
+  finally { state.submitting = false; updateControls(); }
+});
+$("agent").addEventListener("change", updateAgent);
+$("genome").addEventListener("change", () => {
+  const file = $("genome").files[0];
+  text("file-label", file ? file.name : "选择 FASTA 文件");
+  text("input-description", file ? `${(file.size / 1024).toFixed(1)} KB · 仅上传至本机服务` : "当前使用内置人工示例");
+  $("reset-genome").hidden = !file;
+  if (file?.size > 1000000) showError("FASTA 文件不能超过 1 MB，请选择更小的文件。"); else showError("");
+});
+$("reset-genome").addEventListener("click", () => { $("genome").value = ""; $("genome").dispatchEvent(new Event("change")); });
+$("refresh-history").addEventListener("click", () => refreshHistory().catch((error) => showError(error.message)));
+render(); poll();
