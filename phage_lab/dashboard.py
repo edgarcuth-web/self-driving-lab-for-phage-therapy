@@ -12,7 +12,7 @@ import threading
 from urllib.parse import parse_qs, urlsplit
 import webbrowser
 
-from .agents import AnthropicAgent
+from .agents import OpenRouterAgent
 from .devices import FAULT_MODES, OPERATIONS
 from .provenance import source_identity
 from .workflow import run_demo
@@ -36,15 +36,15 @@ class RunManager:
         self.active_run = None
         self.last_error = None
         self.thread = None
-        self._api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-        self._model = os.environ.get("ANTHROPIC_MODEL", "").strip()
+        self._api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+        self._model = os.environ.get("OPENROUTER_MODEL", "").strip()
         self._config_source = "environment" if self._api_key or self._model else None
 
     def status(self) -> dict:
         with self.lock:
             return {"busy": self.busy, "active_run": self.active_run, "last_error": self.last_error,
                     "token": self.token, "source": self.source,
-                    "anthropic_ready": bool(self._api_key and self._model),
+                    "openrouter_ready": bool(self._api_key and self._model),
                     "api_key_configured": bool(self._api_key),
                     "api_config_source": self._config_source, "model": self._model}
 
@@ -140,7 +140,7 @@ class RunManager:
         step, genome = options.get("fault_step"), options.get("genome_text")
         if type(seed) is not int or not -2**31 <= seed < 2**31:
             raise ValueError("Seed must be a 32-bit integer.")
-        if agent not in ("rule", "anthropic") or fault not in FAULT_MODES or (step is not None and step not in OPERATIONS):
+        if agent not in ("rule", "openrouter") or fault not in FAULT_MODES or (step is not None and step not in OPERATIONS):
             raise ValueError("Unknown agent, fault or step.")
         if genome is not None and (not isinstance(genome, str) or not genome.strip()
                                    or len(genome.encode("utf-8")) > MAX_INPUT):
@@ -149,10 +149,10 @@ class RunManager:
             if self.busy:
                 raise RuntimeError("A run is already active.")
             decision_agent = None
-            if agent == "anthropic":
+            if agent == "openrouter":
                 if not self._api_key or not self._model:
-                    raise ValueError("请先在面板的 Claude API 配置中填写 API Key 和模型 ID。")
-                decision_agent = AnthropicAgent(self._api_key, self._model)
+                    raise ValueError("请先在面板的 OpenRouter API 配置中填写 API Key 和模型 ID。")
+                decision_agent = OpenRouterAgent(self._api_key, self._model)
             self.busy, self.active_run, self.last_error = True, None, None
             self.thread = threading.Thread(target=self._run,
                 args=(seed, fault, step, genome, decision_agent), daemon=True)
@@ -294,3 +294,4 @@ def serve(output_root: Path, port=8765, time_scale=1.0, open_browser=True) -> No
             server.serve_forever()
         except KeyboardInterrupt:
             print("\n面板已关闭。", flush=True)
+

@@ -4,7 +4,7 @@ import asyncio
 import math
 from pathlib import Path
 
-from .agents import AnthropicAgent, RuleAgent
+from .agents import OpenRouterAgent, RuleAgent
 from .biology import mock_candidates, read_fasta
 from .devices import INTERFACE, Command, DeviceUnavailable, FaultInjector, OPERATIONS, make_devices
 from .records import RunRecords, evaluate, utc_now
@@ -150,8 +150,8 @@ async def run_demo(genome_path: Path, output_root: Path, *, seed: int = 42,
         if agent is None:
             if agent_mode == "rule":
                 agent = RuleAgent()
-            elif agent_mode == "anthropic":
-                agent = AnthropicAgent.from_environment()
+            elif agent_mode == "openrouter":
+                agent = OpenRouterAgent.from_environment()
             else:
                 raise ValueError("Unknown agent mode.")
         report["model"] = getattr(agent, "model", None)
@@ -195,3 +195,4 @@ async def run_demo(genome_path: Path, output_root: Path, *, seed: int = 42,
         finally:
             records.close()
     return report, records.directory
+

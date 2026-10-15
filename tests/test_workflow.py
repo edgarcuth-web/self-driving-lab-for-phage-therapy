@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from phage_lab.agents import AgentError, AnthropicAgent, RuleAgent
+from phage_lab.agents import AgentError, OpenRouterAgent, RuleAgent
 from phage_lab.biology import mock_candidates, read_fasta
 from phage_lab.devices import Command, DeviceError, FaultInjector, OPERATIONS, SimulatedDevice
 from phage_lab.workflow import Scheduler, WorkflowError, run_demo, validate_recovery
@@ -113,11 +113,11 @@ class RunTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report["effects_by_device"]["infect-backup"], 0)
 
     async def test_missing_api_configuration_is_not_silent_offline_fallback(self):
-        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "", "ANTHROPIC_MODEL": ""}):
-            report, _ = await self.run_case(agent_mode="anthropic")
+        with patch.dict("os.environ", {"OPENROUTER_API_KEY": "", "OPENROUTER_MODEL": ""}):
+            report, _ = await self.run_case(agent_mode="openrouter")
         self.assertEqual(report["status"], "failed")
-        self.assertEqual(report["agent"], "anthropic")
-        self.assertIn("ANTHROPIC_API_KEY", report["error"])
+        self.assertEqual(report["agent"], "openrouter")
+        self.assertIn("OPENROUTER_API_KEY", report["error"])
         self.assertNotIn("plan", report)
 
     async def test_communication_exception_leaves_partial_report(self):
@@ -137,8 +137,8 @@ class RunTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report["status"], "cancelled")
         self.assertTrue((directory / "report.md").exists())
 
-    async def test_anthropic_mode_runs_plan_and_recovery_through_validation(self):
-        agent = AnthropicAgent("not-a-real-key", "test-model")
+    async def test_openrouter_mode_runs_plan_and_recovery_through_validation(self):
+        agent = OpenRouterAgent("not-a-real-key", "test-model")
         def fake_request(tool_name, schema, context):
             if tool_name == "submit_plan":
                 return {"candidate_ids": [item["id"] for item in context["candidates"][:2]],
@@ -149,7 +149,7 @@ class RunTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(agent, "_request", side_effect=fake_request) as api:
             report, directory = await self.run_case(agent=agent, fault_step="measure")
         self.assertEqual(report["status"], "succeeded")
-        self.assertEqual(report["agent"], "anthropic")
+        self.assertEqual(report["agent"], "openrouter")
         self.assertEqual(report["model"], "test-model")
         self.assertEqual(api.call_count, 2)
         self.assertNotIn("not-a-real-key", (directory / "events.jsonl").read_text())
@@ -275,36 +275,70 @@ class InputTests(unittest.TestCase):
 
 
 class ApiContractTests(unittest.IsolatedAsyncioTestCase):
-    async def test_claude_adapter_uses_structured_tools_without_raw_sequence(self):
+    async def test_openrouter_adapter_uses_structured_tools_without_raw_sequence(self):
         # Mock transport verifies serialization only; this is NOT a live API test.
-        agent = AnthropicAgent("not-a-real-key", "test-model")
+        agent = OpenRouterAgent("not-a-real-key", "test-model")
         context = {"genome": read_fasta(GENOME).public_metadata(), "candidates": [{"id": "SIM-PHAGE-A"}],
                    "devices": [{"device_id": f"{operation}-primary", "operations": [operation]} for operation in OPERATIONS]}
         decision = {"candidate_ids": ["SIM-PHAGE-A", "SIM-PHAGE-B"],
                     "device_assignments": {operation: f"{operation}-primary" for operation in OPERATIONS}, "reason": "mock API decision"}
-        response = {"stop_reason": "tool_use", "content": [{"type": "tool_use", "name": "submit_plan", "input": decision}]}
+        response = {"choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [{"type": "function", "function": {"name": "submit_plan", "arguments": json.dumps(decision)}}]}}]}
         with patch("phage_lab.agents.request.build_opener") as opener:
             opener.return_value.open.return_value.__enter__.return_value.read.return_value = json.dumps(response).encode()
             result = await agent.plan(context)
             req = opener.return_value.open.call_args.args[0]
             payload = json.loads(req.data)
+        self.assertEqual(req.full_url, "https://openrouter.ai/api/v1/chat/completions")
+        self.assertEqual(req.get_header("Authorization"), "Bearer not-a-real-key")
+        self.assertIsNone(req.get_header("X-api-key"))
+        self.assertEqual(payload["messages"][0]["role"], "system")
         self.assertEqual(result, decision)
-        self.assertEqual(payload["tools"][0]["name"], "submit_plan")
-        self.assertTrue(payload["tools"][0]["strict"])
-        self.assertIn("Call submit_plan", payload["messages"][0]["content"])
+        self.assertEqual(payload["tools"][0]["function"]["name"], "submit_plan")
+        self.assertTrue(payload["tools"][0]["function"]["strict"])
+        self.assertIn("Call submit_plan", payload["messages"][1]["content"])
         self.assertNotIn("ACGTACGT", json.dumps(payload))
         self.assertNotIn("SYNTHETIC_TOY_INPUT", json.dumps(payload))
 
-    async def test_claude_rejects_text_only_or_multiple_tools(self):
-        agent = AnthropicAgent("not-a-real-key", "test-model")
-        tool = {"type": "tool_use", "name": "choose_recovery", "input": {}}
-        for body in ({"content": [{"type": "text", "text": "done"}]}, {"content": [tool, tool]},
-                     {"stop_reason": "refusal", "content": [tool]}, {"stop_reason": "max_tokens", "content": [tool]}):
-            with patch("phage_lab.agents.request.build_opener") as opener:
+    async def test_openrouter_rejects_text_only_or_multiple_tools(self):
+        agent = OpenRouterAgent("not-a-real-key", "test-model")
+        tool = {"type": "function", "function": {"name": "choose_recovery", "arguments": "{}"}}
+        def response(calls, finish="tool_calls", **extra):
+            return {"choices": [{"finish_reason": finish, "message": {"tool_calls": calls, **extra}}]}
+        bodies = [response([]), response([tool, tool]), response([tool], "length"),
+                  response([tool], "content_filter"), response([tool], refusal="declined"),
+                  {"error": {"message": "secret-test-value"}}, {}, [],
+                  {"choices": [None]}, response([None]), response([tool], "error")]
+        for arguments in ("{", "[]", "null", {}, 42):
+            bodies.append(response([{"type": "function", "function": {
+                "name": "choose_recovery", "arguments": arguments}}]))
+        bodies.append(response([{"type": "function", "function": {"name": "wrong", "arguments": "{}"}}]))
+        for body in bodies:
+            with self.subTest(body=body), patch("phage_lab.agents.request.build_opener") as opener:
                 opener.return_value.open.return_value.__enter__.return_value.read.return_value = json.dumps(body).encode()
-                with self.assertRaises(AgentError):
+                with self.assertRaises(AgentError) as caught:
                     await agent.recover({"alternatives": []})
+                self.assertNotIn("secret-test-value", str(caught.exception))
+
+    async def test_openrouter_transport_errors_are_sanitized(self):
+        from urllib.error import HTTPError, URLError
+        agent = OpenRouterAgent("secret-test-value", "provider/model")
+        for failure in (HTTPError("https://openrouter.ai", 401, "secret-test-value", {}, None),
+                        URLError("secret-test-value"), TimeoutError("secret-test-value")):
+            with self.subTest(failure=type(failure)), patch("phage_lab.agents.request.build_opener") as opener:
+                opener.return_value.open.side_effect = failure
+                with self.assertRaises(AgentError) as caught:
+                    await agent.recover({"alternatives": []})
+                self.assertNotIn("secret-test-value", str(caught.exception))
+
+    async def test_openrouter_recovery_parses_function_arguments(self):
+        decision = {"action": "abort", "replacement_device_id": None, "reason": "No safe recovery."}
+        body = {"choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [
+            {"type": "function", "function": {"name": "choose_recovery", "arguments": json.dumps(decision)}}]}}]}
+        with patch("phage_lab.agents.request.build_opener") as opener:
+            opener.return_value.open.return_value.__enter__.return_value.read.return_value = json.dumps(body).encode()
+            self.assertEqual(await OpenRouterAgent("test", "provider/model").recover({"alternatives": []}), decision)
 
 
 if __name__ == "__main__":
     unittest.main()
+

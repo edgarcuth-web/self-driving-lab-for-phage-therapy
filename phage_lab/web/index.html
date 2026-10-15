@@ -25,7 +25,7 @@
         <h2>准备一次实验</h2>
         <p class="sidebar-intro">配置输入，观察从规划到报告的完整过程。</p>
         <details class="api-settings" id="api-settings">
-          <summary>Claude API 配置<span id="api-state">未配置</span></summary>
+          <summary>OpenRouter API 配置<span id="api-state">未配置</span></summary>
           <form id="api-form" autocomplete="off">
             <fieldset id="api-fields" disabled>
               <label class="field-label" for="api-key">API Key</label>
@@ -36,7 +36,7 @@
                 autocomplete="off"
                 spellcheck="false"
                 autocapitalize="none"
-                placeholder="粘贴你的 Anthropic API Key"
+                placeholder="粘贴你的 OpenRouter API Key"
                 aria-describedby="api-key-note"
               />
               <p class="field-note" id="api-key-note">密钥仅保存在本次服务中，不写入文件。</p>
@@ -49,12 +49,12 @@
                 autocomplete="off"
                 spellcheck="false"
                 autocapitalize="none"
-                placeholder="账号可用的模型 ID"
+                placeholder="提供商/模型名（需支持工具调用）"
               />
               <p class="field-note">
                 刷新页面保留配置；关闭面板服务后清除。保存时不调用 API，启动演示时验证。
               </p>
-              <button class="api-save" id="api-save" type="submit">保存并使用 Claude</button>
+              <button class="api-save" id="api-save" type="submit">保存并使用 OpenRouter</button>
               <button class="text-button api-clear" id="api-clear" type="button" disabled>
                 清除本次配置
               </button>
@@ -67,7 +67,7 @@
             <label class="field-label" for="agent">决策方式</label>
             <select id="agent" name="agent">
               <option value="rule">离线规则 · 无需 API</option>
-              <option value="anthropic" id="claude-option" disabled>Claude · 正在检查配置</option>
+              <option value="openrouter" id="openrouter-option" disabled>OpenRouter · 正在检查配置</option>
             </select>
             <p class="field-note" id="agent-note">固定规则模式，不调用 AI。</p>
             <label class="field-label" for="genome">输入基因组</label>
@@ -257,3 +257,4 @@
     </div>
   </body>
 </html>
+

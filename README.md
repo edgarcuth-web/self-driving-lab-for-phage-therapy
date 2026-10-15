@@ -27,15 +27,15 @@ python3 -m phage_lab demo
 
 默认离线规则决策，不调用 AI，也不联网。Windows 终端可把 `python3` 换成 `py`。
 
-## 使用真实 Claude
+## 使用 OpenRouter API
 
-在面板左侧展开 **Claude API 配置**，填写 API Key 和模型 ID，保存后启动演示。
-密钥只保存在本次服务进程的内存中。命令行模式改用环境变量。详见 [Claude 接入说明](docs/claude.md)。
+在面板左侧展开 **OpenRouter API 配置**，填写 API Key 和模型 ID，保存后启动演示。
+密钥只保存在本次服务进程的内存中。命令行模式改用环境变量。详见 [OpenRouter 接入说明](docs/openrouter.md)。
 
 | 模式 | 规划与故障决策 | 需要 API |
 |---|---|---|
 | `--agent rule`（默认） | 固定规则，便于离线演示和测试 | 否 |
-| `--agent anthropic` | Claude 选择候选、分配设备和恢复动作，本地校验后执行 | 是 |
+| `--agent openrouter` | 经 OpenRouter 调用模型，选择候选、分配设备和恢复动作，本地校验后执行 | 是 |
 
 API 出错时会生成失败报告，不会自动切回规则模式。
 
@@ -71,7 +71,7 @@ API 出错时会生成失败报告，不会自动切回规则模式。
 - 单样本、五个顺序步骤，每类设备一台主机一台备用机。
 - 超时先查状态；仍在运行则确认取消后再重试或换机，每步最多两次。
 - AI 输出视为不可信数据，候选、设备和恢复动作都先校验再执行。
-- 只向 Claude 发送序列长度、contig 数和指纹，不发送序列或标题。
+- 只向 OpenRouter 及所选模型提供商发送序列长度、contig 数和指纹，不发送序列或标题。
 - 没有崩溃后续跑、持久化去重或多样本并行。
 
 ## 开发
@@ -80,7 +80,7 @@ API 出错时会生成失败报告，不会自动切回规则模式。
 python3 -m unittest discover -s tests -v
 ```
 
-Claude 适配器测试使用模拟 HTTP 响应，不等于真实 API 联调。
+OpenRouter 适配器测试使用模拟 HTTP 响应，不等于真实 API 联调。
 代码结构见 [架构说明](docs/architecture.md)，开发约定见 [AGENTS.md](AGENTS.md)。
 
 ## 后续计划
@@ -93,3 +93,4 @@ Claude 适配器测试使用模拟 HTTP 响应，不等于真实 API 联调。
 
 接口设计参考了 Anthropic 的 [MHS 研究预览公告](https://www.anthropic.com/news/model-hardware-standard-research-preview)
 中公开的设备发现、能力描述和读写原语思路。本仓库的 Python 接口是自定义的演示契约，不声称兼容或通过认证。
+

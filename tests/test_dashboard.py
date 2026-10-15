@@ -45,7 +45,7 @@ class SourceIdentityTests(unittest.TestCase):
 
 class DashboardTests(unittest.TestCase):
     def setUp(self):
-        environment = patch.dict("os.environ", {"ANTHROPIC_API_KEY": "", "ANTHROPIC_MODEL": ""})
+        environment = patch.dict("os.environ", {"OPENROUTER_API_KEY": "", "OPENROUTER_MODEL": ""})
         environment.start()
         self.addCleanup(environment.stop)
         self.temporary = tempfile.TemporaryDirectory()
@@ -110,23 +110,23 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(self.request("GET", "/api/status", headers={"Host": "hostile.example"})[0], 403)
 
     def test_status_does_not_expose_api_key(self):
-        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "secret-test-value", "ANTHROPIC_MODEL": "test-model"}):
+        with patch.dict("os.environ", {"OPENROUTER_API_KEY": "secret-test-value", "OPENROUTER_MODEL": "test-model"}):
             self.manager = self.server.manager = RunManager(self.root)
             code, _, body = self.request("GET", "/api/status")
         self.assertEqual(code, 200)
-        self.assertTrue(json.loads(body)["anthropic_ready"])
+        self.assertTrue(json.loads(body)["openrouter_ready"])
         self.assertNotIn(b"secret-test-value", body)
 
-    def test_panel_api_config_drives_both_claude_decisions_without_logging_secret(self):
+    def test_panel_api_config_drives_both_openrouter_decisions_without_logging_secret(self):
         key = "fake-panel-key-for-test"
         code, _, body = self.request("POST", "/api/config", {"api_key": key, "model": "test-model"})
         self.assertEqual(code, 200, body)
-        self.assertTrue(json.loads(body)["anthropic_ready"])
+        self.assertTrue(json.loads(body)["openrouter_ready"])
         self.assertEqual(json.loads(body)["api_config_source"], "panel")
         self.assertNotIn(key.encode(), body)
         # Saving config should neither invoke the API nor create run/config files.
         self.assertEqual(list(self.root.iterdir()), [])
-        self.assertEqual(os.environ.get("ANTHROPIC_API_KEY"), "")
+        self.assertEqual(os.environ.get("OPENROUTER_API_KEY"), "")
         calls = []
         def reply(agent, tool, schema, context):
             self.assertEqual(agent._api_key, key)
@@ -134,12 +134,12 @@ class DashboardTests(unittest.TestCase):
             calls.append(tool)
             rule = RuleAgent()
             return asyncio.run(rule.plan(context) if tool == "submit_plan" else rule.recover(context))
-        with patch("phage_lab.agents.AnthropicAgent._request", autospec=True, side_effect=reply):
-            run_id = self.start_and_finish(agent="anthropic", fault_step="synthesize")
+        with patch("phage_lab.agents.OpenRouterAgent._request", autospec=True, side_effect=reply):
+            run_id = self.start_and_finish(agent="openrouter", fault_step="synthesize")
         self.assertEqual(calls, ["submit_plan", "choose_recovery"])
         snapshot = self.manager.snapshot(run_id)
         self.assertEqual(snapshot["report"]["status"], "succeeded")
-        self.assertEqual(snapshot["report"]["agent"], "anthropic")
+        self.assertEqual(snapshot["report"]["agent"], "openrouter")
         self.assertEqual(snapshot["report"]["model"], "test-model")
         self.assertNotIn(key, json.dumps(snapshot))
         for path in ("/api/status", "/api/runs", f"/api/runs/{run_id}"):
@@ -157,11 +157,11 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(self.manager._api_key, "fake-replacement")
         # Reloads read the same manager; a new process/manager starts without the panel secret.
         self.assertTrue(json.loads(self.request("GET", "/api/status")[2])["api_key_configured"])
-        self.assertFalse(RunManager(self.root).status()["anthropic_ready"])
+        self.assertFalse(RunManager(self.root).status()["openrouter_ready"])
         self.assertEqual(self.request("POST", "/api/config", {"clear": True})[0], 200)
         self.assertEqual(self.manager._api_key, "")
         self.assertFalse(self.manager.status()["api_key_configured"])
-        self.assertEqual(self.request("POST", "/api/runs", {"agent": "anthropic"})[0], 400)
+        self.assertEqual(self.request("POST", "/api/runs", {"agent": "openrouter"})[0], 400)
 
     def test_invalid_config_leaves_existing_config_unchanged_and_does_not_echo_secrets(self):
         self.manager.configure_api({"api_key": "fake-valid-key", "model": "test-model"})
@@ -184,12 +184,12 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(self.manager._api_key, "fake-valid-key")
 
     def test_clear_does_not_reload_environment_credentials_until_restart(self):
-        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "fake-env-key", "ANTHROPIC_MODEL": "env-model"}):
+        with patch.dict("os.environ", {"OPENROUTER_API_KEY": "fake-env-key", "OPENROUTER_MODEL": "env-model"}):
             manager = RunManager(self.root)
-            self.assertTrue(manager.status()["anthropic_ready"])
+            self.assertTrue(manager.status()["openrouter_ready"])
             manager.configure_api({"clear": True})
-            self.assertFalse(manager.status()["anthropic_ready"])
-            self.assertTrue(RunManager(self.root).status()["anthropic_ready"])
+            self.assertFalse(manager.status()["openrouter_ready"])
+            self.assertTrue(RunManager(self.root).status()["openrouter_ready"])
 
     def test_full_http_run_recovery_history_cursor_and_downloads(self):
         run_id = self.start_and_finish(fault_step="synthesize")
@@ -226,8 +226,8 @@ class DashboardTests(unittest.TestCase):
         self.assertFalse(list(self.root.glob(".input-*")))
 
     def test_missing_live_config_invalid_parameters_and_duplicate_start(self):
-        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "", "ANTHROPIC_MODEL": ""}):
-            self.assertEqual(self.request("POST", "/api/runs", {"agent": "anthropic"})[0], 400)
+        with patch.dict("os.environ", {"OPENROUTER_API_KEY": "", "OPENROUTER_MODEL": ""}):
+            self.assertEqual(self.request("POST", "/api/runs", {"agent": "openrouter"})[0], 400)
         for invalid in ({"seed": True}, {"seed": 2**32}, {"agent": "other"}, {"fault_step": "unknown"}, {"path": "/etc/passwd"}, {"genome_text": ""}):
             self.assertEqual(self.request("POST", "/api/runs", invalid)[0], 400)
         self.assertEqual(self.request("POST", "/api/runs", {"fault_step": "measure"})[0], 202)
@@ -251,3 +251,4 @@ class DashboardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
