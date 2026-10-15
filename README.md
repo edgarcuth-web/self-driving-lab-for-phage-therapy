@@ -14,7 +14,7 @@
 需要 Python 3.11+，无需安装依赖。
 
 **浏览器面板（Windows）**：下载 ZIP 并解压，双击 `start-dashboard.bat`，
-在打开的页面的 00 框上传细菌 FASTA 文件（示例：`examples/toy_genome.fasta`），再点击 **开始**。
+在流程栏第一格（00 · 上传）选择细菌 FASTA 文件（示例：`examples/toy_genome.fasta`），再点击 **开始**。
 浏览器没有自动打开时，访问 `http://127.0.0.1:8765`。
 运行期间保留终端窗口。
 
@@ -26,15 +26,11 @@ WSL / Ubuntu 使用 `python3 -m phage_lab dashboard`；端口被占用时加 `--
 python3 -m phage_lab demo
 ```
 
-## 离线演示和测试
-`--agent rule`模式，固定规则做规划与故障决策
+## 决策模式
 
-## 使用 OpenRouter API
-`--agent openrouter`模式，经 OpenRouter 调用模型，选择候选、分配设备和恢复动作，本地校验后执行
-API 出错时会生成失败报告，不会自动切回规则模式。
-
-展开面板左侧的 RUN CONFIGURATION，填写 API Key 和模型 ID，保存后上传 FASTA 并点击开始。
-密钥只保存在本次服务进程的内存中。命令行模式改用环境变量。详见 [OpenRouter 接入说明](docs/openrouter.md)。
+- `--agent rule`（默认）：离线固定规则做规划与故障决策，无需 API Key。
+- `--agent openrouter`：经 OpenRouter 调用模型选择候选、分配设备和恢复动作，本地校验后执行。
+  配置方法见 [OpenRouter 接入说明](docs/openrouter.md)。
 
 ## 运行结果
 
@@ -47,7 +43,7 @@ API 出错时会生成失败报告，不会自动切回规则模式。
 | `events.jsonl` | 带序号和时间的完整事件记录 |
 
 返回码 `0` 表示流程完成，`2` 表示失败或中断（仍会保存报告）。
-报告记录源码 SHA-256 指纹，ZIP 下载没有 Git 也能比对代码版本；`python3 -m phage_lab version` 可查看当前版本。
+`python3 -m phage_lab version` 可查看当前源码版本。
 
 ## 演示参数
 
@@ -68,7 +64,6 @@ API 出错时会生成失败报告，不会自动切回规则模式。
 - 单样本、五个顺序步骤，每类设备一台主机一台备用机。
 - 超时先查状态；仍在运行则确认取消后再重试或换机，每步最多两次。
 - AI 输出视为不可信数据，候选、设备和恢复动作都先校验再执行。
-- 只向 OpenRouter 及所选模型提供商发送序列长度、contig 数和指纹，不发送序列或标题。
 - 没有崩溃后续跑、持久化去重或多样本并行。
 
 ## 开发
@@ -77,14 +72,12 @@ API 出错时会生成失败报告，不会自动切回规则模式。
 python3 -m unittest discover -s tests -v
 ```
 
-OpenRouter 适配器测试使用模拟 HTTP 响应，不等于真实 API 联调。
 代码结构见 [架构说明](docs/architecture.md)，开发约定见 [AGENTS.md](AGENTS.md)。
 
 ## 后续计划
 
 1. 真实模型多场景联调，记录规划和恢复成功率。
-2. Windows 浏览器视觉验收和现场彩排。
-3. 接入经过独立验证的候选预测服务。
+2. 接入经过独立验证的候选预测服务。
 
 ## MHS 参考
 

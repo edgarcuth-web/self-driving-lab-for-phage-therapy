@@ -183,7 +183,6 @@ async def run_demo(genome_path: Path, output_root: Path, *, seed: int = 42,
         report["status"] = "failed"
         report["error"] = f"{type(exc).__name__}: {exc}"
     finally:
-        # Only clean up local simulator tasks. Unknown physical state is not 'resolved'.
         for device in devices.values():
             await device.close()
         report["fault"]["injected_count"] = int(injector.injected)

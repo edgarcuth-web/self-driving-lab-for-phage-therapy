@@ -73,7 +73,6 @@ def render_report(report: dict) -> str:
         lines.extend(["", "## 未完成原因", "", "```json", json.dumps(report["error"], ensure_ascii=False), "```"])
     if report.get("source"):
         lines.extend(["", "## 运行代码版本", "", "```json",
-                      json.dumps(report["source"], ensure_ascii=False, indent=2), "```",
-                      "", "ZIP 下载没有 Git commit；source_sha256 仍可用于比较运行源码是否一致。"])
+                      json.dumps(report["source"], ensure_ascii=False, indent=2), "```"])
     lines.extend(["", "完整步骤结果见 report.json；顺序事件见 events.jsonl。", ""])
     return "\n".join(lines)
