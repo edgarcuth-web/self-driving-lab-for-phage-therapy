@@ -1,83 +1,96 @@
 # Self-driving lab for phage therapy
 
-一个能在设备故障后继续完成流程的实验编排原型
+这个项目现在采用 **hybrid self-driving lab** 路线：尽量把数据、候选来源、分析和决策做成真实可追溯的；在没有机械臂、移液工作站、读板机等设备时，硬件执行层继续使用软件 device twin。
 
-**输入 FASTA → 选择噬菌体组合 → 虚拟合成 → 制备 / 转运 / 感染 / 读数 → 评估 → 报告。**
+关键原则是：**可以模拟硬件，不模拟证据。**
 
-默认演示会在随机一个步骤注入一次设备卡死，确认旧任务取消后切换到备用设备。
+## 三种执行模式
 
-> 候选、合成订单、设备和读数全部是模拟数据。候选评分不代表感染概率，
-> 运行成功只代表控制流程完成。设备接口为 **MHS-inspired**，不是官方协议实现。
+### `virtual_hardware` — 当前主要开发模式
 
-## 快速开始
+真实/可追溯的候选记录进入真实 workflow 和 planner，但设备动作由软件 twin 执行。
 
-需要 Python 3.11+，无需安装依赖。
+```python
+from phage_lab.workflow import run_experiment
 
-**浏览器面板（Windows）**：下载 ZIP 并解压，双击 `start-dashboard.bat`，
-在流程栏第一格（00 · 上传）选择细菌 FASTA 文件（示例：`examples/toy_genome.fasta`），再点击 **开始**。
-浏览器没有自动打开时，访问 `http://127.0.0.1:8765`。
-运行期间保留终端窗口。
-
-WSL / Ubuntu 使用 `python3 -m phage_lab dashboard`；端口被占用时加 `--port 8766`。
-
-**命令行**：
-
-```bash
-python3 -m phage_lab demo
+report, directory = await run_experiment(
+    genome_path,
+    output_root,
+    sample_id="sample-001",
+    candidates=real_candidate_records,
+    devices=None,
+    workflow=validated_workflow,
+    agent=planner,
+    execution_mode="virtual_hardware",
+)
 ```
 
-## 决策模式
+当 `devices=None` 且明确选择 `virtual_hardware` 时，系统会为 workflow 创建虚拟设备。所有设备结果都标记为 simulated，报告同时记录：
 
-- `--agent rule`（默认）：离线固定规则做规划与故障决策，无需 API Key。
-- `--agent openrouter`：经 OpenRouter 调用模型选择候选、分配设备和恢复动作，本地校验后执行。
-  配置方法见 [OpenRouter 接入说明](docs/openrouter.md)。
+- `execution_mode = "virtual_hardware"`
+- `physical_execution = false`
+- 没有发生真实湿实验
+- 虚拟测量不能作为实验或疗效证据
 
-## 运行结果
+系统不会从 `real_hardware` 自动退回该模式。
 
-每次运行生成 `runs/<运行编号>/`：
+### `real_hardware` — 未来设备接入模式
 
-| 文件 | 内容 |
-|---|---|
-| `report.md` | 可读总结、恢复记录、未完成原因 |
-| `report.json` | 输入指纹、计划、各步骤结果、源码版本 |
-| `events.jsonl` | 带序号和时间的完整事件记录 |
+调用方式相同，但必须显式提供 `simulated=False` 的真实设备 adapter。具体设备可以通过 vendor SDK、REST、serial、OPC-UA，未来也可以通过受控的 Computer Use / GUI adapter 接入。
 
-返回码 `0` 表示流程完成，`2` 表示失败或中断（仍会保存报告）。
-`python3 -m phage_lab version` 可查看当前源码版本。
+### `legacy_demo` — 原黑客松演示
 
-## 演示参数
+```bash
+python -m phage_lab demo
+python -m phage_lab dashboard
+```
 
-| 参数 | 含义 |
-|---|---|
-| `--seed 42` | 决定故障步骤、延迟和模拟读数；同一种子可复现 |
-| `--fault hang` | 默认：设备卡死，取消后换机恢复 |
-| `--fault response-lost` | 设备已完成但回执丢失；查询后取回结果，不重复执行 |
-| `--fault unreachable` | 设备失联，无法确认状态；停止并输出失败报告 |
-| `--fault none` / `random` | 无故障 / 随机选择以上一种 |
-| `--fault-step measure` | 固定故障步骤：`synthesize/prepare/transfer/infect/measure` |
-| `--time-scale 0.1` | 加快模拟延迟，范围 0.01–10 |
-| `--genome path.fasta` | 指定输入，仅做格式校验和摘要 |
-| `--output-dir path` | 报告保存位置 |
+这一模式连候选和读数都是 synthetic fixture，只用于回归测试和展示，不属于实验路径。
 
 ## 当前边界
 
-- 单样本、五个顺序步骤，每类设备一台主机一台备用机。
-- 超时先查状态；仍在运行则确认取消后再重试或换机，每步最多两次。
-- AI 输出视为不可信数据，候选、设备和恢复动作都先校验再执行。
-- 没有崩溃后续跑、持久化去重或多样本并行。
+- `biology.py`：FASTA 校验和输入摘要。
+- `workflow.py`：真实候选驱动的 planner、调度、reconciliation。
+- `devices.py`：统一设备契约。
+- `simulation.py`：软件 device twin，以及独立保留的 legacy demo。
+- `agents.py`：只在提供的候选/设备集合中做结构化决策。
+- `records.py`：append-only events、运行报告和代码 provenance。
+
+实验路径仍拒绝旧的 `SIM-PHAGE-*` / `synthetic_fixture` 候选。换句话说，允许暂时“没有机器人”，但不允许用随机候选假装已经做了生物学发现。
+
+## 可靠性原则
+
+timeout 只代表没有及时收到结果，不代表物理动作失败。控制器先 reconciliation，再决定是否 retry/failover；状态未知时停止，避免重复不可逆动作。
+
+这些规则在 virtual hardware 里用于开发和测试，将来接真实设备时保持同样的控制语义。
+
+## 运行记录
+
+每次运行生成独立的 `runs/<run-id>/`：
+
+| 文件 | 内容 |
+|---|---|
+| `report.md` | 人类可读总结和执行模式声明 |
+| `report.json` | 候选、计划、设备结果、恢复记录、源码身份 |
+| `events.jsonl` | append-only 顺序事件流 |
+
+编排层永远不会把 workflow 成功自动解释成 biological efficacy。
 
 ## 开发
 
 ```bash
-python3 -m unittest discover -s tests -v
+python -m unittest discover -s tests -v
+python -m phage_lab demo --seed 42 --time-scale 0.1
 ```
 
-代码结构见 [架构说明](docs/architecture.md)，开发约定见 [AGENTS.md](AGENTS.md)。
+架构见 [docs/architecture.md](docs/architecture.md)，开发约定见 [AGENTS.md](AGENTS.md)。
 
-## 后续计划 Design Stack
-...
+## 下一步
 
-## 参考
+当前优先级变成：
 
-接口设计参考了 Anthropic 的 [MHS 研究预览公告](https://www.anthropic.com/news/model-hardware-standard-research-preview)
-中公开的设备发现、能力描述和读写原语思路。本仓库的 Python 接口是自定义的演示契约，不声称兼容或通过认证。
+1. 建立真实 candidate/evidence registry 和 provenance。
+2. 让 `virtual_hardware` 成为正式开发 backend，而不只是黑客松 demo。
+3. 持久化 experiment / command / device-job / result 状态。
+4. 如果能通过 Computer Use 控制现有软件或云端实验服务，新增独立 adapter。
+5. 真正拿到实验设备后，再把同一 DeviceDriver contract 接到物理硬件。

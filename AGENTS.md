@@ -2,73 +2,67 @@
 
 ## Goal and scope
 
-Build a hackathon prototype that runs a simulated phage-screening workflow,
-encounters an instrument fault, recovers when the state permits, and reports
-the outcome. Keep the one-command offline demo working.
+Build an auditable self-driving-lab orchestration system for phage research under current resource constraints.
+
+The scientific/data layer should become real and traceable wherever possible. Missing robotics or lab instruments may be represented by explicit software device twins. Never represent virtual hardware output as physical experimental evidence.
 
 ## Architecture
 
-- `phage_lab/biology.py`: FASTA validation and explicitly synthetic candidates.
-- `phage_lab/agents.py`: offline policy and optional OpenRouter API decisions.
-- `phage_lab/devices.py`: device contract, manifests, asynchronous simulators.
-- `phage_lab/workflow.py`: fixed task template, validation, scheduler, recovery.
-- `phage_lab/records.py`: append-only events and final JSON/Markdown reports.
-- `phage_lab/provenance.py`: runtime source fingerprint, with optional Git metadata.
-- `phage_lab/dashboard.py`: loopback HTTP server, run management and artifact reads.
-- `phage_lab/web/`: buildless HTML/CSS/JS dashboard for actual scheduler events.
-- `phage_lab/__main__.py`: command-line entry point.
+- `phage_lab/biology.py`: validate FASTA and compute privacy-preserving summaries.
+- `phage_lab/devices.py`: transport-neutral device contract.
+- `phage_lab/workflow.py`: candidate validation, execution-mode validation, scheduler and reconciliation.
+- `phage_lab/simulation.py`: software device twins and the isolated legacy all-synthetic demo.
+- `phage_lab/agents.py`: bounded structured proposals; no direct hardware authority.
+- `phage_lab/records.py`: append-only events and explicit execution provenance.
+- `phage_lab/provenance.py`: source fingerprint and optional Git metadata.
+- `phage_lab/dashboard.py` + `web/`: legacy simulation UI until migrated to the hybrid path.
 
-## Invariants
+## Execution modes
 
-- All instruments, synthesis requests, candidates and assay results are simulated.
-  Never present synthetic scores as infection probabilities or efficacy evidence.
-- Label the interface **MHS-inspired**, not an implementation of the official
-  unpublished specification. Keep the local contract documented.
-- Agent output is untrusted structured data. Validate device capabilities,
-  candidate IDs and recovery actions before execution; never execute model code.
-- A timeout means the outcome is unknown. Reconcile the job first. Reuse a
-  completed result; require acknowledged cancellation before retry/failover.
-- Unknown/unreachable state must produce a failure report, not duplicate work.
-- Keep a stable logical command ID across attempts. Reject conflicting payloads
-  for the same ID. Bound retries and preserve dependency order.
-- The default is offline and needs no API key. API mode must be explicitly
-  selected, must fail clearly on configuration/API errors, and must never
-  silently fall back to the offline policy.
-- Do not store credentials, raw user genomes, or generated run data in Git.
-  OpenRouter receives summary metadata only, not FASTA contents or headers.
-- Simulation determinism concerns decisions and generated values, not run IDs,
-  event timestamps or wall-clock timing. Live model decisions can vary.
-- ZIP downloads must work without Git. Record the source fingerprint on new runs;
-  never guess a commit for a historical run or a ZIP.
-- Bind the dashboard only to loopback. Keep Host/Origin and per-session mutation
-  token checks; never return API keys or accept arbitrary filesystem paths.
-- Panel API settings are process-local and never persisted or logged. Capture the
-  configuration when constructing a run's agent; reject edits during active runs.
-  Do not mutate environment variables or treat a saved config as verified API access.
-- Render model output and report data as text, never HTML. Use the actual event
-  stream for UI state; label offline and live modes accurately.
+`real_hardware` requires every device to declare `simulated=False`.
+
+`virtual_hardware` requires every device to declare `simulated=True`. When explicitly selected, the workflow may create software device twins automatically if no devices were supplied.
+
+The old `legacy_demo` remains fully synthetic, including candidate generation. Do not confuse it with the hybrid experiment path.
+
+Never silently switch between execution modes.
+
+## Evidence invariants
+
+- Experiment-path candidates must come from externally supplied records. Reject known `SIM-*`, `source=synthetic_fixture`, or `simulated=True` candidate fixtures.
+- Virtual hardware may simulate task completion and readouts for scheduler/UI/interface testing, but those outputs must remain labeled simulated and cannot support biological claims.
+- Orchestration success is not biological efficacy.
+- Preserve provenance for input summary, candidate source, execution mode, device identity, code identity and resulting artifacts.
+- Do not commit credentials, raw user genomes or generated run directories.
+- Do not send raw FASTA content or headers to external models by default.
+
+## Control invariants
+
+- Agent/model output is untrusted structured data.
+- Validate candidate IDs, device capabilities, workflow assignments and recovery actions before execution.
+- Never execute model-generated code.
+- A timeout means outcome unknown. Query the original job before retry.
+- Do not retry/fail over until cancellation is acknowledged, unless the original job is observed completed and its result is reused.
+- Unknown physical device/job state stops execution.
+- For virtual hardware, preserve the same reconciliation semantics so the control plane is exercised before real hardware exists.
+
+## Future integrations
+
+A concrete adapter may use vendor SDK, REST, serial, OPC-UA, cloud APIs, or a controlled Computer Use / GUI layer. The adapter must still expose clear device/job state and execution provenance.
+
+Do not claim physical execution merely because Computer Use clicked a laboratory UI. Physical execution is true only when the connected external system actually caused and confirmed the physical action.
 
 ## Development
 
-Python 3.11+; standard library only for the first milestone. Avoid new services,
-frameworks or dependencies unless the task needs them. Keep user instructions
-short, in Chinese, and separate offline setup from API setup.
+Python 3.11+.
 
-Dashboard assets are buildless; do not introduce npm dependencies just for layout.
-The Windows ZIP entry point is `start-dashboard.bat`; the CLI is
-`python -m phage_lab dashboard`. Test via ephemeral local HTTP servers. Browser
-visual QA must be reported separately from API or JavaScript syntax checks.
-
-Run from repository root:
+Run:
 
 ```bash
 python -m unittest discover -s tests -v
 python -m phage_lab demo --seed 42 --time-scale 0.1
 ```
 
-Test failure semantics and public behavior: hanging tasks, lost acknowledgments,
-unreachable devices, idempotency, malformed model output, and report integrity.
-Do not claim live API verification unless an actual authorized request succeeded.
+Tests should cover both hybrid modes and the legacy demo: real candidates over virtual hardware, strict real-hardware mode matching, no implicit fallback, reconciliation, and explicit labeling of synthetic outputs.
 
-For GitHub changes, inspect the current branch head before updating it. Preserve
-other contributors' work and never force-push over concurrent changes.
+For GitHub changes, inspect the current branch head before updating it. Preserve concurrent work and never force-push over another contributor's changes.
