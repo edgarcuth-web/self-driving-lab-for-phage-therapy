@@ -49,8 +49,7 @@ class RunRecords:
 def evaluate(results: dict) -> dict:
     readout = results.get("measure", {}).get("readings")
     if readout is None:
-        return {"quality": "incomplete" if not results else "workflow_complete_without_standard_readout",
-                "biological_conclusion": "not_assessed"}
+        return {"quality": "incomplete", "biological_conclusion": "not_assessed"}
     unit = results.get("measure", {}).get("unit")
     if unit == "arbitrary_simulation_units":
         return {"quality": "synthetic_readout_complete", "reading_count": len(readout),
