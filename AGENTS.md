@@ -72,4 +72,3 @@ Do not claim live API verification unless an actual authorized request succeeded
 
 For GitHub changes, inspect the current branch head before updating it. Preserve
 other contributors' work and never force-push over concurrent changes.
-

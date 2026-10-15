@@ -274,56 +274,10 @@ class InputTests(unittest.TestCase):
                 validate_recovery(decision, ["a"])
 
 
-class ModelResolutionTests(unittest.TestCase):
-    def test_unique_short_names_and_variants_resolve_exactly(self):
-        # Catalog fixtures verify matching, not live model availability.
-        catalog = {"data": [{"id": model} for model in (
-            "openai/gpt-6-astra", "anthropic/claude-opus-5-5", "other/gpt-6-astra:free",
-            "other/gpt-6-astra-preview")]}
-        for short, full in (("gpt-6-astra", "openai/gpt-6-astra"),
-                            ("claude-opus-5-5", "anthropic/claude-opus-5-5"),
-                            ("gpt-6-astra:free", "other/gpt-6-astra:free")):
-            with self.subTest(short=short), patch("phage_lab.agents.request.build_opener") as opener:
-                opener.return_value.open.return_value.__enter__.return_value.read.return_value = json.dumps(catalog).encode()
-                agent = OpenRouterAgent("fake-key", short)
-                self.assertEqual(agent._resolve_model(), full)
-                self.assertEqual(agent._resolve_model(), full)
-                self.assertEqual(agent.model, short)
-                self.assertEqual(opener.return_value.open.call_count, 1)
-
-    def test_full_id_bypasses_catalog(self):
-        with patch("phage_lab.agents.request.build_opener") as opener:
-            self.assertEqual(OpenRouterAgent("fake-key", "provider/model:free")._resolve_model(), "provider/model:free")
-            opener.assert_not_called()
-
-    def test_missing_ambiguous_or_malformed_catalog_stops_before_completion(self):
-        for catalog in ({"data": []}, {"data": [{"id": "a/model:free"}]},
-                        {"data": [{"id": "a/model"}, {"id": "b/model"}]},
-                        {}, {"data": None}, {"data": [None]}, {"data": [{"id": 123}]}):
-            with self.subTest(catalog=catalog), patch("phage_lab.agents.request.build_opener") as opener:
-                opener.return_value.open.return_value.__enter__.return_value.read.return_value = json.dumps(catalog).encode()
-                agent = OpenRouterAgent("fake-key", "model")
-                with self.assertRaises(AgentError):
-                    agent._request("choose_recovery", {}, {})
-                self.assertIsNone(agent.resolved_model)
-                self.assertEqual(opener.return_value.open.call_count, 1)
-                self.assertEqual(opener.return_value.open.call_args.args[0].get_method(), "GET")
-
-    def test_catalog_network_failure_is_not_a_guessed_prefix(self):
-        from urllib.error import URLError
-        with patch("phage_lab.agents.request.build_opener") as opener:
-            opener.return_value.open.side_effect = URLError("secret-test-value")
-            agent = OpenRouterAgent("fake-key", "gpt-6-astra")
-            with self.assertRaises(AgentError) as caught:
-                agent._resolve_model()
-            self.assertNotIn("secret-test-value", str(caught.exception))
-            self.assertIsNone(agent.resolved_model)
-
-
 class ApiContractTests(unittest.IsolatedAsyncioTestCase):
     async def test_openrouter_adapter_uses_structured_tools_without_raw_sequence(self):
         # Mock transport verifies serialization only; this is NOT a live API test.
-        agent = OpenRouterAgent("not-a-real-key", "provider/test-model")
+        agent = OpenRouterAgent("not-a-real-key", "test-model")
         context = {"genome": read_fasta(GENOME).public_metadata(), "candidates": [{"id": "SIM-PHAGE-A"}],
                    "devices": [{"device_id": f"{operation}-primary", "operations": [operation]} for operation in OPERATIONS]}
         decision = {"candidate_ids": ["SIM-PHAGE-A", "SIM-PHAGE-B"],
@@ -346,7 +300,7 @@ class ApiContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("SYNTHETIC_TOY_INPUT", json.dumps(payload))
 
     async def test_openrouter_rejects_text_only_or_multiple_tools(self):
-        agent = OpenRouterAgent("not-a-real-key", "provider/test-model")
+        agent = OpenRouterAgent("not-a-real-key", "test-model")
         tool = {"type": "function", "function": {"name": "choose_recovery", "arguments": "{}"}}
         def response(calls, finish="tool_calls", **extra):
             return {"choices": [{"finish_reason": finish, "message": {"tool_calls": calls, **extra}}]}
@@ -380,12 +334,15 @@ class ApiContractTests(unittest.IsolatedAsyncioTestCase):
         decision = {"action": "abort", "replacement_device_id": None, "reason": "No safe recovery."}
         body = {"choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [
             {"type": "function", "function": {"name": "choose_recovery", "arguments": json.dumps(decision)}}]}}]}
-        with patch("phage_lab.agents.request.build_opener") as opener:
-            opener.return_value.open.return_value.__enter__.return_value.read.return_value = json.dumps(body).encode()
-            self.assertEqual(await OpenRouterAgent("test", "provider/model").recover({"alternatives": []}), decision)
+        for model in ("gpt-6-astra", "claude-opus-5-5", "provider/model", "provider/model:free"):
+            with self.subTest(model=model), patch("phage_lab.agents.request.build_opener") as opener:
+                opener.return_value.open.return_value.__enter__.return_value.read.return_value = json.dumps(body).encode()
+                self.assertEqual(await OpenRouterAgent("test", model).recover({"alternatives": []}), decision)
+                opener.return_value.open.assert_called_once()
+                req = opener.return_value.open.call_args.args[0]
+                self.assertEqual(req.get_method(), "POST")
+                self.assertEqual(json.loads(req.data)["model"], model)
 
 
 if __name__ == "__main__":
     unittest.main()
-
-

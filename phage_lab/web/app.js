@@ -527,7 +527,7 @@ function render() {
   text(
     "mode-label",
     view.mode === "openrouter"
-      ? "真实 OpenRouter 决策 · 模拟设备"
+      ? "OpenRouter API · 模拟设备"
       : view.mode === "rule"
         ? "离线规则 · 模拟设备"
         : "尚未运行",
@@ -702,4 +702,3 @@ $("refresh-history").addEventListener("click", () =>
 );
 render();
 poll();
-

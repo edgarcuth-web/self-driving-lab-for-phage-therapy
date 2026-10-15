@@ -40,7 +40,7 @@
                 aria-describedby="api-key-note"
               />
               <p class="field-note" id="api-key-note">密钥仅保存在本次服务中，不写入文件。</p>
-              <label class="field-label" for="api-model">模型代号</label>
+              <label class="field-label" for="api-model">模型 ID</label>
               <input
                 id="api-model"
                 type="text"
@@ -52,7 +52,7 @@
                 placeholder="例如 gpt-6-astra 或 claude-opus-5-5"
               />
               <p class="field-note">
-                直接填模型代号即可，启动时自动匹配。刷新页面保留配置；关闭服务后清除。保存时不调用 API。
+                刷新页面保留配置；关闭面板服务后清除。保存时不调用 API，启动演示时验证。
               </p>
               <button class="api-save" id="api-save" type="submit">保存并使用 OpenRouter</button>
               <button class="text-button api-clear" id="api-clear" type="button" disabled>
@@ -257,5 +257,3 @@
     </div>
   </body>
 </html>
-
-

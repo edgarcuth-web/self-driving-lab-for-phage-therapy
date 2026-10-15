@@ -3,7 +3,6 @@
 import asyncio
 import json
 import os
-import re
 from urllib import error, request
 
 from .devices import OPERATIONS
@@ -11,10 +10,6 @@ from .devices import OPERATIONS
 
 class AgentError(RuntimeError):
     pass
-
-
-def valid_model_name(value: str) -> bool:
-    return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}", value))
 
 
 class RuleAgent:
@@ -63,9 +58,6 @@ class OpenRouterAgent:
             raise AgentError("Live mode requires OPENROUTER_API_KEY and OPENROUTER_MODEL.")
         self._api_key = api_key.strip()
         self.model = model.strip()
-        if not valid_model_name(self.model):
-            raise AgentError("请输入模型代号（最长 200 字符，不能包含空格）。")
-        self.resolved_model = None
 
     @classmethod
     def from_environment(cls):
@@ -95,56 +87,9 @@ class OpenRouterAgent:
             "required": ["action", "replacement_device_id", "reason"]}
         return await asyncio.to_thread(self._request, "choose_recovery", schema, context)
 
-    def _resolve_model(self) -> str:
-        if self.resolved_model is not None:
-            return self.resolved_model
-        if "/" in self.model:
-            self.resolved_model = self.model
-            return self.resolved_model
-        req = request.Request("https://openrouter.ai/api/v1/models", headers={"Accept": "application/json"})
-        catalog = self._read_json(req, limit=8_000_000, timeout=30)
-        entries = catalog.get("data")
-        if not isinstance(entries, list):
-            raise AgentError("OpenRouter 模型列表格式错误，请稍后重试。")
-        matches = set()
-        for entry in entries:
-            if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
-                raise AgentError("OpenRouter 模型列表格式错误，请稍后重试。")
-            model_id = entry["id"]
-            if valid_model_name(model_id) and model_id.split("/", 1)[-1] == self.model:
-                matches.add(model_id)
-        if not matches:
-            raise AgentError("OpenRouter 模型列表中找不到这个代号，请检查拼写或填写完整模型 ID。")
-        if len(matches) != 1:
-            raise AgentError("模型代号对应多个模型，请填写完整 ID：" + ", ".join(sorted(matches)[:5]))
-        self.resolved_model = matches.pop()
-        return self.resolved_model
-
-    @staticmethod
-    def _read_json(req, *, limit=2_000_000, timeout=120) -> dict:
-        try:
-            with request.build_opener(_NoRedirect).open(req, timeout=timeout) as response:
-                raw = response.read(limit + 1)
-            if len(raw) > limit:
-                raise AgentError("OpenRouter response exceeds the response size limit.")
-            body = json.loads(raw)
-        except error.HTTPError as exc:
-            raise AgentError(f"OpenRouter API returned HTTP {exc.code}; check API access and model configuration.") from None
-        except (error.URLError, TimeoutError, OSError):
-            raise AgentError("OpenRouter API connection failed or timed out; no offline fallback was used.") from None
-        except (ValueError, UnicodeError):
-            raise AgentError("OpenRouter API returned invalid JSON.") from None
-        if not isinstance(body, dict):
-            raise AgentError("OpenRouter API response has an invalid shape.")
-        if "error" in body:
-            # Provider error messages may contain echoed input; never persist them.
-            raise AgentError("OpenRouter API returned a provider error; check API access and model configuration.")
-        return body
-
     def _request(self, tool_name: str, schema: dict, context: dict) -> dict:
-        # Keep schemas portable; workflow.py validates lengths, counts and allowed actions.
         payload = {
-            "model": self._resolve_model(), "max_tokens": 16000,
+            "model": self.model, "max_tokens": 16000,
             "messages": [{"role": "system", "content": (
                 "You make decisions for a fully simulated laboratory demo. Candidates, devices and "
                 "readings are synthetic; simulation_score is a fixture, not a biological probability. "
@@ -162,7 +107,23 @@ class OpenRouterAgent:
             data=json.dumps(payload).encode("utf-8"), method="POST",
             headers={"Content-Type": "application/json",
                      "Authorization": f"Bearer {self._api_key}"})
-        body = self._read_json(req)
+        try:
+            with request.build_opener(_NoRedirect).open(req, timeout=120) as response:
+                raw = response.read(2_000_001)
+            if len(raw) > 2_000_000:
+                raise AgentError("Model response exceeds the response size limit.")
+            body = json.loads(raw)
+        except error.HTTPError as exc:
+            raise AgentError(f"OpenRouter API returned HTTP {exc.code}; check API access and model configuration.") from None
+        except (error.URLError, TimeoutError, OSError):
+            raise AgentError("OpenRouter API connection failed or timed out; no offline fallback was used.") from None
+        except ValueError:
+            raise AgentError("OpenRouter API returned invalid JSON.") from None
+        if not isinstance(body, dict):
+            raise AgentError("OpenRouter API response has an invalid shape.")
+        if "error" in body:
+            # Provider error messages may contain echoed input; never persist them.
+            raise AgentError("OpenRouter API returned a provider error; check API access and model configuration.")
         choices = body.get("choices")
         if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
             raise AgentError("OpenRouter API response has an invalid shape.")
@@ -183,9 +144,8 @@ class OpenRouterAgent:
             raise AgentError("Model returned an invalid decision tool call.")
         try:
             decision = json.loads(function["arguments"])
-        except (ValueError, UnicodeError):
+        except ValueError:
             raise AgentError("Model tool arguments are not valid JSON.") from None
         if not isinstance(decision, dict):
             raise AgentError("Model tool arguments must be a JSON object.")
         return decision
-

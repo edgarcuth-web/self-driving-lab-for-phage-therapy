@@ -186,8 +186,6 @@ async def run_demo(genome_path: Path, output_root: Path, *, seed: int = 42,
         # Only clean up local simulator tasks. Unknown physical state is not 'resolved'.
         for device in devices.values():
             await device.close()
-        if getattr(agent, "resolved_model", None):
-            report["resolved_model"] = agent.resolved_model
         report["fault"]["injected_count"] = int(injector.injected)
         report["effects_by_device"] = {key: device.effect_count for key, device in devices.items()}
         report["evaluation"] = evaluate(report["results"])
@@ -197,5 +195,3 @@ async def run_demo(genome_path: Path, output_root: Path, *, seed: int = 42,
         finally:
             records.close()
     return report, records.directory
-
-
