@@ -290,15 +290,18 @@ class ApiContractTests(unittest.IsolatedAsyncioTestCase):
             payload = json.loads(req.data)
         self.assertEqual(result, decision)
         self.assertEqual(payload["tools"][0]["name"], "submit_plan")
+        self.assertTrue(payload["tools"][0]["strict"])
+        self.assertIn("Call submit_plan", payload["messages"][0]["content"])
         self.assertNotIn("ACGTACGT", json.dumps(payload))
         self.assertNotIn("SYNTHETIC_TOY_INPUT", json.dumps(payload))
 
     async def test_claude_rejects_text_only_or_multiple_tools(self):
         agent = AnthropicAgent("not-a-real-key", "test-model")
-        for content in ([{"type": "text", "text": "done"}],
-                        [{"type": "tool_use", "name": "choose_recovery", "input": {}}] * 2):
+        tool = {"type": "tool_use", "name": "choose_recovery", "input": {}}
+        for body in ({"content": [{"type": "text", "text": "done"}]}, {"content": [tool, tool]},
+                     {"stop_reason": "refusal", "content": [tool]}, {"stop_reason": "max_tokens", "content": [tool]}):
             with patch("phage_lab.agents.request.build_opener") as opener:
-                opener.return_value.open.return_value.__enter__.return_value.read.return_value = json.dumps({"content": content}).encode()
+                opener.return_value.open.return_value.__enter__.return_value.read.return_value = json.dumps(body).encode()
                 with self.assertRaises(AgentError):
                     await agent.recover({"alternatives": []})
 

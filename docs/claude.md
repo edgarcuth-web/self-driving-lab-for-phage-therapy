@@ -23,7 +23,7 @@
 
 ```bash
 read -rsp "Anthropic API key: " ANTHROPIC_API_KEY && export ANTHROPIC_API_KEY
-export ANTHROPIC_MODEL="your-model-id"
+export ANTHROPIC_MODEL="claude-opus-5-5"   # 换成你的账号可用的模型 ID
 python3 -m phage_lab demo --agent anthropic --seed 42
 ```
 
