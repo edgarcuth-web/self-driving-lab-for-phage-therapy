@@ -860,9 +860,34 @@ meter::-moz-meter-bar {
   align-items: center;
   gap: 14px;
 }
+.collapse-heading {
+  font-size: 13px;
+}
+.collapse-toggle {
+  width: 100%;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.collapse-toggle:hover {
+  background: var(--raised);
+}
 .collapse-toggle:focus-visible {
   outline: 2px solid var(--green);
-  outline-offset: 3px;
+  outline-offset: -2px;
+}
+.collapse-chevron {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+.timeline-panel.collapsed .collapse-chevron {
+  transform: rotate(-90deg);
 }
 .timeline {
   height: 540px;
