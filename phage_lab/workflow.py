@@ -213,12 +213,14 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
     _validate_candidates(candidates)
     if execution_mode == "real_hardware" and not devices:
         raise WorkflowError("real_hardware requires configured physical device drivers.")
+    if devices:
+        validate_experiment_inputs(candidates, devices, execution_mode)
 
     records = RunRecords(output_root, echo, on_event=on_event)
     if execution_mode == "virtual_hardware" and not devices:
         from .simulation import make_virtual_devices
         devices = make_virtual_devices(operations, records.emit)
-    validate_experiment_inputs(candidates, devices, execution_mode)
+        validate_experiment_inputs(candidates, devices, execution_mode)
 
     physical_execution = execution_mode == "real_hardware"
     report = {"schema_version": 2, "started_at": utc_now(), "status": "running",
