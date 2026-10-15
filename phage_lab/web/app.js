@@ -767,5 +767,33 @@ $("sidebar-expand").addEventListener("click", () => {
 }
 $("sidebar-resizer").setAttribute("aria-valuemin", sidebarLimits.min);
 $("sidebar-resizer").setAttribute("aria-valuemax", sidebarLimits.max);
+function setTimelineCollapsed(collapsed, persist = true) {
+  $("timeline-panel").classList.toggle("collapsed", collapsed);
+  $("timeline-toggle").setAttribute("aria-expanded", String(!collapsed));
+  $("timeline-toggle").textContent = collapsed ? "展开" : "收起";
+  if (!persist) return;
+  try {
+    localStorage.setItem("phage-lab-timeline-collapsed", collapsed ? "1" : "0");
+  } catch {
+    // Storage may be unavailable; the toggle still works for this page view.
+  }
+}
+$("timeline-toggle").addEventListener("click", () => {
+  const collapsed = !$("timeline-panel").classList.contains("collapsed");
+  setTimelineCollapsed(collapsed);
+  if (!collapsed) {
+    const timeline = $("timeline");
+    timeline.scrollTop = timeline.scrollHeight;
+  }
+});
+{
+  let collapsed = false;
+  try {
+    collapsed = localStorage.getItem("phage-lab-timeline-collapsed") === "1";
+  } catch {
+    // Default to expanded when storage is unavailable.
+  }
+  setTimelineCollapsed(collapsed, false);
+}
 render();
 poll();

@@ -655,7 +655,7 @@ main {
 .detail-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-  grid-template-areas: "devices log" "results log";
+  grid-template-areas: "devices results" "log results";
   grid-template-rows: auto 1fr;
   gap: 20px;
   align-items: start;
@@ -665,6 +665,9 @@ main {
 }
 .results-panel {
   grid-area: results;
+  align-self: start;
+  position: sticky;
+  top: 20px;
 }
 .devices {
   padding: 0 20px;
@@ -848,9 +851,18 @@ meter::-moz-meter-bar {
 }
 .timeline-panel {
   grid-area: log;
-  align-self: start;
-  position: sticky;
-  top: 20px;
+}
+.timeline-panel.collapsed .timeline {
+  display: none;
+}
+.panel-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.collapse-toggle:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 3px;
 }
 .timeline {
   height: 540px;
@@ -1002,7 +1014,7 @@ meter::-moz-meter-bar {
     grid-template-areas: "devices" "log" "results";
     grid-template-rows: auto;
   }
-  .timeline-panel {
+  .results-panel {
     position: static;
   }
   .timeline {
