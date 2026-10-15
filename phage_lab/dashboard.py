@@ -12,7 +12,7 @@ import threading
 from urllib.parse import parse_qs, urlsplit
 import webbrowser
 
-from .agents import OpenRouterAgent
+from .agents import OpenRouterAgent, valid_model_name
 from .devices import FAULT_MODES, OPERATIONS
 from .provenance import source_identity
 from .workflow import run_demo
@@ -58,17 +58,17 @@ class RunManager:
                 self._api_key, self._model, self._config_source = "", "", None
                 return
             if set(options) != {"api_key", "model"}:
-                raise ValueError("请填写 API Key 和模型 ID。")
+                raise ValueError("请填写 API Key 和模型代号。")
             key, model = options["api_key"], options["model"]
             if not isinstance(key, str) or not isinstance(model, str):
-                raise ValueError("API Key 和模型 ID 必须为文本。")
+                raise ValueError("API Key 和模型代号必须为文本。")
             key, model = key.strip(), model.strip()
             # A blank key keeps the existing secret; never send it back to the browser.
             key = key or self._api_key
             if not key or len(key) > 4096 or any(not 33 <= ord(char) <= 126 for char in key):
                 raise ValueError("请输入有效的 API Key，不能包含空格、换行或非 ASCII 字符。")
-            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,199}", model):
-                raise ValueError("请输入模型 ID（最长 200 字符，不能包含空格）。")
+            if not valid_model_name(model):
+                raise ValueError("请输入模型代号（最长 200 字符，不能包含空格）。")
             self._api_key, self._model, self._config_source = key, model, "panel"
 
     def directory(self, run_id: str) -> Path:
@@ -151,7 +151,7 @@ class RunManager:
             decision_agent = None
             if agent == "openrouter":
                 if not self._api_key or not self._model:
-                    raise ValueError("请先在面板的 OpenRouter API 配置中填写 API Key 和模型 ID。")
+                    raise ValueError("请先在面板的 OpenRouter API 配置中填写 API Key 和模型代号。")
                 decision_agent = OpenRouterAgent(self._api_key, self._model)
             self.busy, self.active_run, self.last_error = True, None, None
             self.thread = threading.Thread(target=self._run,
@@ -294,4 +294,5 @@ def serve(output_root: Path, port=8765, time_scale=1.0, open_browser=True) -> No
             server.serve_forever()
         except KeyboardInterrupt:
             print("\n面板已关闭。", flush=True)
+
 

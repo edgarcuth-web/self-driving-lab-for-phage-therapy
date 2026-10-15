@@ -1,19 +1,19 @@
 # 接入真实 OpenRouter 决策
 
 先确认离线模式 `python3 -m phage_lab demo` 能跑通。真实模式调用 OpenRouter Chat Completions API，
-需要 OpenRouter API Key 和支持工具调用的模型 ID（格式为 `提供商/模型名`），费用计入你的 API 额度（聊天订阅不能替代）。
+需要 OpenRouter API Key 和支持工具调用的模型代号（可以直接填写简称），费用计入你的 API 额度（聊天订阅不能替代）。
 
 ## 面板配置（推荐）
 
 1. 启动面板（`start-dashboard.bat` 或 `python3 -m phage_lab dashboard`）。
-2. 在左侧 **OpenRouter API 配置** 填写 API Key 和模型 ID，点击 **保存并使用 OpenRouter**。
+2. 在左侧 **OpenRouter API 配置** 填写 API Key 和模型代号，点击 **保存并使用 OpenRouter**。
 3. 点击 **启动演示**。
 
 配置规则：
 
 - 只保存在服务进程内存中：刷新网页保留，关闭服务后清除；不写入文件、日志、报告或浏览器存储，也不返回给网页。
 - 保存时不调用 API，所以“已配置”不代表密钥有效；启动演示时才会验证。
-- 再次保存时密钥留空即保留原密钥，只修改模型 ID。**清除本次配置** 同时清除密钥和模型。
+- 再次保存时密钥留空即保留原密钥，只修改模型代号。**清除本次配置** 同时清除密钥和模型。
 - 运行中不能修改配置。
 - 服务启动时会读取 `OPENROUTER_API_KEY` 和 `OPENROUTER_MODEL` 环境变量作为初始值；面板设置覆盖它们，但不修改环境变量。
 
@@ -23,7 +23,7 @@
 
 ```bash
 read -rsp "OpenRouter API key: " OPENROUTER_API_KEY && export OPENROUTER_API_KEY
-export OPENROUTER_MODEL="提供商/模型ID"   # 换成你的账号可用的模型 ID
+export OPENROUTER_MODEL="你要使用的模型代号"   # 换成你的账号可用的模型代号
 python3 -m phage_lab demo --agent openrouter --seed 42
 ```
 
@@ -39,7 +39,7 @@ python3 -m phage_lab demo --agent openrouter --seed 42
 
 ## 验收
 
-1. 报告中 `agent` 为 `openrouter`，并记录模型 ID。
+1. 报告中 `agent` 为 `openrouter`，并记录模型代号。
 2. 事件日志出现 `plan_accepted` 和 `recovery_decided`。
 3. `cancellation_acknowledged` 早于第二次 `job_submitted`。
 4. 最终状态为 `succeeded`。
@@ -48,5 +48,9 @@ python3 -m phage_lab demo --agent openrouter --seed 42
 
 
 迁移后使用 `--agent openrouter`、`OPENROUTER_API_KEY` 和 `OPENROUTER_MODEL`；旧 Anthropic 配置不再读取。
-模型 ID 请从 [OpenRouter 工具调用模型列表](https://openrouter.ai/models?supported_parameters=tools) 复制。
+可直接填 `gpt-6-astra`、`claude-opus-5-5` 这样的模型代号；这些是输入示例，可用性以 OpenRouter 当时的模型列表为准。
+启动时查询模型列表并精确匹配代号，同一次运行只查询一次。找不到或有重名时明确报错，不猜前缀、不换模型，也不自动切换到免费版本。
+也支持完整 ID；填写完整 ID 时跳过列表查询。模型需支持工具调用，可查看 [模型列表](https://openrouter.ai/models?supported_parameters=tools)。
+`report.json` 的 `model` 保留输入，`resolved_model` 记录实际提交的完整 ID。保存配置仍不联网。
 接口采用 [OpenRouter 工具调用格式](https://openrouter.ai/docs/guides/features/tool-calling)，摘要经 OpenRouter 转发给所选模型提供商。
+
