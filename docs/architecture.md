@@ -1,135 +1,82 @@
 # Architecture
 
-## Responsibilities
+## System boundary
 
-| Component | Owns |
+仓库有两条明确分开的执行路径：
+
+- **Production path**: `workflow.run_experiment()`。只接受调用方提供的真实候选记录和真实设备 driver。
+- **Simulation path**: `simulation.run_demo()`。仅用于测试、回归和旧 dashboard 演示。
+
+Production path 不会发现、创建或回退到 simulator。任何带有已知 simulation 标记的输入都会在创建物理 job 之前被拒绝。
+
+## Components
+
+| Component | Responsibility |
 |---|---|
-| `biology.py` | Validate FASTA; hash normalized contigs; generate synthetic candidate scores |
-| `agents.py` | Select 2–3 offered candidates, assign compatible devices, propose recovery |
-| `workflow.py` | Validate decisions; enforce dependencies; reconcile and bound attempts |
-| `devices.py` | Discoverable manifests; asynchronous jobs; one in-flight job per device |
-| `records.py` | Ordered append-only events, partial results and final reports |
-| `provenance.py` | Source SHA-256 and optional Git commit; works without `.git` |
-| `dashboard.py` | Loopback HTTP API, single active run, uploads, history and downloads |
-| `web/` | Buildless dashboard; actual events drive displayed state |
+| `biology.py` | FASTA validation and privacy-preserving sequence summary only |
+| `devices.py` | Generic command and device-driver contract |
+| `workflow.py` | Real-run validation, planning validation, scheduling and reconciliation |
+| `simulation.py` | Synthetic candidates, virtual devices and fault injection for tests only |
+| `agents.py` | Structured bounded planning / recovery proposals |
+| `records.py` | Append-only event stream and final artifacts |
+| `provenance.py` | Runtime source identity |
+| `dashboard.py` | Legacy local simulation dashboard during migration |
 
-The task template is fixed: `synthesize`, `prepare`, `transfer`, `infect`, `measure`.
-Each task depends on the preceding task. The scheduler runs one logical sample
-sequentially. The simulator uses two devices per capability.
+## Real execution contract
 
-All five operations are abstract simulation stages. They do not contain real
-laboratory quantities, timings, synthesis sequences or vendor integrations.
+`run_experiment()` requires these inputs explicitly:
 
-## DeviceDriver: our local interface
+- a FASTA path;
+- a caller-owned `sample_id`;
+- candidate records with real provenance;
+- a set of device drivers;
+- an ordered workflow/dependency mapping;
+- a planner implementing `plan()` and `recover()`.
 
-This is an **MHS-inspired** Python contract, not an official MHS API, network
-transport or SDK. Public MHS material informs discovery and descriptive metadata.
-MCP exposure, real drivers and official schema alignment are future work.
+A real device manifest must identify itself and must include `simulated: false`. A candidate is rejected from the production path when it carries known simulation markers such as `SIM-*`, `source=synthetic_fixture` or `simulated=true`.
 
-| Method | Behavior |
+This negative check is not a substitute for scientific validation. It exists to prevent the old hackathon fixtures from silently entering production execution.
+
+## DeviceDriver
+
+`DeviceDriver` is the local adapter contract:
+
+| Method | Meaning |
 |---|---|
-| `describe()` | Device ID, supported operations, simulation flag, capacity and notes |
-| `read(job_id=None)` | Device availability or authoritative job state and result |
-| `write(Command)` | Validate and submit an asynchronous job; return a job ID |
-| `wait(job_id)` | Await acknowledgment; waiting can time out without cancelling the job |
-| `cancel(job_id)` | Return true only after cancellation is confirmed; false if already completed |
+| `describe()` | Stable device identity, operations, state/capabilities, and `simulated` flag |
+| `read(job_id=None)` | Authoritative device/job state |
+| `write(Command)` | Submit one validated asynchronous command and return a job ID |
+| `wait(job_id)` | Wait for completion/acknowledgment; timeout must not imply cancellation |
+| `cancel(job_id)` | Confirm cancellation when the hardware can actually guarantee it |
+| `close()` | Release driver resources without inventing remote acknowledgments |
 
-`Command` contains a logical command ID, operation, payload and attempt number.
-The payload contains only a simulated sample ID and candidate IDs. The controller
-validates candidate membership; the driver validates its operation and payload
-shape and enforces its one-job capacity. No model-generated code is executed.
+The interface is transport-neutral. Vendor SDK, REST, serial, OPC-UA or another transport belongs inside a concrete adapter.
 
-Driver instances keep a per-command ledger in memory. Same ID and payload returns
-the existing job, even after completion. A conflicting payload is rejected.
-A higher attempt number can create a new job only after the previous attempt has
-acknowledged cancellation. On another device the scheduler enforces this condition.
-The ledger is in memory only; it does not survive restarts.
+## Recovery invariant
 
-## Recovery state machine
+The useful part of the hackathon prototype is retained: a timeout is an observation, not a result.
 
-1. Submit the task and wait with a deadline.
-2. On timeout, query the original job before asking for recovery.
-3. If it succeeded, reuse its result. A lost response must not duplicate an order.
-4. If it is still running, ask the agent for `cancel_and_retry`,
-   `cancel_and_failover` or `abort`.
-5. Validate the action and target device. Require cancellation acknowledgment.
-6. If completion races with cancellation, re-read and use the completed result.
-7. Once cancellation is confirmed, retry with the same logical command ID and a
-   new attempt number, or quarantine the old device and choose the validated backup.
-8. Unknown state, invalid decisions or exhausted attempts stop the run and preserve
-   partial results. Simulator cleanup is never reported as remote cancellation.
+1. Submit a command with a stable logical command ID.
+2. If waiting times out, query the original job.
+3. Reuse a completed result instead of duplicating the action.
+4. If still running, obtain a bounded recovery decision.
+5. Require authoritative cancellation before retry/failover.
+6. If device state becomes unknown, stop rather than duplicate a potentially irreversible operation.
 
-The simulator's hang happens before its atomic effect. Real instruments may have
-partial, irreversible effects; a future driver must expose sample disposition and
-reconciliation requirements before this controller can safely support it.
+Real instrument adapters may need richer sample-disposition and partial-effect semantics before a step can safely support automatic retry.
 
-## Fault injection and reproducibility
+## Planning boundary
 
-The demo injects at most one fault. Its operation is selected from the seed unless
-`--fault-step` is specified. The fault type is fixed by the option or chosen by
-`--fault random`. Injected faults are logged separately from controller observations;
-the AI is not told which hidden fault was injected.
+The planner can choose only among candidate IDs and device IDs supplied in context. Its output is validated as structured data. The orchestration layer never executes model-generated code and does not treat model prose as device state or biological evidence.
 
-- `hang`: job remains running until confirmed cancellation.
-- `response-lost`: job succeeds but the acknowledgment is withheld.
-- `unreachable`: the job cannot be queried or cancelled; report an unknown outcome.
+The current generic validator still selects 2-3 candidates because that constraint is inherited from the first prototype. This should become protocol-specific as the real experimental protocol is defined.
 
-Candidate scores depend on the input's normalized fingerprint. Synthetic readings
-depend on the seed and selected IDs, independently of ranking scores and device
-attempts, so a failover cannot change the measured value.
+## Persistence
 
-## Data and reports
+Current run artifacts remain file-backed (`events.jsonl`, `report.json`, `report.md`). This is sufficient for audit during the first refactor, but not sufficient for reliable real hardware recovery across process crashes.
 
-Run records keep only the normalized fingerprint, length and contig count of the
-input. Live mode sends these plus candidate fixtures, manifests and device states
-to OpenRouter; FASTA contents and headers stay local.
+The next persistence milestone should store command IDs, remote job IDs, attempts, resource/sample disposition and reconciliation state durably (SQLite is sufficient for the first implementation).
 
-`events.jsonl` is flushed after each append. `report.json` and `report.md` are written
-via temporary files at a terminal state. Power loss or forced process termination
-can still prevent a final report; restart/resume is not implemented. Each run has
-a distinct directory, so a later run does not overwrite the earlier report.
+## Simulation isolation
 
-`succeeded` means all template steps returned successfully. Biological efficacy
-is always `not_assessed`. When any step is missing, the report quality is `incomplete`.
-
-## Dashboard and local API
-
-`python -m phage_lab dashboard` serves `http://127.0.0.1:8765`. The controller is
-the same `run_demo` used by the CLI, running in a worker thread. Each browser polls the ordered file-backed
-events every 500 ms. Refreshes and server restarts can read saved reports.
-
-| Route | Purpose |
-|---|---|
-| `GET /api/status` | Connection state, configured model ID, source identity, local mutation token |
-| `POST /api/config` | Set an in-memory API key/model or clear this process's configuration |
-| `POST /api/runs` | Start a validated run; return 409 while another run is active |
-| `GET /api/runs` | Up to 20 recent runs from the configured output directory |
-| `GET /api/runs/<id>?after=<seq>` | Events newer than the cursor and final report when available |
-| `GET /api/runs/<id>/download/<filename>` | Only report.md, report.json or events.jsonl |
-
-The server enforces loopback Host/Origin checks and a process-scoped token on writes.
-It does not expose API keys or accept output/input path strings from the browser.
-API settings live in process memory (user-facing rules: [openrouter.md](openrouter.md)); each
-live run receives an agent constructed from a snapshot of the current configuration.
-Dashboard runs require an uploaded FASTA (the bundled example is uploaded like any
-other file). Its contents (up to 1 MB) are staged in a temporary local file for the run
-and removed afterward. Run IDs and filenames are constrained; symlinked reports
-and directories are refused.
-
-The UI renders decision text as text, never HTML, and loads no external assets.
-Only one run can be active per dashboard process; durable resume and cross-process
-resource locking are not implemented.
-
-## Source identity without Git
-
-Every new run records `source.version`, `source.source_sha256`, `source.source_files`,
-`source.git_commit` and `source.git_dirty`. `source_sha256` hashes runtime Python, web
-assets, the example input and the Windows launcher (CRLF-normalized), so ZIP downloads
-can be compared without Git. Git fields are null when the project root is not itself
-a Git checkout.
-
-## Source references
-
-- [Anthropic: Previewing the Model Hardware Standard](https://www.anthropic.com/news/model-hardware-standard-research-preview)
-- [MHS research-preview access](https://modelhardwarestandard.com/)
-- [OpenRouter Tool Calling](https://openrouter.ai/docs/guides/features/tool-calling)
+`simulation.py` contains all old synthetic behavior: generated candidate scores, virtual devices, random readouts and fault injection. Compatibility imports remain temporarily so the existing test suite and dashboard keep working, but new production code must import only the generic contracts.
