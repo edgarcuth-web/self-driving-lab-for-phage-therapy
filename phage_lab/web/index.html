@@ -9,8 +9,8 @@
     <script src="/app.js" defer></script>
   </head>
   <body>
-    <div class="layout">
-      <aside class="sidebar">
+    <div class="layout" id="layout">
+      <aside class="sidebar" id="sidebar">
         <details class="run-config" id="run-config">
             <summary class="section-eyebrow">RUN CONFIGURATION</summary>
           <details class="api-settings" id="api-settings">
@@ -104,7 +104,27 @@
         <div class="sidebar-footer">
           <span class="small-tag">MHS-INSPIRED</span>
         </div>
+        <div
+          class="sidebar-resizer"
+          id="sidebar-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-controls="sidebar"
+          aria-label="拖动调整侧栏宽度，向左拖到底可收起"
+          tabindex="0"
+        ></div>
       </aside>
+      <button
+        class="sidebar-expand"
+        id="sidebar-expand"
+        type="button"
+        aria-controls="sidebar"
+        aria-label="展开侧栏"
+        title="展开侧栏"
+        hidden
+      >
+        <span aria-hidden="true">»</span>
+      </button>
       <main>
         <section class="panel workflow-panel" aria-labelledby="workflow-heading">
           <div class="panel-heading workflow-heading">
