@@ -182,21 +182,21 @@
             </div>
           </section>
           <section class="panel timeline-panel" id="timeline-panel" aria-labelledby="timeline-heading">
-            <div class="panel-heading">
-              <h2 id="timeline-heading">运行记录</h2>
-              <span class="panel-heading-actions"
-                ><span id="event-count" class="panel-caption">0 条事件</span
-                ><button
-                  class="text-button collapse-toggle"
-                  id="timeline-toggle"
-                  type="button"
-                  aria-controls="timeline"
-                  aria-expanded="true"
-                >
-                  收起
-                </button></span
+            <h2 class="collapse-heading" id="timeline-heading">
+              <button
+                class="panel-heading collapse-toggle"
+                id="timeline-toggle"
+                type="button"
+                aria-controls="timeline"
+                aria-expanded="true"
               >
-            </div>
+                <span>运行记录</span
+                ><span class="panel-heading-actions"
+                  ><span id="event-count" class="panel-caption">0 条事件</span
+                  ><span class="collapse-chevron" aria-hidden="true">⌄</span></span
+                >
+              </button>
+            </h2>
             <div id="timeline" class="timeline" role="log" aria-label="运行事件与决策" aria-live="polite" tabindex="0">
               <div class="timeline-empty">
                 <h3>等待实验启动</h3>

@@ -770,7 +770,6 @@ $("sidebar-resizer").setAttribute("aria-valuemax", sidebarLimits.max);
 function setTimelineCollapsed(collapsed, persist = true) {
   $("timeline-panel").classList.toggle("collapsed", collapsed);
   $("timeline-toggle").setAttribute("aria-expanded", String(!collapsed));
-  $("timeline-toggle").textContent = collapsed ? "展开" : "收起";
   if (!persist) return;
   try {
     localStorage.setItem("phage-lab-timeline-collapsed", collapsed ? "1" : "0");
