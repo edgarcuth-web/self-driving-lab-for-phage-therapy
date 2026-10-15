@@ -218,3 +218,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local simulation reports and user-supplied genomes
+runs/
+local-data/
+*.fasta
+*.fa
+*.fna
+!examples/toy_genome.fasta
+*.fastq
+*.fq
+

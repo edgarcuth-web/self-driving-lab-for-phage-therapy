@@ -1,2 +1,107 @@
-# self-driving-lab-for-phage-therapy
-AI-driven lab orchestration with simulated instruments, fault recovery, and a phage-screening demo.
+# Self-driving lab for phage therapy
+
+一个能在设备故障后继续完成流程的实验编排原型。用于黑客松演示：
+
+**输入 FASTA → 选择模拟噬菌体组合 → 虚拟合成订单 → 制备 / 转运 / 感染 / 读数 → 评估 → 报告。**
+
+默认演示会在随机选定的一个步骤注入一次卡死，确认旧任务取消后切换备用设备。
+
+> v0.1 的候选、合成订单、硬件和实验读数全部是模拟数据。候选评分不代表感染概率；
+> 运行成功只代表控制流程完成，不代表筛选到有效疗法。接口为 **MHS-inspired**。
+
+## 先跑起来
+
+需要 Python **3.11 或以上**，无需安装第三方依赖。
+
+拿到代码并进入这个仓库目录后，在 WSL / Ubuntu 终端运行这一条：
+
+```bash
+python3 -m phage_lab demo
+```
+
+Windows 原生终端可把 `python3` 换成 `py`。
+
+默认使用仓库中的人工示例序列，**离线规则决策，不会调用 AI 或联网**。
+你会依次看到 `fault_injected`、`job_timeout`、`job_reconciled`、
+`recovery_decided`、`cancellation_acknowledged`、`recovery_executing`，最后显示 `succeeded`。
+
+每次运行会新建一个 `runs/<运行编号>/` 目录，保留三份文件：
+
+| 文件 | 内容 |
+|---|---|
+| `report.md` | 可直接阅读的总结、恢复记录及未完成原因 |
+| `report.json` | 输入指纹、计划、各步骤结果、质量状态和模拟器执行计数 |
+| `events.jsonl` | 带序号和时间的完整事件记录，一行一个事件 |
+
+所有终态，包括失败和中断，都尝试保存报告；无法写入磁盘时会明确报错。
+返回码 `0` 表示流程完成，`2` 表示失败或已记录的中断。
+
+## 两种决策模式
+
+| 模式 | 规划与故障决策 | 是否需要 API |
+|---|---|---|
+| `--agent rule`（默认） | 明确标注的固定规则，便于离线演示和回归测试 | 否 |
+| `--agent anthropic` | Claude 选择候选 ID、设备分配和恢复动作；本地校验后执行 | 是 |
+
+真实模型模式的配置见 [Claude 接入说明](docs/claude.md)。API 失败会生成失败报告，
+**不会偷偷切回规则模式**。接入真实模型也不会把模拟读数变成生物学证据。
+
+Claude 使用既定的五步工作流模板；首版不让模型生成任意实验协议或设备代码。
+
+## 演示参数
+
+默认种子为 `42`。改种子会改变故障步骤、延迟和模拟读数；同一种子便于复现。
+运行编号和时间戳每次不同；真实模型的决定不保证可复现。
+
+```bash
+python3 -m phage_lab demo --seed 17
+```
+
+| 参数 | 含义 |
+|---|---|
+| `--fault hang` | 默认：一次卡死，通常可通过取消和切换设备恢复 |
+| `--fault response-lost` | 设备已完成，但回执丢失；查询状态后取回结果，不重复执行 |
+| `--fault unreachable` | 设备失联，无法确认任务状态；停止并交付失败报告 |
+| `--fault none` | 无故障流程 |
+| `--fault random` | 在前三种故障中选一种，可能以失败报告结束 |
+| `--fault-step measure` | 将故障固定到某步骤；可选 `synthesize/prepare/transfer/infect/measure` |
+| `--time-scale 0.1` | 加快模拟延迟，取值范围 0.01–10 |
+| `--genome path/to/input.fasta` | 读取指定 FASTA，仅做格式校验和摘要，不做真实基因组分析 |
+| `--output-dir path/to/runs` | 改变报告保存位置 |
+
+## 已实现的边界
+
+- 一个逻辑样本、五个有依赖关系的步骤，每类虚拟设备有主机和备用机。
+- 模拟器异步执行；控制端等待超时不会取消设备任务。
+- 超时先查状态。已完成则取结果；仍在运行则询问决策器，并要求确认取消后重试。
+- 每步最多提交两次。相同命令 ID 的重复请求不会重复产生效果，冲突参数会被拒绝。
+- 验证 AI 返回的候选、设备能力和恢复动作，拒绝跳出约定的动作集合。
+- 候选排序和读数来自不同的确定性模拟逻辑；不把二者当作互相验证的实验结论。
+- 输入序列和 FASTA 标题不会发送给 Claude，只发送长度、contig 数、摘要指纹等结构化数据。
+- 本地事件日志可追溯，但当前没有崩溃后自动续跑、持久化设备去重或多样本并行。
+
+## 开发与验证
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+测试覆盖正常完成、五个步骤卡死恢复、回执丢失、失联停止、幂等性、资源占用、
+重试上限、恢复期间任务完成的竞态、不合法 AI 输出和报告保存。
+Claude 适配器测试使用模拟 HTTP 响应，**不等于真实 API 联调**。
+
+代码职责和接口约定见 [架构说明](docs/architecture.md)，开发约定见 [AGENTS.md](AGENTS.md)。
+
+## 后续里程碑
+
+1. 使用实际可用的 API 账号完成模型模式联调，记录规划和故障恢复成功率。
+2. 加实时运行面板，显示设备状态、任务进度和恢复事件。
+3. 接入经过独立验证的候选预测服务，明确数据来源、校准方法和适用范围。
+
+## MHS 参考
+
+参考 Anthropic 2026-08-27 的 [MHS 研究预览公告](https://www.anthropic.com/news/model-hardware-standard-research-preview)
+中公开的设备发现、能力描述、读写原语及驱动分层思路。
+[MHS 官网](https://modelhardwarestandard.com/)目前仍说明通过申请访问研究预览。
+本仓库的 Python 接口是我们自己的演示契约，不声称官方协议兼容或认证。
+
