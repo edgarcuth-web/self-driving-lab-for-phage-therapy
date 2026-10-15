@@ -116,10 +116,13 @@ class RunManager:
         result = []
         for run_id in ids:
             try:
-                snapshot = self.snapshot(run_id)
+                if not (self.directory(run_id) / "events.jsonl").is_file():
+                    continue
+                report = json.loads(self.read_file(run_id, "report.json"))
+            except FileNotFoundError:
+                report = None
             except (OSError, ValueError, UnicodeError):
                 continue
-            report = snapshot["report"]
             if report:
                 status = report.get("status", "unknown")
             else:
@@ -152,14 +155,14 @@ class RunManager:
                 decision_agent = AnthropicAgent(self._api_key, self._model)
             self.busy, self.active_run, self.last_error = True, None, None
             self.thread = threading.Thread(target=self._run,
-                args=(seed, agent, fault, step, genome, decision_agent), daemon=True)
+                args=(seed, fault, step, genome, decision_agent), daemon=True)
             self.thread.start()
 
     def _event(self, event: dict) -> None:
         with self.lock:
             self.active_run = event["run_id"]
 
-    def _run(self, seed, agent, fault, step, genome, decision_agent):
+    def _run(self, seed, fault, step, genome, decision_agent):
         try:
             self.output_root.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(prefix=".input-", dir=self.output_root) as temporary:
@@ -167,7 +170,7 @@ class RunManager:
                 if genome is not None:
                     path = Path(temporary) / "input.fasta"
                     path.write_text(genome, encoding="utf-8")
-                asyncio.run(run_demo(path, self.output_root, seed=seed, agent_mode=agent,
+                asyncio.run(run_demo(path, self.output_root, seed=seed,
                                     fault=fault, fault_step=step, time_scale=self.time_scale,
                                     echo=False, on_event=self._event, agent=decision_agent))
         except Exception as exc:

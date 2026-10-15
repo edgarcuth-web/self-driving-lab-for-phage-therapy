@@ -112,27 +112,15 @@ events every 500 ms. Refreshes and server restarts can read saved reports.
 
 The server enforces loopback Host/Origin checks and a process-scoped token on writes.
 It does not expose API keys or accept output/input path strings from the browser.
-API settings are initialized from the environment at startup, then may be replaced
-through the dashboard. They stay in process memory, not config files, logs, reports
-or browser storage. An empty key on save retains the existing secret; the explicit
-clear action removes both key and model without falling back to the environment.
-Restarting reads the environment again. Saving does not make a network API call or
-prove access. Settings changes are rejected during a run; each live run receives an
-agent constructed with a snapshot of the current configuration. Process environment
-variables are never modified by the dashboard.
+API settings live in process memory (user-facing rules: [claude.md](claude.md)); each
+live run receives an agent constructed from a snapshot of the current configuration.
 User FASTA contents (up to 1 MB) are staged in a temporary local file for the run
 and removed afterward. Run IDs and filenames are constrained; symlinked reports
 and directories are refused. This is a local demo server, not a shared hosted service.
 
-The UI labels the decision provider, distinguishes injected faults from controller
-observations, displays cancellation-before-retry evidence and makes partial/failure
-reports downloadable. It never renders decision text as HTML. It has no external
-assets, script dependencies or invented live measurements.
-
-Only one run can be active per dashboard process. Closing the process during a run
-can interrupt it; durable job resume and cross-process resource locking are not
-implemented. Do not run another CLI or dashboard against the same physical resources
-when real drivers are introduced. Current devices remain entirely simulated.
+The UI renders decision text as text, never HTML, and loads no external assets.
+Only one run can be active per dashboard process; durable resume and cross-process
+resource locking are not implemented.
 
 ## Source identity without Git
 
