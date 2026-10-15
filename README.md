@@ -1,30 +1,14 @@
 # Self-driving lab for phage therapy
 
-这个仓库已经从黑客松模拟演示转向真实实验编排系统。
+这个项目现在采用 **hybrid self-driving lab** 路线：尽量把数据、候选来源、分析和决策做成真实可追溯的；在没有机械臂、移液工作站、读板机等设备时，硬件执行层继续使用软件 device twin。
 
-目标不是生成看起来像实验的数据，而是把真实候选记录、真实设备状态、真实测量结果和可审计的决策连接成一个可靠的实验闭环。
+关键原则是：**可以模拟硬件，不模拟证据。**
 
-## 当前原则
+## 三种执行模式
 
-- `phage_lab.workflow.run_experiment()` 是真实运行入口。候选记录和设备驱动必须由调用方显式提供。
-- 真实运行拒绝任何 `SIM-*`、`source=synthetic_fixture` 或 `simulated=True` 的候选 / 设备；不存在自动回退到模拟器。
-- `phage_lab/devices.py` 只定义通用设备契约。具体仪器通过 adapter 实现该契约。
-- 原黑客松模拟器保留在 `phage_lab/simulation.py`，只用于回归测试、故障恢复测试和旧 dashboard 演示。
-- Agent 输出始终是不可信提案：候选 ID、设备能力和恢复动作在执行前由确定性代码校验。
-- timeout 不等于失败。控制器必须先查询真实 job 状态；无法确认状态时停止，不能盲目重复物理操作。
-- 编排层不把任何测量自动解释成疗效结论。
+### `virtual_hardware` — 当前主要开发模式
 
-## Real Lab v0 状态
-
-第一阶段重构已经建立 production / simulation 边界，但仓库目前还没有绑定某一台具体实验仪器或某一个真实候选数据库。因此：
-
-```bash
-python -m phage_lab run
-```
-
-会明确拒绝启动，而不是偷偷使用模拟设备。
-
-真实集成应通过 Python API 注入：
+真实/可追溯的候选记录进入真实 workflow 和 planner，但设备动作由软件 twin 执行。
 
 ```python
 from phage_lab.workflow import run_experiment
@@ -34,58 +18,79 @@ report, directory = await run_experiment(
     output_root,
     sample_id="sample-001",
     candidates=real_candidate_records,
-    devices=real_device_drivers,
+    devices=None,
     workflow=validated_workflow,
     agent=planner,
+    execution_mode="virtual_hardware",
 )
 ```
 
-每个真实 driver 的 `describe()` 必须显式返回 `"simulated": False`。
+当 `devices=None` 且明确选择 `virtual_hardware` 时，系统会为 workflow 创建虚拟设备。所有设备结果都标记为 simulated，报告同时记录：
 
-## Simulation test harness
+- `execution_mode = "virtual_hardware"`
+- `physical_execution = false`
+- 没有发生真实湿实验
+- 虚拟测量不能作为实验或疗效证据
 
-旧演示仍可显式运行，用于测试编排、幂等、timeout reconciliation 和 failover：
+系统不会从 `real_hardware` 自动退回该模式。
+
+### `real_hardware` — 未来设备接入模式
+
+调用方式相同，但必须显式提供 `simulated=False` 的真实设备 adapter。具体设备可以通过 vendor SDK、REST、serial、OPC-UA，未来也可以通过受控的 Computer Use / GUI adapter 接入。
+
+### `legacy_demo` — 原黑客松演示
 
 ```bash
 python -m phage_lab demo
-```
-
-浏览器 dashboard 当前也仍然连接这个 simulation harness：
-
-```bash
 python -m phage_lab dashboard
 ```
 
-它不是 production 实验入口。
+这一模式连候选和读数都是 synthetic fixture，只用于回归测试和展示，不属于实验路径。
+
+## 当前边界
+
+- `biology.py`：FASTA 校验和输入摘要。
+- `workflow.py`：真实候选驱动的 planner、调度、reconciliation。
+- `devices.py`：统一设备契约。
+- `simulation.py`：软件 device twin，以及独立保留的 legacy demo。
+- `agents.py`：只在提供的候选/设备集合中做结构化决策。
+- `records.py`：append-only events、运行报告和代码 provenance。
+
+实验路径仍拒绝旧的 `SIM-PHAGE-*` / `synthetic_fixture` 候选。换句话说，允许暂时“没有机器人”，但不允许用随机候选假装已经做了生物学发现。
+
+## 可靠性原则
+
+timeout 只代表没有及时收到结果，不代表物理动作失败。控制器先 reconciliation，再决定是否 retry/failover；状态未知时停止，避免重复不可逆动作。
+
+这些规则在 virtual hardware 里用于开发和测试，将来接真实设备时保持同样的控制语义。
 
 ## 运行记录
 
-每次运行都会写入独立的 `runs/<run-id>/`：
+每次运行生成独立的 `runs/<run-id>/`：
 
 | 文件 | 内容 |
 |---|---|
-| `report.md` | 人类可读总结 |
-| `report.json` | 输入摘要、计划、步骤结果、恢复记录、源码身份 |
+| `report.md` | 人类可读总结和执行模式声明 |
+| `report.json` | 候选、计划、设备结果、恢复记录、源码身份 |
 | `events.jsonl` | append-only 顺序事件流 |
 
-真实运行不会把 orchestration 成功等同于 biological efficacy；报告中的 biological conclusion 默认为 `not_assessed`。
+编排层永远不会把 workflow 成功自动解释成 biological efficacy。
 
 ## 开发
 
 ```bash
 python -m unittest discover -s tests -v
+python -m phage_lab demo --seed 42 --time-scale 0.1
 ```
 
 架构见 [docs/architecture.md](docs/architecture.md)，开发约定见 [AGENTS.md](AGENTS.md)。
 
 ## 下一步
 
-Real Lab v0 接下来优先做三件事：
+当前优先级变成：
 
-1. 接入第一台真实仪器 adapter，并把设备 job ID / state / result 持久化。
-2. 把候选来源改成有 provenance 的真实 registry / 数据库接口，而不是由 workflow 内部生成。
-3. 把固定 demo 流程升级为版本化 protocol，并为不可逆步骤增加明确的 approval / reconciliation 语义。
-
-## 参考
-
-设备抽象最初受 Anthropic Model Hardware Standard 研究预览中的 discovery / capability / read-write 思路启发；本仓库接口是自己的契约，不声称兼容任何未公开规范。
+1. 建立真实 candidate/evidence registry 和 provenance。
+2. 让 `virtual_hardware` 成为正式开发 backend，而不只是黑客松 demo。
+3. 持久化 experiment / command / device-job / result 状态。
+4. 如果能通过 Computer Use 控制现有软件或云端实验服务，新增独立 adapter。
+5. 真正拿到实验设备后，再把同一 DeviceDriver contract 接到物理硬件。
