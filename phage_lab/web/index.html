@@ -129,118 +129,65 @@
         </div>
       </aside>
       <main>
-        <div class="page-heading">
-          <div>
-            <div class="section-eyebrow">EXPERIMENT OPERATIONS</div>
-            <h1>实验控制台<span class="title-dot">.</span></h1>
-            <p>从 AI 规划到故障恢复，逐步查看每一次执行。</p>
-          </div>
-        </div>
-        <section class="metrics" aria-label="运行概要">
-          <div class="metric">
-            <span class="metric-label">流程状态</span
-            ><strong id="run-status" class="state-text">等待启动</strong
-            ><span id="run-id" class="metric-note">选择配置后，启动一次演示</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">运行耗时</span
-            ><strong id="elapsed">—<small> s</small></strong
-            ><span class="metric-note">包含决策与设备执行</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">完成步骤</span
-            ><strong><span id="completed">0</span><small> / 5</small></strong
-            ><span class="metric-note">合成 → 制备 → 转运 → 感染 → 读数</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">故障 / 已恢复</span
-            ><strong id="fault-count">0<small> / </small>0</strong
-            ><span id="mode-label" class="metric-note">尚未运行</span>
-          </div>
-        </section>
         <section class="panel workflow-panel" aria-labelledby="workflow-heading">
-          <div class="panel-heading">
-            <h2 id="workflow-heading">执行流程</h2>
-            <span class="panel-caption" id="flow-caption">等待计划</span>
+          <div class="panel-heading workflow-heading">
+            <h1 id="workflow-heading">执行流程</h1>
+            <div class="run-summary" role="group" aria-label="运行概要">
+              <strong id="run-status" class="state-text" role="status">等待启动</strong>
+              <span class="summary-stat"><span class="summary-label">耗时</span><span id="elapsed">— s</span></span>
+              <span class="summary-stat" id="flow-caption">0 / 5 步骤完成</span>
+              <span class="summary-stat"><span class="summary-label">故障 / 已恢复</span><span id="fault-count">0 / 0</span></span>
+            </div>
+          </div>
+          <div class="workflow-meta">
+            <span id="mode-label">模拟设备</span><span id="run-id" hidden></span>
           </div>
           <div id="pipeline" class="pipeline"></div>
         </section>
         <div class="detail-layout">
-          <div class="main-column">
-            <section class="panel" aria-labelledby="devices-heading">
-              <div class="panel-heading">
-                <h2 id="devices-heading">设备状态</h2>
-                <span class="panel-caption">5 类能力 · 10 台虚拟设备</span>
-              </div>
-              <div id="devices" class="devices"></div>
-              <div class="device-legend">
-                <span><i class="legend-dot running"></i>执行中</span
-                ><span><i class="legend-dot recovering"></i>恢复中</span
-                ><span><i class="legend-dot failed"></i>故障 / 隔离</span
-                ><span><i class="legend-dot succeeded"></i>已完成</span>
-              </div>
-            </section>
-            <section class="panel" aria-labelledby="decisions-heading">
-              <div class="panel-heading">
-                <h2 id="decisions-heading">决策记录</h2>
-                <span id="decision-mode" class="small-tag">等待决策</span>
-              </div>
-              <div class="decision">
-                <div class="decision-heading">
-                  <span class="decision-number">01</span>
-                  <h3>规划与候选选择</h3>
-                </div>
-                <div id="candidate-list" class="candidate-list"></div>
-                <p id="plan-reason" class="reason placeholder">
-                  启动后显示候选组合和设备分配依据。
-                </p>
-              </div>
-              <div class="decision recovery-decision">
-                <div class="decision-heading">
-                  <span class="decision-number">02</span>
-                  <h3>故障恢复</h3>
-                  <span id="recovery-action" class="decision-action"></span>
-                </div>
-                <p id="recovery-reason" class="reason placeholder">
-                  发生故障后，显示状态核对及恢复决定。
-                </p>
-                <div id="recovery-proof" class="recovery-proof" hidden></div>
-              </div>
-            </section>
-            <section class="panel results-panel" aria-labelledby="results-heading">
-              <div class="panel-heading">
-                <h2 id="results-heading">结果与报告</h2>
-                <span class="panel-caption" id="quality">等待读数</span>
-              </div>
-              <div id="readings" class="readings">
-                <p class="empty-small">完成测量后显示模拟读数。</p>
-              </div>
-              <p id="result-message" class="result-message">
-                每次运行都会保存独立的事件日志与结果报告。
-              </p>
-              <div class="report-actions">
-                <a id="download-md" class="download-button disabled" aria-disabled="true"
-                  >下载报告 ↗</a
-                ><a id="download-json" class="text-button disabled" aria-disabled="true">JSON</a
-                ><a id="download-events" class="text-button disabled" aria-disabled="true"
-                  >事件日志</a
-                >
-              </div>
-              <p id="source-label" class="source-label"></p>
-            </section>
-          </div>
+          <section class="panel devices-panel" aria-labelledby="devices-heading">
+            <div class="panel-heading">
+              <h2 id="devices-heading">设备状态</h2>
+              <span class="panel-caption">5 类能力 · 10 台虚拟设备</span>
+            </div>
+            <div id="devices" class="devices"></div>
+            <div class="device-legend">
+              <span><i class="legend-dot running"></i>执行中</span
+              ><span><i class="legend-dot recovering"></i>恢复中</span
+              ><span><i class="legend-dot failed"></i>故障 / 隔离</span
+              ><span><i class="legend-dot succeeded"></i>已完成</span>
+            </div>
+          </section>
           <section class="panel timeline-panel" aria-labelledby="timeline-heading">
             <div class="panel-heading">
-              <h2 id="timeline-heading">运行时间线</h2>
+              <h2 id="timeline-heading">运行记录</h2>
               <span id="event-count" class="panel-caption">0 条事件</span>
             </div>
-            <div id="timeline" class="timeline" role="log" aria-label="运行事件" aria-live="polite">
+            <div id="timeline" class="timeline" role="log" aria-label="运行事件与决策" aria-live="polite" tabindex="0">
               <div class="timeline-empty">
-                <span class="empty-orbit">◎</span>
                 <h3>等待实验启动</h3>
-                <p>设备响应和恢复过程将在这里实时更新。</p>
+                <p>事件与决策将在这里实时更新。</p>
               </div>
             </div>
+          </section>
+          <section class="panel results-panel" aria-labelledby="results-heading">
+            <div class="panel-heading">
+              <h2 id="results-heading">结果与报告</h2>
+              <span class="panel-caption" id="quality">等待读数</span>
+            </div>
+            <div id="readings" class="readings">
+              <p class="empty-small">完成测量后显示模拟读数。</p>
+            </div>
+            <p id="result-message" class="result-message">报告将在运行结束后生成。</p>
+            <div class="report-actions">
+              <a id="download-md" class="download-button disabled" aria-disabled="true"
+                >下载报告 ↗</a
+              ><a id="download-json" class="text-button disabled" aria-disabled="true">JSON</a
+              ><a id="download-events" class="text-button disabled" aria-disabled="true"
+                >事件日志</a
+              >
+            </div>
+            <p id="source-label" class="source-label"></p>
           </section>
         </div>
         <footer class="main-footer">

@@ -18,6 +18,11 @@ const statusNames = {
   cancelled: "已取消",
   interrupted: "已中断",
 };
+const recoveryActions = {
+  cancel_and_failover: "取消并换机",
+  cancel_and_retry: "取消后重试",
+  abort: "停止运行",
+};
 const state = {
   meta: null,
   runId: null,
@@ -172,18 +177,14 @@ function derive() {
   const deviceStates = Object.fromEntries(
     steps.flatMap((step) => ["primary", "backup"].map((suffix) => [`${step}-${suffix}`, "待命"])),
   );
-  let plan = null,
-    recovery = null,
-    status = state.pending ? "starting" : "waiting",
+  let status = state.pending ? "starting" : "waiting",
     mode = null,
     started = null,
     finished = null,
     readout = null;
   const faults = new Set(),
     completed = new Set();
-  let cancellation = null,
-    backupSubmission = null,
-    recoveryContext = null;
+  let recoveryContext = null;
   for (const event of state.events) {
     const d = event.details || {};
     switch (event.event) {
@@ -196,13 +197,11 @@ function derive() {
         status = "planning";
         break;
       case "plan_accepted":
-        plan = d;
         status = "running";
         break;
       case "job_submitted":
         stepStates[d.step] = "running";
         deviceStates[d.device] = "执行中";
-        if (d.attempt > 1) backupSubmission = event;
         break;
       case "fault_injected":
         faults.add(d.step);
@@ -219,11 +218,7 @@ function derive() {
       case "recovery_requested":
         recoveryContext = d;
         break;
-      case "recovery_decided":
-        recovery = d;
-        break;
       case "cancellation_acknowledged":
-        cancellation = event;
         deviceStates[d.device] = "已取消";
         break;
       case "recovery_executing":
@@ -270,8 +265,6 @@ function derive() {
   return {
     stepStates,
     deviceStates,
-    plan,
-    recovery,
     status,
     mode,
     started,
@@ -280,8 +273,6 @@ function derive() {
     completed,
     faults,
     recovered: [...faults].filter((step) => completed.has(step)).length,
-    cancellation,
-    backupSubmission,
   };
 }
 function renderPipeline(view) {
@@ -332,46 +323,6 @@ function renderDevices(view) {
     }),
   );
 }
-function renderDecisions(view) {
-  text(
-    "decision-mode",
-    view.mode === "openrouter" ? "OPENROUTER API" : view.mode === "rule" ? "离线规则" : "等待决策",
-  );
-  $("candidate-list").replaceChildren(
-    ...(view.plan?.candidate_ids || []).map((id) => node("span", "candidate-chip", id)),
-  );
-  text(
-    "plan-reason",
-    view.plan?.reason ||
-      (view.status === "planning" ? "正在等待规划结果…" : "启动后显示候选组合和设备分配依据。"),
-  );
-  $("plan-reason").className = `reason ${view.plan ? "" : "placeholder"}`;
-  const actionNames = {
-    cancel_and_failover: "取消并换机",
-    cancel_and_retry: "取消后重试",
-    abort: "停止运行",
-  };
-  text("recovery-action", actionNames[view.recovery?.action] || "");
-  const reused = view.faults.size && view.recovered && !view.recovery;
-  text(
-    "recovery-reason",
-    view.recovery?.reason ||
-      (reused
-        ? "状态核对确认任务已经完成，直接取回结果，没有再次提交。"
-        : view.status === "recovering"
-          ? "已检测到超时，正在核对任务状态并等待恢复决定…"
-          : "发生故障后，显示状态核对及恢复决定。"),
-  );
-  $("recovery-reason").className = `reason ${view.recovery || reused ? "" : "placeholder"}`;
-  const confirmed =
-    view.cancellation && view.backupSubmission && view.cancellation.seq < view.backupSubmission.seq;
-  $("recovery-proof").hidden = !confirmed;
-  if (confirmed)
-    text(
-      "recovery-proof",
-      `✓ 事件 #${view.cancellation.seq} 确认取消 → #${view.backupSubmission.seq} 提交下一次任务`,
-    );
-}
 function renderResults(view) {
   const values = view.readout?.readings;
   if (Array.isArray(values)) {
@@ -404,7 +355,7 @@ function renderResults(view) {
     state.report?.error ||
       (values
         ? "单位：任意模拟单位。生物学结论：未评估。"
-        : "每次运行都会保存独立的事件日志与结果报告。"),
+        : "报告将在运行结束后生成。"),
   );
   for (const [id, file] of [
     ["download-md", "report.md"],
@@ -442,7 +393,7 @@ function eventDescription(event) {
     input_validated: ["输入校验通过", `${d.bases} bp · ${d.contigs} contig`],
     devices_discovered: ["设备就绪", `发现 ${d.count} 台模拟设备`],
     planning_requested: ["请求规划", "等待候选选择与设备分配"],
-    plan_accepted: ["规划通过校验", (d.candidate_ids || []).join(" + ")],
+    plan_accepted: ["规划与候选选择", ""],
     job_submitted: [`${step}任务已提交`, `${deviceName(d.device)} · 第 ${d.attempt} 次尝试`],
     fault_injected: [
       "故障已注入",
@@ -451,16 +402,18 @@ function eventDescription(event) {
     job_timeout: ["任务等待超时", "查询原任务状态，尚未重复执行"],
     job_reconciled: [
       "已核对任务状态",
-      d.state === "succeeded" ? "设备已完成，将取回已有结果" : "原任务仍在运行",
+      d.state === "succeeded"
+        ? "设备已完成，将取回已有结果，不重复提交"
+        : `原任务${statusNames[d.state] || d.state}`,
     ],
     recovery_requested: ["请求恢复决策", "仅允许取消确认后的重试或换机"],
     recovery_decided: [
-      "恢复方案已确定",
+      `恢复决策 · ${recoveryActions[d.action] || d.action}`,
       d.action === "cancel_and_failover"
-        ? `取消后切换${deviceName(d.replacement_device_id)}`
+        ? `${step} · 取消后切换${deviceName(d.replacement_device_id)}`
         : d.action === "abort"
-          ? "停止运行"
-          : "取消原任务后重试",
+          ? `${step} · 停止后续任务`
+          : `${step} · 取消原任务后在原设备重试`,
     ],
     cancellation_acknowledged: ["原任务确认取消", deviceName(d.device)],
     recovery_executing: ["执行恢复方案", `下一次任务使用${deviceName(d.device)}`],
@@ -474,6 +427,38 @@ function eventDescription(event) {
   };
   return mapping[event.event] || [event.event, ""];
 }
+function appendDecision(content, event) {
+  const d = event.details || {};
+  const provider = d.agent === "openrouter" ? "OpenRouter API" : d.agent === "rule" ? "离线规则" : "";
+  content.append(node("div", "decision-meta", provider ? `${provider} · 已校验` : "已校验"));
+  if (event.event === "plan_accepted") {
+    const candidates = node("div", "candidate-list");
+    candidates.append(...(d.candidate_ids || []).map((id) => node("span", "candidate-chip", id)));
+    content.append(candidates);
+  }
+  if (d.reason) {
+    const label = event.event === "plan_accepted" ? "选择原因" : "恢复原因";
+    content.append(node("p", "decision-reason", `${label}：${d.reason}`));
+  }
+}
+function appendRecoveryProof(content, event) {
+  const d = event.details || {};
+  if (event.event !== "job_submitted" || !(d.attempt > 1)) return;
+  const previous = state.events.findLast(
+    (item) => item.event === "job_submitted" && item.details?.step === d.step &&
+      item.details.attempt === d.attempt - 1 && item.seq < event.seq,
+  );
+  if (!previous?.details.job_id) return;
+  const cancellation = state.events.find(
+    (item) => item.event === "cancellation_acknowledged" &&
+      item.details?.job_id === previous.details.job_id &&
+      item.seq > previous.seq && item.seq < event.seq,
+  );
+  if (cancellation)
+    content.append(node("p", "recovery-proof",
+      `✓ #${cancellation.seq} 已确认取消 → #${event.seq} 提交第 ${d.attempt} 次任务`,
+    ));
+}
 function appendEvents(events) {
   if (!events.length) return;
   const timeline = $("timeline"),
@@ -484,6 +469,7 @@ function appendEvents(events) {
     state.events.push(event);
     state.cursor = event.seq;
     const [title, description] = eventDescription(event);
+    const decision = ["plan_accepted", "recovery_decided"].includes(event.event);
     const severity = [
       "fault_injected",
       "job_timeout",
@@ -497,19 +483,18 @@ function appendEvents(events) {
         : ["step_completed", "cancellation_acknowledged", "run_finished"].includes(event.event)
           ? "success"
           : "";
-    const item = node("div", `timeline-item ${severity}`),
-      content = node("div"),
+    const item = node("div", `timeline-item ${severity}${decision ? " decision-event" : ""}`),
+      content = node("div", "event-content"),
       head = node("div", "event-head");
     const seconds = (Date.parse(event.at) - Date.parse(state.events[0].at)) / 1000;
     head.append(
       node("span", "event-title", title),
-      node("span", "event-time", `+${seconds.toFixed(1)}s`),
+      node("span", "event-time", `#${String(event.seq).padStart(2, "0")} · +${seconds.toFixed(1)}s`),
     );
-    content.append(
-      head,
-      node("p", "event-description", description),
-      node("div", "event-seq", `#${String(event.seq).padStart(2, "0")}`),
-    );
+    content.append(head);
+    if (description) content.append(node("p", "event-description", description));
+    if (decision) appendDecision(content, event);
+    appendRecoveryProof(content, event);
     item.append(node("span", "event-dot"), content);
     timeline.append(item);
   }
@@ -517,12 +502,12 @@ function appendEvents(events) {
 }
 function render() {
   const view = derive();
-  const title = { waiting: "等待启动", starting: "正在启动", planning: "规划中", ...statusNames };
+  const title = { ...statusNames, waiting: "等待启动", starting: "正在启动", planning: "规划中" };
   text("run-status", title[view.status] || view.status);
   $("run-status").className = `state-text ${view.status}`;
-  text("run-id", state.runId || "选择配置后，启动一次演示");
+  text("run-id", state.runId || "");
   $("run-id").title = state.runId || "";
-  text("completed", view.completed.size);
+  $("run-id").hidden = !state.runId;
   text("fault-count", `${view.faults.size} / ${view.recovered}`);
   text(
     "mode-label",
@@ -530,7 +515,7 @@ function render() {
       ? "OpenRouter API · 模拟设备"
       : view.mode === "rule"
         ? "离线规则 · 模拟设备"
-        : "尚未运行",
+        : "模拟设备",
   );
   const elapsed = view.started
     ? ((view.finished ? Date.parse(view.finished) : Date.now()) - Date.parse(view.started)) / 1000
@@ -539,18 +524,16 @@ function render() {
   text("event-count", `${state.events.length} 条事件`);
   renderPipeline(view);
   renderDevices(view);
-  renderDecisions(view);
   renderResults(view);
   if (!state.events.length) {
     const empty = node("div", "timeline-empty");
     empty.append(
-      node("span", "empty-orbit", "◎"),
       node(
         "h3",
         "",
         state.pending ? "正在启动实验" : state.runId ? "正在读取日志" : "等待实验启动",
       ),
-      node("p", "", "设备响应和恢复过程将在这里实时更新。"),
+      node("p", "", "事件与决策将在这里实时更新。"),
     );
     $("timeline").replaceChildren(empty);
   }
