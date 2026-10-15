@@ -36,12 +36,10 @@ class DeviceDriver(Protocol):
     async def cancel(self, job_id: str) -> bool: ...
     async def close(self) -> None: ...
 
+    def quarantine(self) -> None:
+        """Optional: stop routing new work to this driver after a failover.
 
-# Temporary compatibility bridge for the original hackathon tests and dashboard.
-# Simulation code itself lives in phage_lab.simulation and is never selected by
-# the real execution entry point.
-def __getattr__(name: str):
-    if name in {"FAULT_MODES", "OPERATIONS", "FaultInjector", "SimulatedDevice", "make_devices"}:
-        from . import simulation
-        return getattr(simulation, name)
-    raise AttributeError(name)
+        Drivers that cannot be taken out of service may leave this unimplemented;
+        the scheduler treats it as advisory.
+        """
+

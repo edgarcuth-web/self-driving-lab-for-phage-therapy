@@ -52,8 +52,3 @@ def read_fasta(path: Path) -> GenomeSummary:
         raise ValueError("FASTA has no sequence or ends with an empty contig.")
     return GenomeSummary(digest.hexdigest(), bases, contigs)
 
-
-# Compatibility only. Synthetic candidate generation is isolated in simulation.py.
-def mock_candidates(genome: GenomeSummary) -> list[dict]:
-    from .simulation import mock_candidates as _mock_candidates
-    return _mock_candidates(genome)
