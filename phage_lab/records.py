@@ -49,19 +49,38 @@ class RunRecords:
 def evaluate(results: dict) -> dict:
     readout = results.get("measure", {}).get("readings")
     if readout is None:
-        return {"quality": "incomplete", "biological_conclusion": "not_assessed"}
-    return {"quality": "synthetic_readout_complete", "reading_count": len(readout),
-            "mean_simulated_signal": round(mean(readout), 4),
-            "unit": "arbitrary_simulation_units", "biological_conclusion": "not_assessed"}
+        return {"quality": "incomplete" if not results else "workflow_complete_without_standard_readout",
+                "biological_conclusion": "not_assessed"}
+    unit = results.get("measure", {}).get("unit")
+    if unit == "arbitrary_simulation_units":
+        return {"quality": "synthetic_readout_complete", "reading_count": len(readout),
+                "mean_simulated_signal": round(mean(readout), 4),
+                "unit": unit, "biological_conclusion": "not_assessed"}
+    result = {"quality": "measurement_complete", "reading_count": len(readout),
+              "biological_conclusion": "not_assessed"}
+    if readout and all(isinstance(value, (int, float)) for value in readout):
+        result["mean_signal"] = round(mean(readout), 4)
+    if unit is not None:
+        result["unit"] = unit
+    return result
 
 
 def render_report(report: dict) -> str:
-    lines = ["# 模拟实验运行报告", "", "> 全部候选、合成订单、设备及读数均为模拟。不能据此判断感染率或疗效。", "",
-             f"- 运行编号：`{report['run_id']}`", f"- 流程状态：`{report['status']}`",
-             f"- 决策模式：`{report['agent']}`", f"- 随机种子：`{report['seed']}`",
-             f"- 实际注入故障次数：`{report['fault']['injected_count']}`", "",
-             "## 候选组合", "", ", ".join(report.get("plan", {}).get("candidate_ids", [])) or "未产生计划", "",
-             "## 完成的步骤", ""]
+    simulated = report.get("simulated") is True
+    lines = ["# 模拟实验运行报告" if simulated else "# 实验运行报告", ""]
+    if simulated:
+        lines.extend(["> 这是显式 simulation/test harness；候选、设备及读数不能作为生物学证据。", ""])
+    lines.extend([f"- 运行编号：`{report['run_id']}`", f"- 流程状态：`{report['status']}`",
+                  f"- 决策模式：`{report.get('agent', 'unknown')}`"])
+    if report.get("sample_id"):
+        lines.append(f"- 样本编号：`{report['sample_id']}`")
+    if "seed" in report:
+        lines.append(f"- 随机种子：`{report['seed']}`")
+    if isinstance(report.get("fault"), dict):
+        lines.append(f"- 实际注入故障次数：`{report['fault'].get('injected_count', 0)}`")
+    lines.extend(["", "## 候选组合", "",
+                  ", ".join(report.get("plan", {}).get("candidate_ids", [])) or "未产生计划", "",
+                  "## 完成的步骤", ""])
     lines.extend(f"- `{step}`" for step in report["results"])
     if not report["results"]:
         lines.append("尚无完成步骤。")
