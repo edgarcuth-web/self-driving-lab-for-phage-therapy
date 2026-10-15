@@ -65,12 +65,27 @@ def evaluate(results: dict) -> dict:
 
 
 def render_report(report: dict) -> str:
-    simulated = report.get("simulated") is True
-    lines = ["# 模拟实验运行报告" if simulated else "# 实验运行报告", ""]
-    if simulated:
+    mode = report.get("execution_mode")
+    if mode == "virtual_hardware":
+        title = "# 虚拟硬件运行报告"
+    elif mode == "legacy_demo":
+        title = "# 模拟实验运行报告"
+    else:
+        title = "# 实验运行报告"
+    lines = [title, ""]
+    if mode == "virtual_hardware":
+        lines.extend([
+            "> 本次运行使用软件设备 twin；没有执行物理湿实验。虚拟设备输出不能作为实验或疗效证据。",
+            "",
+        ])
+    elif report.get("simulated") is True:
         lines.extend(["> 这是显式 simulation/test harness；候选、设备及读数不能作为生物学证据。", ""])
     lines.extend([f"- 运行编号：`{report['run_id']}`", f"- 流程状态：`{report['status']}`",
                   f"- 决策模式：`{report.get('agent', 'unknown')}`"])
+    if mode:
+        lines.append(f"- 执行模式：`{mode}`")
+    if "physical_execution" in report:
+        lines.append(f"- 真实物理执行：`{report['physical_execution']}`")
     if report.get("sample_id"):
         lines.append(f"- 样本编号：`{report['sample_id']}`")
     if "seed" in report:
