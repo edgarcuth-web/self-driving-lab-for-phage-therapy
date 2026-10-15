@@ -1,4 +1,4 @@
-"""Explicit simulation harness retained for tests and the legacy demo UI only."""
+"""Virtual hardware and the legacy all-synthetic hackathon harness."""
 
 import asyncio
 from copy import deepcopy
@@ -8,7 +8,7 @@ import json
 import math
 from pathlib import Path
 import random
-from typing import Callable
+from typing import Callable, Iterable
 
 from .agents import OpenRouterAgent, RuleAgent
 from .biology import GenomeSummary, read_fasta
@@ -27,7 +27,7 @@ SIMULATION_INTERFACE = "mhs-inspired-local-v0"
 
 
 def mock_candidates(genome: GenomeSummary) -> list[dict]:
-    """Deterministic fixtures for controller tests; no biological meaning."""
+    """Deterministic biology fixtures for the legacy demo only."""
     rng = random.Random("mock-candidates:" + genome.sha256)
     candidates = [
         {"id": f"SIM-PHAGE-{letter}", "simulation_score": round(rng.uniform(0.1, 0.9), 3),
@@ -67,6 +67,12 @@ class Job:
 
 
 class SimulatedDevice:
+    """Software-only device twin.
+
+    It can carry real candidate IDs through orchestration tests, but every output
+    remains explicitly simulated and therefore is not experimental evidence.
+    """
+
     def __init__(self, device_id: str, operation: str, injector: FaultInjector,
                  emit: Callable[..., None], seed: int, time_scale: float = 1.0):
         self.device_id = device_id
@@ -85,7 +91,7 @@ class SimulatedDevice:
                 "simulated": True, "interface": SIMULATION_INTERFACE,
                 "state": "quarantined" if self.quarantined else "available",
                 "limits": {"concurrent_jobs": 1},
-                "notes": "Virtual jobs only. Cancellation is acknowledged before reuse."}
+                "notes": "Software-only device twin. No physical action occurs."}
 
     def _reachable(self) -> None:
         if any(job.fault == "unreachable" for job in self.jobs.values()):
@@ -109,9 +115,9 @@ class SimulatedDevice:
                 or not command.payload["sample_id"]
                 or not isinstance(command.payload["candidate_ids"], list)
                 or not 2 <= len(command.payload["candidate_ids"]) <= 3
-                or any(not isinstance(item, str) or not item.startswith("SIM-PHAGE-")
+                or any(not isinstance(item, str) or not item
                        for item in command.payload["candidate_ids"])):
-            raise DeviceError("Command is outside the simulated device contract.")
+            raise DeviceError("Command is outside the virtual device contract.")
         fingerprint = sha256(json.dumps(
             [command.operation, command.payload], sort_keys=True).encode()).hexdigest()
         previous = self._commands.get(command.command_id)
@@ -141,7 +147,8 @@ class SimulatedDevice:
         await asyncio.sleep(delay * self.time_scale)
         if job.fault in {"hang", "unreachable"}:
             await asyncio.Event().wait()
-        result = {"simulated": True, "sample_id": job.command.payload["sample_id"],
+        result = {"simulated": True, "physical_execution": False,
+                  "sample_id": job.command.payload["sample_id"],
                   "operation": self.operation}
         if self.operation == "synthesize":
             result["virtual_order_id"] = "SIM-ORDER-" + job.fingerprint[:10]
@@ -150,6 +157,7 @@ class SimulatedDevice:
             rng = random.Random(f"synthetic-readout:{self.seed}:{key}")
             result["readings"] = [round(rng.uniform(0.05, 0.95), 4) for _ in range(3)]
             result["unit"] = "arbitrary_simulation_units"
+            result["evidence"] = "none"
         self.effect_count += 1
         job.result = result
         job.state = "succeeded"
@@ -189,8 +197,18 @@ class SimulatedDevice:
             await asyncio.gather(*pending, return_exceptions=True)
 
 
+def make_virtual_devices(operations: Iterable[str], emit: Callable[..., None],
+                         *, seed: int = 0, time_scale: float = 0.05) -> dict[str, SimulatedDevice]:
+    """Create a no-fault virtual device twin for each requested operation."""
+    injector = FaultInjector(seed, "none")
+    return {f"virtual-{operation}": SimulatedDevice(
+        f"virtual-{operation}", operation, injector, emit, seed, time_scale)
+        for operation in operations}
+
+
 def make_devices(injector: FaultInjector, emit: Callable[..., None], seed: int,
                  time_scale: float = 1.0) -> dict[str, SimulatedDevice]:
+    """Legacy demo fleet with primary/backup devices and injectable failures."""
     return {f"{operation}-{suffix}": SimulatedDevice(
         f"{operation}-{suffix}", operation, injector, emit, seed, time_scale)
         for operation in OPERATIONS for suffix in ("primary", "backup")}
@@ -200,13 +218,14 @@ async def run_demo(genome_path: Path, output_root: Path, *, seed: int = 42,
                    fault: str = "hang", fault_step: str | None = None,
                    agent_mode: str = "rule", agent=None, time_scale: float = 1.0,
                    echo: bool = True, on_event=None) -> tuple[dict, Path]:
-    """Legacy simulation harness. Never used by the real execution entry point."""
+    """Legacy all-synthetic hackathon harness."""
     if not math.isfinite(time_scale) or not 0.01 <= time_scale <= 10:
         raise ValueError("time_scale must be between 0.01 and 10.")
     injector = FaultInjector(seed, fault, fault_step)
     records = RunRecords(output_root, echo, on_event=on_event)
     report = {"schema_version": 1, "started_at": utc_now(), "status": "running",
-              "simulated": True, "interface": SIMULATION_INTERFACE,
+              "simulated": True, "execution_mode": "legacy_demo",
+              "physical_execution": False, "interface": SIMULATION_INTERFACE,
               "agent": agent.name if agent else agent_mode, "seed": seed,
               "fault": {"requested": fault, "selected": injector.mode, "step": injector.step,
                         "injected_count": 0},
@@ -216,7 +235,8 @@ async def run_demo(genome_path: Path, output_root: Path, *, seed: int = 42,
                               "No restart/resume or multi-sample concurrency."]}
     devices = make_devices(injector, records.emit, seed, time_scale)
     try:
-        records.emit("run_started", agent=report["agent"], seed=seed, simulated=True)
+        records.emit("run_started", agent=report["agent"], seed=seed, simulated=True,
+                     execution_mode="legacy_demo", physical_execution=False)
         report["source"] = source_identity()
         records.emit("source_identified", **report["source"])
         if agent is None:
@@ -236,7 +256,8 @@ async def run_demo(genome_path: Path, output_root: Path, *, seed: int = 42,
         records.emit("planning_requested", agent=agent.name)
         plan = await agent.plan({"genome": genome.public_metadata(),
                                 "candidates": report["candidates"], "devices": manifests,
-                                "workflow": DEPENDENCIES, "simulated": True})
+                                "workflow": DEPENDENCIES, "simulated": True,
+                                "execution_mode": "legacy_demo"})
         validate_plan(plan, report["candidates"], devices, operations=OPERATIONS)
         report["plan"] = plan
         records.emit("plan_accepted", agent=agent.name, **plan)
