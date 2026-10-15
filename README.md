@@ -74,10 +74,116 @@ python3 -m unittest discover -s tests -v
 
 代码结构见 [架构说明](docs/architecture.md)，开发约定见 [AGENTS.md](AGENTS.md)。
 
-## 后续计划
+## 后续计划 Design Stack
 
-1. 真实模型多场景联调，记录规划和恢复成功率。
-2. 接入经过独立验证的候选预测服务。
+┌─────────────────────────────────────────────────────────────┐
+│ 1. INPUT                                                    │
+│                                                             │
+│ bacterial FASTA                                             │
+└──────────────────────┬──────────────────────────────────────┘
+                       ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 2. HOST PROFILING                                           │
+│                                                             │
+│ HostProfiler                                                │
+│ ├─ taxonomy / genome QC                                     │
+│ ├─ known defense systems                                    │
+│ ├─ receptors / surface determinants                         │
+│ ├─ receptor-modification genes                              │
+│ ├─ prophages / MGEs                                         │
+│ ├─ housekeeping genes                                       │
+│ ├─ hypothetical / unknown genes                             │
+│ └─ whole-genome embeddings                                  │
+│                                                             │
+│ → HostProfile                                               │
+└──────────────────────┬──────────────────────────────────────┘
+                       ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 3. CANDIDATE DISCOVERY                                      │
+│                                                             │
+│ CandidateProvider                                           │
+│                                                             │
+│ ├──────────── Retrieval branch ─────────────┐                │
+│ │ known phage databases                    │                │
+│ │ host-range evidence                      │                │
+│ │ sequence similarity / related hosts      │                │
+│ └──────────────────────────────────────────┘                │
+│                                                             │
+│ ├──────────── Generation branch ────────────┐                │
+│ │ choose template / lineage                │                │
+│ │ Evo2 / future generator                  │                │
+│ │ generate candidate genomes               │                │
+│ └──────────────────────────────────────────┘                │
+│                                                             │
+│ → CandidatePool                                             │
+└──────────────────────┬──────────────────────────────────────┘
+                       ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 4. PHAGE PROFILING                                          │
+│                                                             │
+│ PhageProfiler                                               │
+│ ├─ receptor-binding machinery                               │
+│ ├─ known anti-defense genes                                 │
+│ ├─ host-surface manipulation                                │
+│ ├─ accessory genes                                          │
+│ ├─ hypothetical ORFs                                        │
+│ └─ whole-genome embeddings                                  │
+│                                                             │
+│ → PhageProfile[]                                            │
+└──────────────────────┬──────────────────────────────────────┘
+                       ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 5. INTERACTION MODEL                                        │
+│                                                             │
+│ HostProfile × PhageProfile                                  │
+│                                                             │
+│ known interactions                                          │
+│ ├─ receptor ↔ RBP                                           │
+│ ├─ defense ↔ anti-defense                                   │
+│ ├─ defense × defense                                        │
+│ ├─ anti-defense × anti-defense                              │
+│ └─ unknown learned interactions                             │
+│                                                             │
+│ → PairPrediction                                            │
+│     score                                                   │
+│     calibrated_probability                                  │
+│     uncertainty                                             │
+│     explanations / evidence                                 │
+└──────────────────────┬──────────────────────────────────────┘
+                       ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 6. COCKTAIL MODEL                                           │
+│                                                             │
+│ candidate combinations                                      │
+│        ↓                                                    │
+│ combination / epistasis model                               │
+│        ↓                                                    │
+│ CocktailPrediction                                          │
+│ ├─ predicted efficacy                                       │
+│ ├─ uncertainty                                              │
+│ ├─ diversity / coverage                                     │
+│ └─ interaction warnings                                     │
+└──────────────────────┬──────────────────────────────────────┘
+                       ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 7. AGENT / PLANNER                                          │
+│                                                             │
+│ Agent does NOT invent biological results                    │
+│                                                             │
+│ Agent chooses among validated candidates / experiments      │
+│        ↓                                                    │
+│ deterministic validator                                     │
+└──────────────────────┬──────────────────────────────────────┘
+                       ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 8. SDL / EXPERIMENT LAYER                                   │
+│                                                             │
+│ synthesis → preparation → infection → measurement           │
+│                         ↓                                   │
+│               experimental outcome                          │
+│                         ↓                                   │
+│                 training / active learning                  │
+└─────────────────────────────────────────────────────────────┘
 
 ## 参考
 
