@@ -26,7 +26,7 @@ def main(argv=None) -> int:
     parser.add_argument("command", nargs="?", default="demo", choices=["demo", "dashboard", "version"])
     parser.add_argument("--genome", type=Path,
                         default=Path(__file__).resolve().parent.parent / "examples" / "toy_genome.fasta")
-    parser.add_argument("--agent", choices=["rule", "anthropic"], default="rule")
+    parser.add_argument("--agent", choices=["rule", "openrouter"], default="rule")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--fault", choices=FAULT_MODES, default="hang")
     parser.add_argument("--fault-step", choices=OPERATIONS)
@@ -50,7 +50,7 @@ def main(argv=None) -> int:
             return 2
         return 0
     print("SIMULATION: 候选、订单、设备和读数均为模拟。", flush=True)
-    print("决策模式：" + ("离线规则（没有调用 AI）" if args.agent == "rule" else "Claude API（真实模型调用）"), flush=True)
+    print("决策模式：" + ("离线规则（没有调用 AI）" if args.agent == "rule" else "OpenRouter API（真实模型调用）"), flush=True)
     try:
         report, directory = asyncio.run(run_demo(
             args.genome, args.output_dir, seed=args.seed, fault=args.fault,
@@ -66,3 +66,4 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

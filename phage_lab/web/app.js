@@ -76,12 +76,12 @@ function setConnection(connected) {
 }
 function updateControls() {
   const busy = state.submitting || state.pending || Boolean(state.meta?.busy);
-  const needsConfig = $("agent").value === "anthropic" && !state.meta?.anthropic_ready;
+  const needsConfig = $("agent").value === "openrouter" && !state.meta?.openrouter_ready;
   $("start").disabled = !state.connected || busy || state.configuring || needsConfig;
   $("configuration").disabled = busy || state.configuring;
   $("api-fields").disabled = !state.connected || busy || state.configuring;
   $("api-clear").disabled = !state.meta?.api_key_configured && !state.meta?.model;
-  text("api-save", state.configuring ? "正在保存…" : "保存并使用 Claude");
+  text("api-save", state.configuring ? "正在保存…" : "保存并使用 OpenRouter");
   text(
     "start-label",
     state.submitting || state.pending
@@ -94,16 +94,16 @@ function updateControls() {
   );
 }
 function updateAgent() {
-  const available = Boolean(state.meta?.anthropic_ready);
-  $("claude-option").disabled = !available;
-  $("claude-option").textContent = available
-    ? `Claude · ${state.meta.model}`
-    : "Claude · 未配置 API";
+  const available = Boolean(state.meta?.openrouter_ready);
+  $("openrouter-option").disabled = !available;
+  $("openrouter-option").textContent = available
+    ? `OpenRouter · ${state.meta.model}`
+    : "OpenRouter · 未配置 API";
   text("api-state", available ? "已配置" : "未配置");
   $("api-key").required = !state.meta?.api_key_configured;
   $("api-key").placeholder = state.meta?.api_key_configured
     ? "留空保留当前密钥"
-    : "粘贴你的 Anthropic API Key";
+    : "粘贴你的 OpenRouter API Key";
   text(
     "api-key-note",
     state.meta?.api_key_configured
@@ -118,9 +118,9 @@ function updateAgent() {
   // Never silently change a user-selected provider.
   text(
     "agent-note",
-    $("agent").value === "anthropic"
-      ? "使用已配置的 Claude API；只发送摘要，不发送原始序列。"
-      : "固定规则模式，不调用 AI。可在上方填写 Claude API 配置。",
+    $("agent").value === "openrouter"
+      ? "使用已配置的 OpenRouter API；只发送摘要，不发送原始序列。"
+      : "固定规则模式，不调用 AI。可在上方填写 OpenRouter API 配置。",
   );
   updateControls();
 }
@@ -148,7 +148,7 @@ async function saveApiConfig(clear = false) {
     state.configRevision++;
     $("api-key").value = "";
     $("api-model").value = state.meta.model || "";
-    if (!clear) $("agent").value = "anthropic";
+    if (!clear) $("agent").value = "openrouter";
     updateAgent();
     showError("");
     $("api-message").className = "field-note api-success";
@@ -156,7 +156,7 @@ async function saveApiConfig(clear = false) {
       "api-message",
       clear
         ? "本次配置已清除。可重新填写，或选择离线规则。"
-        : "已保存并选择 Claude。点击启动演示即可验证 API 并运行。仅保存配置不会产生 API 调用。",
+        : "已保存并选择 OpenRouter。点击启动演示即可验证 API 并运行。仅保存配置不会产生 API 调用。",
     );
   } catch (error) {
     $("api-message").className = "error-message";
@@ -335,7 +335,7 @@ function renderDevices(view) {
 function renderDecisions(view) {
   text(
     "decision-mode",
-    view.mode === "anthropic" ? "CLAUDE API" : view.mode === "rule" ? "离线规则" : "等待决策",
+    view.mode === "openrouter" ? "OPENROUTER API" : view.mode === "rule" ? "离线规则" : "等待决策",
   );
   $("candidate-list").replaceChildren(
     ...(view.plan?.candidate_ids || []).map((id) => node("span", "candidate-chip", id)),
@@ -436,7 +436,7 @@ function eventDescription(event) {
   const mapping = {
     run_started: [
       "实验启动",
-      d.agent === "anthropic" ? "使用 Claude API 决策" : "使用离线规则决策",
+      d.agent === "openrouter" ? "使用 OpenRouter API 决策" : "使用离线规则决策",
     ],
     source_identified: ["记录运行版本", `源码指纹 ${(d.source_sha256 || "").slice(0, 12)}`],
     input_validated: ["输入校验通过", `${d.bases} bp · ${d.contigs} contig`],
@@ -526,8 +526,8 @@ function render() {
   text("fault-count", `${view.faults.size} / ${view.recovered}`);
   text(
     "mode-label",
-    view.mode === "anthropic"
-      ? "真实 Claude 决策 · 模拟设备"
+    view.mode === "openrouter"
+      ? "真实 OpenRouter 决策 · 模拟设备"
       : view.mode === "rule"
         ? "离线规则 · 模拟设备"
         : "尚未运行",
@@ -702,3 +702,4 @@ $("refresh-history").addEventListener("click", () =>
 );
 render();
 poll();
+

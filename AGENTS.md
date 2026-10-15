@@ -9,7 +9,7 @@ the outcome. Keep the one-command offline demo working.
 ## Architecture
 
 - `phage_lab/biology.py`: FASTA validation and explicitly synthetic candidates.
-- `phage_lab/agents.py`: offline policy and optional Claude API decisions.
+- `phage_lab/agents.py`: offline policy and optional OpenRouter API decisions.
 - `phage_lab/devices.py`: device contract, manifests, asynchronous simulators.
 - `phage_lab/workflow.py`: fixed task template, validation, scheduler, recovery.
 - `phage_lab/records.py`: append-only events and final JSON/Markdown reports.
@@ -35,7 +35,7 @@ the outcome. Keep the one-command offline demo working.
   selected, must fail clearly on configuration/API errors, and must never
   silently fall back to the offline policy.
 - Do not store credentials, raw user genomes, or generated run data in Git.
-  Claude receives summary metadata only, not FASTA contents or headers.
+  OpenRouter receives summary metadata only, not FASTA contents or headers.
 - Simulation determinism concerns decisions and generated values, not run IDs,
   event timestamps or wall-clock timing. Live model decisions can vary.
 - ZIP downloads must work without Git. Record the source fingerprint on new runs;
@@ -72,3 +72,4 @@ Do not claim live API verification unless an actual authorized request succeeded
 
 For GitHub changes, inspect the current branch head before updating it. Preserve
 other contributors' work and never force-push over concurrent changes.
+

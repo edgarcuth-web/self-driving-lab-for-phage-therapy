@@ -84,7 +84,7 @@ These values are test fixtures, not a mechanistic model or predicted probabiliti
 FASTA contents and headers remain local and are never copied into run records.
 The normalized fingerprint, length and contig count are recorded. In live mode
 these metadata, candidate fixtures, manifests and observed device states are sent
-to Anthropic; the raw genome is not sent.
+to OpenRouter and the selected provider; the raw genome is not sent.
 
 `events.jsonl` is flushed after each append. `report.json` and `report.md` are written
 via temporary files at a terminal state. Power loss or forced process termination
@@ -112,7 +112,7 @@ events every 500 ms. Refreshes and server restarts can read saved reports.
 
 The server enforces loopback Host/Origin checks and a process-scoped token on writes.
 It does not expose API keys or accept output/input path strings from the browser.
-API settings live in process memory (user-facing rules: [claude.md](claude.md)); each
+API settings live in process memory (user-facing rules: [openrouter.md](openrouter.md)); each
 live run receives an agent constructed from a snapshot of the current configuration.
 User FASTA contents (up to 1 MB) are staged in a temporary local file for the run
 and removed afterward. Run IDs and filenames are constrained; symlinked reports
@@ -136,4 +136,5 @@ an earlier historical run used that code. Existing records are not rewritten.
 
 - [Anthropic: Previewing the Model Hardware Standard](https://www.anthropic.com/news/model-hardware-standard-research-preview)
 - [MHS research-preview access](https://modelhardwarestandard.com/)
-- [Anthropic Messages API](https://platform.claude.com/docs/en/api/messages/create)
+- [OpenRouter Tool Calling](https://openrouter.ai/docs/guides/features/tool-calling)
+
