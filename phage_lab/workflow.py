@@ -1,4 +1,4 @@
-"""Validated orchestration for real devices, plus bounded reconciliation logic."""
+"""Validated experiment orchestration with explicit hardware execution modes."""
 
 import asyncio
 import math
@@ -8,6 +8,8 @@ from .biology import read_fasta
 from .devices import Command, DeviceUnavailable
 from .records import RunRecords, evaluate, utc_now
 from .provenance import source_identity
+
+EXECUTION_MODES = ("real_hardware", "virtual_hardware")
 
 
 class WorkflowError(RuntimeError):
@@ -63,26 +65,43 @@ def validate_recovery(decision: dict, alternatives: list[str]) -> None:
         raise WorkflowError("Only failover can specify a replacement device.")
 
 
-def validate_real_inputs(candidates: list[dict], devices: dict) -> None:
-    """Refuse all known simulated fixtures on the production execution path."""
+def _validate_candidates(candidates: list[dict]) -> None:
+    """Keep synthetic biology fixtures out of the experiment path.
+
+    Virtual hardware is allowed, but candidates still need to come from an
+    external, traceable source rather than the old hackathon mock generator.
+    """
     if not candidates:
-        raise WorkflowError("A real run requires externally supplied candidate records.")
+        raise WorkflowError("An experiment run requires externally supplied candidate records.")
     for candidate in candidates:
         if not isinstance(candidate, dict) or not isinstance(candidate.get("id"), str) or not candidate["id"].strip():
             raise WorkflowError("Each candidate requires a nonempty string ID.")
         if (candidate.get("simulated") is True
                 or candidate.get("source") == "synthetic_fixture"
                 or candidate["id"].startswith("SIM-")):
-            raise WorkflowError("Real runs reject simulated candidate fixtures.")
+            raise WorkflowError("Experiment runs reject synthetic candidate fixtures.")
+
+
+def validate_experiment_inputs(candidates: list[dict], devices: dict, execution_mode: str) -> None:
+    if execution_mode not in EXECUTION_MODES:
+        raise WorkflowError("Unknown execution mode.")
+    _validate_candidates(candidates)
     if not devices:
-        raise WorkflowError("A real run requires configured device drivers.")
+        raise WorkflowError("An experiment run requires configured device drivers.")
+    expected_simulated = execution_mode == "virtual_hardware"
     for device_id, device in devices.items():
         manifest = device.describe()
-        if manifest.get("simulated") is not False:
+        if manifest.get("simulated") is not expected_simulated:
+            expected = "simulated=True" if expected_simulated else "simulated=False"
             raise WorkflowError(
-                f"Real run refused device {device_id!r}: driver must explicitly declare simulated=False.")
+                f"{execution_mode} refused device {device_id!r}: driver must explicitly declare {expected}.")
         if not isinstance(manifest.get("device_id"), str) or manifest["device_id"] != device_id:
-            raise WorkflowError("Real device manifest must match its configured device ID.")
+            raise WorkflowError("Device manifest must match its configured device ID.")
+
+
+def validate_real_inputs(candidates: list[dict], devices: dict) -> None:
+    """Compatibility alias for callers that require physical hardware."""
+    validate_experiment_inputs(candidates, devices, "real_hardware")
 
 
 def _validate_workflow(workflow: dict) -> tuple[str, ...]:
@@ -177,25 +196,43 @@ class Scheduler:
 
 
 async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str,
-                         candidates: list[dict], devices: dict, workflow: dict, agent,
-                         timeout_seconds: float = 60.0, echo: bool = True,
-                         on_event=None) -> tuple[dict, Path]:
-    """Run an explicitly configured real experiment.
+                         candidates: list[dict], devices: dict | None, workflow: dict, agent,
+                         execution_mode: str = "real_hardware", timeout_seconds: float = 60.0,
+                         echo: bool = True, on_event=None) -> tuple[dict, Path]:
+    """Run an experiment plan against physical or explicitly virtual hardware.
 
-    Nothing is synthesized by this function: candidate records and device drivers
-    must be supplied by the caller. Any simulated candidate or device is rejected.
+    Candidate records must always be externally supplied and non-synthetic.
+    `virtual_hardware` may emulate instruments, but its outputs are not physical
+    measurements and must not be represented as experimental evidence.
     """
     if not isinstance(sample_id, str) or not sample_id.strip():
         raise ValueError("sample_id must be a nonempty string.")
+    if execution_mode not in EXECUTION_MODES:
+        raise ValueError(f"execution_mode must be one of {EXECUTION_MODES}.")
     operations = _validate_workflow(workflow)
-    validate_real_inputs(candidates, devices)
+    _validate_candidates(candidates)
+    if execution_mode == "real_hardware" and not devices:
+        raise WorkflowError("real_hardware requires configured physical device drivers.")
+
     records = RunRecords(output_root, echo, on_event=on_event)
+    if execution_mode == "virtual_hardware" and not devices:
+        from .simulation import make_virtual_devices
+        devices = make_virtual_devices(operations, records.emit)
+    validate_experiment_inputs(candidates, devices, execution_mode)
+
+    physical_execution = execution_mode == "real_hardware"
     report = {"schema_version": 2, "started_at": utc_now(), "status": "running",
-              "simulated": False, "agent": getattr(agent, "name", type(agent).__name__),
+              "simulated": not physical_execution, "execution_mode": execution_mode,
+              "physical_execution": physical_execution,
+              "agent": getattr(agent, "name", type(agent).__name__),
               "sample_id": sample_id, "results": {}, "recoveries": [], "error": None,
               "limitations": ["Biological efficacy is not inferred by the orchestration layer."]}
+    if not physical_execution:
+        report["limitations"].append(
+            "Instrument actions and resulting device outputs are virtual; no wet-lab experiment occurred.")
     try:
-        records.emit("run_started", agent=report["agent"], simulated=False, sample_id=sample_id)
+        records.emit("run_started", agent=report["agent"], execution_mode=execution_mode,
+                     physical_execution=physical_execution, sample_id=sample_id)
         report["source"] = source_identity()
         records.emit("source_identified", **report["source"])
         genome = read_fasta(genome_path)
@@ -203,10 +240,12 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
         records.emit("input_validated", **report["genome"])
         report["candidates"] = candidates
         manifests = [device.describe() for device in devices.values()]
-        records.emit("devices_discovered", count=len(manifests), simulated=False)
+        records.emit("devices_discovered", count=len(manifests), execution_mode=execution_mode)
         records.emit("planning_requested", agent=report["agent"])
         plan = await agent.plan({"genome": genome.public_metadata(), "candidates": candidates,
-                                "devices": manifests, "workflow": workflow, "simulated": False})
+                                "devices": manifests, "workflow": workflow,
+                                "execution_mode": execution_mode,
+                                "physical_execution": physical_execution})
         validate_plan(plan, candidates, devices, operations=operations)
         report["plan"] = plan
         records.emit("plan_accepted", agent=report["agent"], **plan)
@@ -238,6 +277,6 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
 
 
 async def run_demo(*args, **kwargs):
-    """Compatibility wrapper for the legacy explicit simulation harness."""
+    """Compatibility wrapper for the legacy all-synthetic hackathon harness."""
     from .simulation import run_demo as _run_demo
     return await _run_demo(*args, **kwargs)
