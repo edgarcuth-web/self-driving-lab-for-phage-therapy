@@ -25,19 +25,15 @@ WSL / Ubuntu 使用 `python3 -m phage_lab dashboard`；端口被占用时加 `--
 python3 -m phage_lab demo
 ```
 
-默认离线规则决策，不调用 AI，也不联网。Windows 终端可把 `python3` 换成 `py`。
+## 离线演示和测试
+`--agent rule`模式，固定规则做规划与故障决策
 
 ## 使用 OpenRouter API
-
-在面板左侧展开 **OpenRouter API 配置**，填写 API Key 和模型 ID，保存后启动演示。
-密钥只保存在本次服务进程的内存中。命令行模式改用环境变量。详见 [OpenRouter 接入说明](docs/openrouter.md)。
-
-| 模式 | 规划与故障决策 | 需要 API |
-|---|---|---|
-| `--agent rule`（默认） | 固定规则，便于离线演示和测试 | 否 |
-| `--agent openrouter` | 经 OpenRouter 调用模型，选择候选、分配设备和恢复动作，本地校验后执行 | 是 |
-
+`--agent openrouter`模式，经 OpenRouter 调用模型，选择候选、分配设备和恢复动作，本地校验后执行
 API 出错时会生成失败报告，不会自动切回规则模式。
+
+在面板左侧填写 API Key 和模型 ID，保存后启动演示。
+密钥只保存在本次服务进程的内存中。命令行模式改用环境变量。详见 [OpenRouter 接入说明](docs/openrouter.md)。
 
 ## 运行结果
 
@@ -93,4 +89,3 @@ OpenRouter 适配器测试使用模拟 HTTP 响应，不等于真实 API 联调�
 
 接口设计参考了 Anthropic 的 [MHS 研究预览公告](https://www.anthropic.com/news/model-hardware-standard-research-preview)
 中公开的设备发现、能力描述和读写原语思路。本仓库的 Python 接口是自定义的演示契约，不声称兼容或通过认证。
-
