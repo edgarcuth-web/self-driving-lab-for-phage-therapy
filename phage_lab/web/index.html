@@ -1,82 +1,259 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Phage Lab · 实验控制台</title>
-  <meta name="description" content="观察 AI 规划、模拟实验执行和设备故障恢复。">
-  <link rel="stylesheet" href="/style.css">
-  <script src="/app.js" defer></script>
-</head>
-<body>
-  <header class="topbar">
-    <a class="brand" href="/" aria-label="Phage Lab 首页"><span class="brand-mark">P</span><span>PHAGE<span class="muted"> / </span>LAB</span></a>
-    <span class="workspace-label">SELF-DRIVING LAB</span>
-    <div class="connection" id="connection" role="status"><span class="dot"></span><span id="connection-text">正在连接本地调度器</span></div>
-    <span class="version" id="version">LOCAL</span>
-  </header>
-  <div class="layout">
-    <aside class="sidebar">
-      <div class="section-eyebrow">RUN CONFIGURATION</div>
-      <h2>准备一次实验</h2>
-      <p class="sidebar-intro">配置输入，观察从规划到报告的完整过程。</p>
-      <details class="api-settings" id="api-settings">
-        <summary>Claude API 配置<span id="api-state">未配置</span></summary>
-        <form id="api-form" autocomplete="off">
-          <fieldset id="api-fields" disabled>
-            <label class="field-label" for="api-key">API Key</label>
-            <input id="api-key" type="password" maxlength="4096" autocomplete="off" spellcheck="false" autocapitalize="none" placeholder="粘贴你的 Anthropic API Key" aria-describedby="api-key-note">
-            <p class="field-note" id="api-key-note">密钥仅保存在本次服务中，不写入文件。</p>
-            <label class="field-label" for="api-model">模型 ID</label>
-            <input id="api-model" type="text" maxlength="200" required autocomplete="off" spellcheck="false" autocapitalize="none" placeholder="账号可用的模型 ID">
-            <p class="field-note">刷新页面保留配置；关闭面板服务后清除。保存时不调用 API，启动演示时验证。</p>
-            <button class="api-save" id="api-save" type="submit">保存并使用 Claude</button>
-            <button class="text-button api-clear" id="api-clear" type="button" disabled>清除本次配置</button>
-          </fieldset>
-        </form>
-        <p class="field-note" id="api-message" role="status" hidden></p>
-      </details>
-      <form id="run-form">
-        <fieldset id="configuration">
-          <label class="field-label" for="agent">决策方式</label>
-          <select id="agent" name="agent"><option value="rule">离线规则 · 无需 API</option><option value="anthropic" id="claude-option" disabled>Claude · 正在检查配置</option></select>
-          <p class="field-note" id="agent-note">固定规则模式，不调用 AI。</p>
-          <label class="field-label" for="genome">输入基因组</label>
-          <label class="upload-zone" for="genome"><span class="upload-symbol">↥</span><span id="file-label">选择 FASTA 文件</span><small>可选 · 最大 1 MB</small></label>
-          <input id="genome" type="file" accept=".fasta,.fa,.fna,text/plain" class="file-input">
-          <div class="input-meta"><span id="input-description">当前使用内置人工示例</span><button type="button" class="text-button" id="reset-genome" hidden>重置</button></div>
-          <div class="field-row"><div><label class="field-label" for="seed">随机种子</label><input id="seed" type="number" step="1" min="-2147483648" max="2147483647" value="42" required></div><div><label class="field-label" for="fault-step">故障步骤</label><select id="fault-step"><option value="">随机选择</option><option value="synthesize">合成</option><option value="prepare">制备</option><option value="transfer">转运</option><option value="infect">感染</option><option value="measure">读数</option></select></div></div>
-          <label class="field-label" for="fault">故障场景</label>
-          <select id="fault"><option value="hang">设备卡死 · 自动恢复演示</option><option value="response-lost">回执丢失 · 核对已有结果</option><option value="unreachable">设备失联 · 停止并报告</option><option value="none">无故障</option><option value="random">随机故障类型</option></select>
-          <p class="field-note">种子相同便于复现模拟过程；模型决策可能不同。</p>
-        </fieldset>
-        <button class="start-button" id="start" type="submit" disabled><span id="start-label">连接中…</span><span aria-hidden="true">↗</span></button>
-        <p class="error-message" id="error" role="alert" hidden></p>
-      </form>
-      <div class="recent-heading"><span class="section-eyebrow">RECENT RUNS</span><button class="text-button" id="refresh-history" type="button">刷新</button></div>
-      <div id="history" class="history"><p class="empty-small">尚无运行记录</p></div>
-      <div class="sidebar-footer"><span class="small-tag">MHS-INSPIRED</span><p>本地模拟设备<br>关闭终端将停止服务。</p></div>
-    </aside>
-    <main>
-      <div class="page-heading"><div><div class="section-eyebrow">EXPERIMENT OPERATIONS</div><h1>实验控制台<span class="title-dot">.</span></h1><p>从 AI 规划到故障恢复，逐步查看每一次执行。</p></div><div class="simulation-label"><span class="dot"></span>模拟实验环境</div></div>
-      <div class="notice">候选、设备与实验读数均为模拟；完成状态表示流程完成，不代表生物学疗效。</div>
-      <section class="metrics" aria-label="运行概要">
-        <div class="metric"><span class="metric-label">流程状态</span><strong id="run-status" class="state-text">等待启动</strong><span id="run-id" class="metric-note">选择配置后，启动一次演示</span></div>
-        <div class="metric"><span class="metric-label">运行耗时</span><strong id="elapsed">—<small> s</small></strong><span class="metric-note">包含决策与设备执行</span></div>
-        <div class="metric"><span class="metric-label">完成步骤</span><strong><span id="completed">0</span><small> / 5</small></strong><span class="metric-note">合成 → 制备 → 转运 → 感染 → 读数</span></div>
-        <div class="metric"><span class="metric-label">故障 / 已恢复</span><strong id="fault-count">0<small> / </small>0</strong><span id="mode-label" class="metric-note">尚未运行</span></div>
-      </section>
-      <section class="panel workflow-panel" aria-labelledby="workflow-heading"><div class="panel-heading"><h2 id="workflow-heading">执行流程</h2><span class="panel-caption" id="flow-caption">等待计划</span></div><div id="pipeline" class="pipeline"></div></section>
-      <div class="detail-layout">
-        <div class="main-column">
-          <section class="panel" aria-labelledby="devices-heading"><div class="panel-heading"><h2 id="devices-heading">设备状态</h2><span class="panel-caption">5 类能力 · 10 台虚拟设备</span></div><div id="devices" class="devices"></div><div class="device-legend"><span><i class="legend-dot running"></i>执行中</span><span><i class="legend-dot recovering"></i>恢复中</span><span><i class="legend-dot failed"></i>故障 / 隔离</span><span><i class="legend-dot succeeded"></i>已完成</span></div></section>
-          <section class="panel" aria-labelledby="decisions-heading"><div class="panel-heading"><h2 id="decisions-heading">决策记录</h2><span id="decision-mode" class="small-tag">等待决策</span></div><div class="decision"><div class="decision-heading"><span class="decision-number">01</span><h3>规划与候选选择</h3></div><div id="candidate-list" class="candidate-list"></div><p id="plan-reason" class="reason placeholder">启动后显示候选组合和设备分配依据。</p></div><div class="decision recovery-decision"><div class="decision-heading"><span class="decision-number">02</span><h3>故障恢复</h3><span id="recovery-action" class="decision-action"></span></div><p id="recovery-reason" class="reason placeholder">发生故障后，显示状态核对及恢复决定。</p><div id="recovery-proof" class="recovery-proof" hidden></div></div></section>
-          <section class="panel results-panel" aria-labelledby="results-heading"><div class="panel-heading"><h2 id="results-heading">结果与报告</h2><span class="panel-caption" id="quality">等待读数</span></div><div id="readings" class="readings"><p class="empty-small">完成测量后显示模拟读数。</p></div><p id="result-message" class="result-message">每次运行都会保存独立的事件日志与结果报告。</p><div class="report-actions"><a id="download-md" class="download-button disabled" aria-disabled="true">下载报告 ↗</a><a id="download-json" class="text-button disabled" aria-disabled="true">JSON</a><a id="download-events" class="text-button disabled" aria-disabled="true">事件日志</a></div><p id="source-label" class="source-label"></p></section>
-        </div>
-        <section class="panel timeline-panel" aria-labelledby="timeline-heading"><div class="panel-heading"><h2 id="timeline-heading">运行时间线</h2><span id="event-count" class="panel-caption">0 条事件</span></div><div id="timeline" class="timeline" role="log" aria-label="运行事件" aria-live="polite"><div class="timeline-empty"><span class="empty-orbit">◎</span><h3>等待实验启动</h3><p>设备响应和恢复过程将在这里实时更新。</p></div></div></section>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Phage Lab · 实验控制台</title>
+    <meta name="description" content="观察 AI 规划、模拟实验执行和设备故障恢复。" />
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Phage Lab 首页"
+        ><span class="brand-mark">P</span><span>PHAGE<span class="muted"> / </span>LAB</span></a
+      >
+      <span class="workspace-label">SELF-DRIVING LAB</span>
+      <div class="connection" id="connection" role="status">
+        <span class="dot"></span><span id="connection-text">正在连接本地调度器</span>
       </div>
-      <footer class="main-footer"><span>PHAGE LAB / OPERATIONS CONSOLE</span><span id="live-note">本地连接 · 无外部页面资源</span></footer>
-    </main>
-  </div>
-</body>
+      <span class="version" id="version">LOCAL</span>
+    </header>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="section-eyebrow">RUN CONFIGURATION</div>
+        <h2>准备一次实验</h2>
+        <p class="sidebar-intro">配置输入，观察从规划到报告的完整过程。</p>
+        <details class="api-settings" id="api-settings">
+          <summary>Claude API 配置<span id="api-state">未配置</span></summary>
+          <form id="api-form" autocomplete="off">
+            <fieldset id="api-fields" disabled>
+              <label class="field-label" for="api-key">API Key</label>
+              <input
+                id="api-key"
+                type="password"
+                maxlength="4096"
+                autocomplete="off"
+                spellcheck="false"
+                autocapitalize="none"
+                placeholder="粘贴你的 Anthropic API Key"
+                aria-describedby="api-key-note"
+              />
+              <p class="field-note" id="api-key-note">密钥仅保存在本次服务中，不写入文件。</p>
+              <label class="field-label" for="api-model">模型 ID</label>
+              <input
+                id="api-model"
+                type="text"
+                maxlength="200"
+                required
+                autocomplete="off"
+                spellcheck="false"
+                autocapitalize="none"
+                placeholder="账号可用的模型 ID"
+              />
+              <p class="field-note">
+                刷新页面保留配置；关闭面板服务后清除。保存时不调用 API，启动演示时验证。
+              </p>
+              <button class="api-save" id="api-save" type="submit">保存并使用 Claude</button>
+              <button class="text-button api-clear" id="api-clear" type="button" disabled>
+                清除本次配置
+              </button>
+            </fieldset>
+          </form>
+          <p class="field-note" id="api-message" role="status" hidden></p>
+        </details>
+        <form id="run-form">
+          <fieldset id="configuration">
+            <label class="field-label" for="agent">决策方式</label>
+            <select id="agent" name="agent">
+              <option value="rule">离线规则 · 无需 API</option>
+              <option value="anthropic" id="claude-option" disabled>Claude · 正在检查配置</option>
+            </select>
+            <p class="field-note" id="agent-note">固定规则模式，不调用 AI。</p>
+            <label class="field-label" for="genome">输入基因组</label>
+            <label class="upload-zone" for="genome"
+              ><span class="upload-symbol">↥</span><span id="file-label">选择 FASTA 文件</span
+              ><small>可选 · 最大 1 MB</small></label
+            >
+            <input id="genome" type="file" accept=".fasta,.fa,.fna,text/plain" class="file-input" />
+            <div class="input-meta">
+              <span id="input-description">当前使用内置人工示例</span
+              ><button type="button" class="text-button" id="reset-genome" hidden>重置</button>
+            </div>
+            <div class="field-row">
+              <div>
+                <label class="field-label" for="seed">随机种子</label
+                ><input
+                  id="seed"
+                  type="number"
+                  step="1"
+                  min="-2147483648"
+                  max="2147483647"
+                  value="42"
+                  required
+                />
+              </div>
+              <div>
+                <label class="field-label" for="fault-step">故障步骤</label
+                ><select id="fault-step">
+                  <option value="">随机选择</option>
+                  <option value="synthesize">合成</option>
+                  <option value="prepare">制备</option>
+                  <option value="transfer">转运</option>
+                  <option value="infect">感染</option>
+                  <option value="measure">读数</option>
+                </select>
+              </div>
+            </div>
+            <label class="field-label" for="fault">故障场景</label>
+            <select id="fault">
+              <option value="hang">设备卡死 · 自动恢复演示</option>
+              <option value="response-lost">回执丢失 · 核对已有结果</option>
+              <option value="unreachable">设备失联 · 停止并报告</option>
+              <option value="none">无故障</option>
+              <option value="random">随机故障类型</option>
+            </select>
+            <p class="field-note">种子相同便于复现模拟过程；模型决策可能不同。</p>
+          </fieldset>
+          <button class="start-button" id="start" type="submit" disabled>
+            <span id="start-label">连接中…</span><span aria-hidden="true">↗</span>
+          </button>
+          <p class="error-message" id="error" role="alert" hidden></p>
+        </form>
+        <div class="recent-heading">
+          <span class="section-eyebrow">RECENT RUNS</span
+          ><button class="text-button" id="refresh-history" type="button">刷新</button>
+        </div>
+        <div id="history" class="history"><p class="empty-small">尚无运行记录</p></div>
+        <div class="sidebar-footer">
+          <span class="small-tag">MHS-INSPIRED</span>
+          <p>本地模拟设备<br />关闭终端将停止服务。</p>
+        </div>
+      </aside>
+      <main>
+        <div class="page-heading">
+          <div>
+            <div class="section-eyebrow">EXPERIMENT OPERATIONS</div>
+            <h1>实验控制台<span class="title-dot">.</span></h1>
+            <p>从 AI 规划到故障恢复，逐步查看每一次执行。</p>
+          </div>
+          <div class="simulation-label"><span class="dot"></span>模拟实验环境</div>
+        </div>
+        <div class="notice">
+          候选、设备与实验读数均为模拟；完成状态表示流程完成，不代表生物学疗效。
+        </div>
+        <section class="metrics" aria-label="运行概要">
+          <div class="metric">
+            <span class="metric-label">流程状态</span
+            ><strong id="run-status" class="state-text">等待启动</strong
+            ><span id="run-id" class="metric-note">选择配置后，启动一次演示</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">运行耗时</span
+            ><strong id="elapsed">—<small> s</small></strong
+            ><span class="metric-note">包含决策与设备执行</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">完成步骤</span
+            ><strong><span id="completed">0</span><small> / 5</small></strong
+            ><span class="metric-note">合成 → 制备 → 转运 → 感染 → 读数</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">故障 / 已恢复</span
+            ><strong id="fault-count">0<small> / </small>0</strong
+            ><span id="mode-label" class="metric-note">尚未运行</span>
+          </div>
+        </section>
+        <section class="panel workflow-panel" aria-labelledby="workflow-heading">
+          <div class="panel-heading">
+            <h2 id="workflow-heading">执行流程</h2>
+            <span class="panel-caption" id="flow-caption">等待计划</span>
+          </div>
+          <div id="pipeline" class="pipeline"></div>
+        </section>
+        <div class="detail-layout">
+          <div class="main-column">
+            <section class="panel" aria-labelledby="devices-heading">
+              <div class="panel-heading">
+                <h2 id="devices-heading">设备状态</h2>
+                <span class="panel-caption">5 类能力 · 10 台虚拟设备</span>
+              </div>
+              <div id="devices" class="devices"></div>
+              <div class="device-legend">
+                <span><i class="legend-dot running"></i>执行中</span
+                ><span><i class="legend-dot recovering"></i>恢复中</span
+                ><span><i class="legend-dot failed"></i>故障 / 隔离</span
+                ><span><i class="legend-dot succeeded"></i>已完成</span>
+              </div>
+            </section>
+            <section class="panel" aria-labelledby="decisions-heading">
+              <div class="panel-heading">
+                <h2 id="decisions-heading">决策记录</h2>
+                <span id="decision-mode" class="small-tag">等待决策</span>
+              </div>
+              <div class="decision">
+                <div class="decision-heading">
+                  <span class="decision-number">01</span>
+                  <h3>规划与候选选择</h3>
+                </div>
+                <div id="candidate-list" class="candidate-list"></div>
+                <p id="plan-reason" class="reason placeholder">
+                  启动后显示候选组合和设备分配依据。
+                </p>
+              </div>
+              <div class="decision recovery-decision">
+                <div class="decision-heading">
+                  <span class="decision-number">02</span>
+                  <h3>故障恢复</h3>
+                  <span id="recovery-action" class="decision-action"></span>
+                </div>
+                <p id="recovery-reason" class="reason placeholder">
+                  发生故障后，显示状态核对及恢复决定。
+                </p>
+                <div id="recovery-proof" class="recovery-proof" hidden></div>
+              </div>
+            </section>
+            <section class="panel results-panel" aria-labelledby="results-heading">
+              <div class="panel-heading">
+                <h2 id="results-heading">结果与报告</h2>
+                <span class="panel-caption" id="quality">等待读数</span>
+              </div>
+              <div id="readings" class="readings">
+                <p class="empty-small">完成测量后显示模拟读数。</p>
+              </div>
+              <p id="result-message" class="result-message">
+                每次运行都会保存独立的事件日志与结果报告。
+              </p>
+              <div class="report-actions">
+                <a id="download-md" class="download-button disabled" aria-disabled="true"
+                  >下载报告 ↗</a
+                ><a id="download-json" class="text-button disabled" aria-disabled="true">JSON</a
+                ><a id="download-events" class="text-button disabled" aria-disabled="true"
+                  >事件日志</a
+                >
+              </div>
+              <p id="source-label" class="source-label"></p>
+            </section>
+          </div>
+          <section class="panel timeline-panel" aria-labelledby="timeline-heading">
+            <div class="panel-heading">
+              <h2 id="timeline-heading">运行时间线</h2>
+              <span id="event-count" class="panel-caption">0 条事件</span>
+            </div>
+            <div id="timeline" class="timeline" role="log" aria-label="运行事件" aria-live="polite">
+              <div class="timeline-empty">
+                <span class="empty-orbit">◎</span>
+                <h3>等待实验启动</h3>
+                <p>设备响应和恢复过程将在这里实时更新。</p>
+              </div>
+            </div>
+          </section>
+        </div>
+        <footer class="main-footer">
+          <span>PHAGE LAB / OPERATIONS CONSOLE</span
+          ><span id="live-note">本地连接 · 无外部页面资源</span>
+        </footer>
+      </main>
+    </div>
+  </body>
 </html>
