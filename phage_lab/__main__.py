@@ -1,4 +1,4 @@
-"""Command-line entry point for real execution and the explicit simulation harness."""
+"""Command-line entry point for experiment orchestration and explicit simulation."""
 
 import argparse
 import asyncio
@@ -43,9 +43,9 @@ def main(argv=None) -> int:
 
     if args.command == "run":
         print(
-            "真实运行不会回退到模拟器。当前仓库尚未配置具体仪器驱动和候选数据源；"
-            "请通过 phage_lab.workflow.run_experiment 注入真实 drivers/candidates，"
-            "或先实现对应 adapter。",
+            "运行入口现在需要真实候选数据源。若没有实验硬件，可通过 "
+            "phage_lab.workflow.run_experiment(..., execution_mode='virtual_hardware', devices=None) "
+            "显式使用软件设备 twin；它不会被记作真实湿实验。",
             file=sys.stderr,
         )
         return 2
@@ -61,7 +61,7 @@ def main(argv=None) -> int:
             return 2
         return 0
 
-    print("SIMULATION TEST HARNESS: 候选、订单、设备和读数均为模拟。", flush=True)
+    print("LEGACY SIMULATION: 候选、订单、设备和读数均为模拟。", flush=True)
     print("决策模式：" + ("离线规则（没有调用 AI）" if args.agent == "rule" else "OpenRouter API（真实模型调用）"), flush=True)
     try:
         report, directory = asyncio.run(run_demo(
