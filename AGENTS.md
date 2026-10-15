@@ -2,73 +2,64 @@
 
 ## Goal and scope
 
-Build a hackathon prototype that runs a simulated phage-screening workflow,
-encounters an instrument fault, recovers when the state permits, and reports
-the outcome. Keep the one-command offline demo working.
+Build a real, auditable self-driving laboratory orchestration system for phage research. The hackathon simulator is no longer the product; it is only a test harness.
+
+The production path must accept real candidate records and real instrument adapters explicitly. Never fill missing real integrations with synthetic data.
 
 ## Architecture
 
-- `phage_lab/biology.py`: FASTA validation and explicitly synthetic candidates.
-- `phage_lab/agents.py`: offline policy and optional OpenRouter API decisions.
-- `phage_lab/devices.py`: device contract, manifests, asynchronous simulators.
-- `phage_lab/workflow.py`: fixed task template, validation, scheduler, recovery.
-- `phage_lab/records.py`: append-only events and final JSON/Markdown reports.
-- `phage_lab/provenance.py`: runtime source fingerprint, with optional Git metadata.
-- `phage_lab/dashboard.py`: loopback HTTP server, run management and artifact reads.
-- `phage_lab/web/`: buildless HTML/CSS/JS dashboard for actual scheduler events.
-- `phage_lab/__main__.py`: command-line entry point.
+- `phage_lab/biology.py`: validate FASTA and compute privacy-preserving summaries. No synthetic candidate generation in the core implementation.
+- `phage_lab/devices.py`: transport-neutral device contract only.
+- `phage_lab/workflow.py`: production validation, scheduler and reconciliation.
+- `phage_lab/simulation.py`: all synthetic candidates, virtual devices, seeded readouts and fault injection.
+- `phage_lab/agents.py`: bounded structured proposals; no direct hardware authority.
+- `phage_lab/records.py`: append-only events and run reports.
+- `phage_lab/provenance.py`: source fingerprint and optional Git metadata.
+- `phage_lab/dashboard.py` + `web/`: legacy simulation UI until a real operations UI is designed.
 
-## Invariants
+## Production invariants
 
-- All instruments, synthesis requests, candidates and assay results are simulated.
-  Never present synthetic scores as infection probabilities or efficacy evidence.
-- Label the interface **MHS-inspired**, not an implementation of the official
-  unpublished specification. Keep the local contract documented.
-- Agent output is untrusted structured data. Validate device capabilities,
-  candidate IDs and recovery actions before execution; never execute model code.
-- A timeout means the outcome is unknown. Reconcile the job first. Reuse a
-  completed result; require acknowledged cancellation before retry/failover.
-- Unknown/unreachable state must produce a failure report, not duplicate work.
-- Keep a stable logical command ID across attempts. Reject conflicting payloads
-  for the same ID. Bound retries and preserve dependency order.
-- The default is offline and needs no API key. API mode must be explicitly
-  selected, must fail clearly on configuration/API errors, and must never
-  silently fall back to the offline policy.
-- Do not store credentials, raw user genomes, or generated run data in Git.
-  OpenRouter receives summary metadata only, not FASTA contents or headers.
-- Simulation determinism concerns decisions and generated values, not run IDs,
-  event timestamps or wall-clock timing. Live model decisions can vary.
-- ZIP downloads must work without Git. Record the source fingerprint on new runs;
-  never guess a commit for a historical run or a ZIP.
-- Bind the dashboard only to loopback. Keep Host/Origin and per-session mutation
-  token checks; never return API keys or accept arbitrary filesystem paths.
-- Panel API settings are process-local and never persisted or logged. Capture the
-  configuration when constructing a run's agent; reject edits during active runs.
-  Do not mutate environment variables or treat a saved config as verified API access.
-- Render model output and report data as text, never HTML. Use the actual event
-  stream for UI state; label offline and live modes accurately.
+- Real execution must never silently fall back to simulation.
+- Reject known simulation fixtures before submitting any physical job.
+- A real driver must explicitly declare `simulated=False`; absence of the flag is not enough.
+- Agent/model output is untrusted structured data. Validate candidate IDs, device capabilities, workflow assignments and recovery actions before execution.
+- Never execute model-generated code.
+- A timeout means outcome unknown. Query the original job before any retry.
+- Do not retry or fail over until cancellation is authoritatively acknowledged, unless the original job is observed completed and its result is reused.
+- Unknown device/job state stops execution. Do not duplicate a potentially irreversible physical action.
+- Do not infer biological efficacy from orchestration success or raw measurement presence.
+- Preserve provenance for input summary, candidate source, device identity, code identity and resulting artifacts.
+- Do not commit credentials, raw user genomes or generated run directories.
+- Do not send raw FASTA content or headers to external models by default.
+
+## Simulation rules
+
+Simulation remains valuable for tests, CI and failure semantics. Keep it explicit:
+
+```bash
+python -m phage_lab demo
+python -m phage_lab dashboard
+```
+
+Simulation code belongs in `phage_lab/simulation.py` or test doubles. Do not add new `SIM-*`, random biological scores/readouts or fault injection to the production workflow.
+
+## Real integrations
+
+Each concrete instrument adapter should live behind `DeviceDriver`. Before enabling automatic retry on a real operation, document what partial execution means and how sample disposition is reconciled.
+
+The first real milestone should be deliberately narrow: one real adapter, one versioned protocol, real sample IDs, real measurement ingestion and durable job reconciliation. Do not expand biological autonomy before execution state is trustworthy.
 
 ## Development
 
-Python 3.11+; standard library only for the first milestone. Avoid new services,
-frameworks or dependencies unless the task needs them. Keep user instructions
-short, in Chinese, and separate offline setup from API setup.
+Python 3.11+.
 
-Dashboard assets are buildless; do not introduce npm dependencies just for layout.
-The Windows ZIP entry point is `start-dashboard.bat`; the CLI is
-`python -m phage_lab dashboard`. Test via ephemeral local HTTP servers. Browser
-visual QA must be reported separately from API or JavaScript syntax checks.
-
-Run from repository root:
+Run:
 
 ```bash
 python -m unittest discover -s tests -v
 python -m phage_lab demo --seed 42 --time-scale 0.1
 ```
 
-Test failure semantics and public behavior: hanging tasks, lost acknowledgments,
-unreachable devices, idempotency, malformed model output, and report integrity.
-Do not claim live API verification unless an actual authorized request succeeded.
+Test both sides of the boundary: simulation remains deterministic enough for regression, while production validation must reject synthetic candidates/devices and must not create a run through an implicit fallback.
 
-For GitHub changes, inspect the current branch head before updating it. Preserve
-other contributors' work and never force-push over concurrent changes.
+For GitHub changes, inspect the current branch head before updating it. Preserve concurrent work and never force-push over another contributor's changes.
