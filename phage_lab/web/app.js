@@ -686,5 +686,86 @@ $("reset-genome").addEventListener("click", () => {
 $("refresh-history").addEventListener("click", () =>
   refreshHistory().catch((error) => showError(error.message)),
 );
+const sidebarLimits = { min: 200, max: 480, collapseBelow: 140, step: 16 };
+function storedSidebar() {
+  try {
+    return JSON.parse(localStorage.getItem("phage-lab-sidebar")) || {};
+  } catch {
+    return {};
+  }
+}
+function setSidebar(width, collapsed, persist = true) {
+  const layout = $("layout");
+  if (width) layout.style.setProperty("--sidebar-width", `${width}px`);
+  layout.classList.toggle("sidebar-collapsed", collapsed);
+  $("sidebar-expand").hidden = !collapsed;
+  $("sidebar-resizer").setAttribute("aria-valuenow", collapsed ? 0 : Math.round(width || sidebarWidth()));
+  if (!persist) return;
+  try {
+    const saved = storedSidebar();
+    localStorage.setItem(
+      "phage-lab-sidebar",
+      JSON.stringify({ width: width || saved.width || null, collapsed }),
+    );
+  } catch {
+    // Storage may be unavailable; the layout still works for this page view.
+  }
+}
+function sidebarWidth() {
+  return $("sidebar").getBoundingClientRect().width;
+}
+function clampSidebar(width) {
+  return Math.min(sidebarLimits.max, Math.max(sidebarLimits.min, width));
+}
+$("sidebar-resizer").addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  const handle = $("sidebar-resizer");
+  const startX = event.clientX;
+  const startWidth = sidebarWidth();
+  let width = startWidth;
+  let collapsed = false;
+  handle.setPointerCapture(event.pointerId);
+  $("layout").classList.add("resizing");
+  const move = (moveEvent) => {
+    const raw = startWidth + moveEvent.clientX - startX;
+    collapsed = raw < sidebarLimits.collapseBelow;
+    width = collapsed ? startWidth : clampSidebar(raw);
+    setSidebar(width, collapsed, false);
+  };
+  const end = () => {
+    handle.removeEventListener("pointermove", move);
+    handle.removeEventListener("pointerup", end);
+    handle.removeEventListener("pointercancel", end);
+    $("layout").classList.remove("resizing");
+    setSidebar(width, collapsed);
+    if (collapsed) $("sidebar-expand").focus();
+  };
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", end);
+  handle.addEventListener("pointercancel", end);
+});
+$("sidebar-resizer").addEventListener("keydown", (event) => {
+  const width = sidebarWidth();
+  if (event.key === "ArrowLeft" && width - sidebarLimits.step < sidebarLimits.min) {
+    setSidebar(width, true);
+    $("sidebar-expand").focus();
+  } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+    const delta = event.key === "ArrowLeft" ? -sidebarLimits.step : sidebarLimits.step;
+    setSidebar(clampSidebar(width + delta), false);
+  } else return;
+  event.preventDefault();
+});
+$("sidebar-expand").addEventListener("click", () => {
+  setSidebar(storedSidebar().width, false);
+  $("sidebar-resizer").focus();
+});
+{
+  const saved = storedSidebar();
+  const width = Number(saved.width) ? clampSidebar(Number(saved.width)) : null;
+  setSidebar(width, Boolean(saved.collapsed), false);
+}
+$("sidebar-resizer").setAttribute("aria-valuemin", sidebarLimits.min);
+$("sidebar-resizer").setAttribute("aria-valuemax", sidebarLimits.max);
 render();
 poll();
