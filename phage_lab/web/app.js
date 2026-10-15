@@ -84,6 +84,8 @@ function updateControls() {
   const needsConfig = $("agent").value === "openrouter" && !state.meta?.openrouter_ready;
   $("start").disabled = !state.connected || busy || state.configuring || needsConfig;
   $("configuration").disabled = busy || state.configuring;
+  $("genome").disabled = $("reset-genome").disabled = busy;
+  $("input-stage").classList.toggle("locked", busy);
   $("api-fields").disabled = !state.connected || busy || state.configuring;
   $("api-clear").disabled = !state.meta?.api_key_configured && !state.meta?.model;
   text("api-save", state.configuring ? "正在保存…" : "保存并使用 OpenRouter");
@@ -95,7 +97,7 @@ function updateControls() {
         ? "实验运行中…"
         : needsConfig
           ? "请先配置 API"
-          : "启动演示",
+          : "开始",
   );
 }
 function updateAgent() {
@@ -161,7 +163,7 @@ async function saveApiConfig(clear = false) {
       "api-message",
       clear
         ? "本次配置已清除。可重新填写，或选择离线规则。"
-        : "已保存并选择 OpenRouter。点击启动演示即可验证 API 并运行。仅保存配置不会产生 API 调用。",
+        : "已保存并选择 OpenRouter。上传 FASTA 后点击开始即可验证 API 并运行。仅保存配置不会产生 API 调用。",
     );
   } catch (error) {
     $("api-message").className = "error-message";
@@ -369,17 +371,20 @@ function renderResults(view) {
     if (ready) $(id).href = `/api/runs/${encodeURIComponent(state.runId)}/download/${file}`;
     else $(id).removeAttribute("href");
   }
-  const source =
-    state.report?.source ||
-    state.events.find((event) => event.event === "source_identified")?.details;
-  text(
-    "source-label",
-    source
-      ? `v${source.version} · source ${source.source_sha256.slice(0, 16)}${source.git_commit ? ` · git ${source.git_commit.slice(0, 7)}` : " · ZIP / 无 Git 记录"}`
-      : state.report
-        ? "旧报告没有记录源码版本。"
-        : "",
-  );
+  renderSource();
+}
+function sourceText(source) {
+  return `v${source.version} · source ${source.source_sha256.slice(0, 16)}${source.git_commit ? ` · git ${source.git_commit.slice(0, 7)}` : " · ZIP / 无 Git 记录"}`;
+}
+function renderSource() {
+  const current = state.meta?.source,
+    run =
+      state.report?.source ||
+      state.events.find((event) => event.event === "source_identified")?.details;
+  let label = current ? `Phage Lab · ${sourceText(current)}` : "Phage Lab";
+  if (run && run.source_sha256 !== current?.source_sha256) label += ` · 该运行：${sourceText(run)}`;
+  else if (!run && state.report) label += " · 该运行未记录源码版本";
+  text("source-label", label);
 }
 function eventDescription(event) {
   const d = event.details || {},
@@ -574,7 +579,6 @@ async function poll() {
     if (revision === state.configRevision) state.meta = meta;
     setConnection(true);
     updateAgent();
-    text("version", `v${state.meta.source.version}`);
     if (state.polls++ % 6 === 0 || state.pending) await refreshHistory();
     if (state.pending && state.meta.active_run && state.meta.active_run !== state.previousRunId) {
       state.pending = false;
@@ -609,9 +613,7 @@ async function poll() {
     render();
   } catch (error) {
     setConnection(false);
-    text("live-note", `连接异常：${error.message}`);
   } finally {
-    if (state.connected) text("live-note", "每 0.5 秒刷新 · 事件来自实际调度器");
     window.setTimeout(poll, 500);
   }
 }
@@ -638,10 +640,9 @@ $("run-form").addEventListener("submit", async (event) => {
       fault_step: $("fault-step").value || null,
     };
     const file = $("genome").files[0];
-    if (file) {
-      if (file.size > 1000000) throw new Error("FASTA 文件不能超过 1 MB。");
-      options.genome_text = await file.text();
-    }
+    if (!file) throw new Error("请先上传细菌 FASTA 文件。");
+    if (file.size > 1000000) throw new Error("FASTA 文件不能超过 1 MB。");
+    options.genome_text = await file.text();
     state.previousRunId = state.meta.active_run;
     await api("/api/runs", {
       method: "POST",
@@ -667,18 +668,20 @@ $("api-form").addEventListener("submit", (event) => {
 $("api-clear").addEventListener("click", () => saveApiConfig(true));
 $("genome").addEventListener("change", () => {
   const file = $("genome").files[0];
-  text("file-label", file ? file.name : "选择 FASTA 文件");
-  text(
-    "input-description",
-    file ? `${(file.size / 1024).toFixed(1)} KB · 仅上传至本机服务` : "当前使用内置人工示例",
-  );
-  $("reset-genome").hidden = !file;
+  text("file-label", file?.name || "");
+  $("file-label").title = file?.name || "";
+  text("input-description", file ? `${(file.size / 1024).toFixed(1)} KB · 仅上传至本机服务` : "");
+  $("upload-zone").hidden = Boolean(file);
+  $("input-selected").hidden = !file;
+  $("input-stage").classList.toggle("succeeded", Boolean(file));
+  $("input-status").lastChild.textContent = file ? "已选择" : "待上传";
   if (file?.size > 1000000) showError("FASTA 文件不能超过 1 MB，请选择更小的文件。");
   else showError("");
 });
 $("reset-genome").addEventListener("click", () => {
   $("genome").value = "";
   $("genome").dispatchEvent(new Event("change"));
+  $("genome").focus();
 });
 $("refresh-history").addEventListener("click", () =>
   refreshHistory().catch((error) => showError(error.message)),

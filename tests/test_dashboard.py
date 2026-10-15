@@ -14,6 +14,8 @@ from phage_lab.agents import RuleAgent
 from phage_lab.dashboard import DashboardServer, RunManager, WEB
 from phage_lab.provenance import source_identity
 
+SAMPLE = (WEB.parent.parent / "examples" / "toy_genome.fasta").read_text()
+
 
 class SourceIdentityTests(unittest.TestCase):
     def test_zip_identity_needs_no_git_and_ignores_run_data_and_line_endings(self):
@@ -80,7 +82,7 @@ class DashboardTests(unittest.TestCase):
             connection.close()
 
     def start_and_finish(self, **options):
-        code, _, body = self.request("POST", "/api/runs", {"seed": 42, "fault": "hang", **options})
+        code, _, body = self.request("POST", "/api/runs", {"seed": 42, "fault": "hang", "genome_text": SAMPLE, **options})
         self.assertEqual(code, 202, body)
         self.manager.thread.join(timeout=5)
         self.assertFalse(self.manager.busy)
@@ -169,7 +171,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(self.request("POST", "/api/config", {"clear": True})[0], 200)
         self.assertEqual(self.manager._api_key, "")
         self.assertFalse(self.manager.status()["api_key_configured"])
-        self.assertEqual(self.request("POST", "/api/runs", {"agent": "openrouter"})[0], 400)
+        self.assertEqual(self.request("POST", "/api/runs", {"agent": "openrouter", "genome_text": SAMPLE})[0], 400)
 
     def test_invalid_config_leaves_existing_config_unchanged_and_does_not_echo_secrets(self):
         self.manager.configure_api({"api_key": "fake-valid-key", "model": "test-model"})
@@ -186,7 +188,7 @@ class DashboardTests(unittest.TestCase):
 
     def test_config_changes_rejected_during_run(self):
         self.manager.configure_api({"api_key": "fake-valid-key", "model": "test-model"})
-        self.assertEqual(self.request("POST", "/api/runs", {"fault_step": "measure"})[0], 202)
+        self.assertEqual(self.request("POST", "/api/runs", {"fault_step": "measure", "genome_text": SAMPLE})[0], 202)
         for options in ({"clear": True}, {"api_key": "fake-new-key", "model": "other-model"}):
             self.assertEqual(self.request("POST", "/api/config", options)[0], 409)
         self.assertEqual(self.manager._api_key, "fake-valid-key")
@@ -235,11 +237,12 @@ class DashboardTests(unittest.TestCase):
 
     def test_missing_live_config_invalid_parameters_and_duplicate_start(self):
         with patch.dict("os.environ", {"OPENROUTER_API_KEY": "", "OPENROUTER_MODEL": ""}):
-            self.assertEqual(self.request("POST", "/api/runs", {"agent": "openrouter"})[0], 400)
+            self.assertEqual(self.request("POST", "/api/runs", {"agent": "openrouter", "genome_text": SAMPLE})[0], 400)
+        self.assertEqual(self.request("POST", "/api/runs", {})[0], 400)
         for invalid in ({"seed": True}, {"seed": 2**32}, {"agent": "other"}, {"fault_step": "unknown"}, {"path": "/etc/passwd"}, {"genome_text": ""}):
-            self.assertEqual(self.request("POST", "/api/runs", invalid)[0], 400)
-        self.assertEqual(self.request("POST", "/api/runs", {"fault_step": "measure"})[0], 202)
-        self.assertEqual(self.request("POST", "/api/runs", {})[0], 409)
+            self.assertEqual(self.request("POST", "/api/runs", {"genome_text": SAMPLE, **invalid})[0], 400)
+        self.assertEqual(self.request("POST", "/api/runs", {"fault_step": "measure", "genome_text": SAMPLE})[0], 202)
+        self.assertEqual(self.request("POST", "/api/runs", {"genome_text": SAMPLE})[0], 409)
 
     def test_unknown_paths_and_nonrun_directories_are_not_served(self):
         (self.root / "private.txt").write_text("private")
