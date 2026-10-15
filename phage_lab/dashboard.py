@@ -67,7 +67,7 @@ class RunManager:
             key = key or self._api_key
             if not key or len(key) > 4096 or any(not 33 <= ord(char) <= 126 for char in key):
                 raise ValueError("请输入有效的 API Key，不能包含空格、换行或非 ASCII 字符。")
-            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,199}", model):
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}", model):
                 raise ValueError("请输入模型 ID（最长 200 字符，不能包含空格）。")
             self._api_key, self._model, self._config_source = key, model, "panel"
 
@@ -294,4 +294,3 @@ def serve(output_root: Path, port=8765, time_scale=1.0, open_browser=True) -> No
             server.serve_forever()
         except KeyboardInterrupt:
             print("\n面板已关闭。", flush=True)
-

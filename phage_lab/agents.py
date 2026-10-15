@@ -88,7 +88,6 @@ class OpenRouterAgent:
         return await asyncio.to_thread(self._request, "choose_recovery", schema, context)
 
     def _request(self, tool_name: str, schema: dict, context: dict) -> dict:
-        # Keep schemas portable; workflow.py validates lengths, counts and allowed actions.
         payload = {
             "model": self.model, "max_tokens": 16000,
             "messages": [{"role": "system", "content": (
@@ -118,7 +117,7 @@ class OpenRouterAgent:
             raise AgentError(f"OpenRouter API returned HTTP {exc.code}; check API access and model configuration.") from None
         except (error.URLError, TimeoutError, OSError):
             raise AgentError("OpenRouter API connection failed or timed out; no offline fallback was used.") from None
-        except (ValueError, UnicodeError):
+        except ValueError:
             raise AgentError("OpenRouter API returned invalid JSON.") from None
         if not isinstance(body, dict):
             raise AgentError("OpenRouter API response has an invalid shape.")
@@ -145,7 +144,7 @@ class OpenRouterAgent:
             raise AgentError("Model returned an invalid decision tool call.")
         try:
             decision = json.loads(function["arguments"])
-        except (ValueError, UnicodeError):
+        except ValueError:
             raise AgentError("Model tool arguments are not valid JSON.") from None
         if not isinstance(decision, dict):
             raise AgentError("Model tool arguments must be a JSON object.")

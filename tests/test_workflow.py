@@ -334,11 +334,15 @@ class ApiContractTests(unittest.IsolatedAsyncioTestCase):
         decision = {"action": "abort", "replacement_device_id": None, "reason": "No safe recovery."}
         body = {"choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [
             {"type": "function", "function": {"name": "choose_recovery", "arguments": json.dumps(decision)}}]}}]}
-        with patch("phage_lab.agents.request.build_opener") as opener:
-            opener.return_value.open.return_value.__enter__.return_value.read.return_value = json.dumps(body).encode()
-            self.assertEqual(await OpenRouterAgent("test", "provider/model").recover({"alternatives": []}), decision)
+        for model in ("gpt-6-astra", "claude-opus-5-5", "provider/model", "provider/model:free"):
+            with self.subTest(model=model), patch("phage_lab.agents.request.build_opener") as opener:
+                opener.return_value.open.return_value.__enter__.return_value.read.return_value = json.dumps(body).encode()
+                self.assertEqual(await OpenRouterAgent("test", model).recover({"alternatives": []}), decision)
+                opener.return_value.open.assert_called_once()
+                req = opener.return_value.open.call_args.args[0]
+                self.assertEqual(req.get_method(), "POST")
+                self.assertEqual(json.loads(req.data)["model"], model)
 
 
 if __name__ == "__main__":
     unittest.main()
-

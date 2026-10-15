@@ -148,6 +148,14 @@ class DashboardTests(unittest.TestCase):
             if path.is_file():
                 self.assertNotIn(key.encode(), path.read_bytes())
 
+    def test_panel_accepts_short_full_and_variant_model_names(self):
+        for model in ("gpt-6-astra", "claude-opus-5-5", "provider/model", "provider/model:free"):
+            with self.subTest(model=model), patch("phage_lab.agents.request.build_opener") as opener:
+                code, _, body = self.request("POST", "/api/config", {"api_key": "fake-key", "model": model})
+                self.assertEqual(code, 200, body)
+                self.assertEqual(json.loads(body)["model"], model)
+                opener.assert_not_called()
+
     def test_config_can_retain_replace_clear_and_is_not_persisted(self):
         self.assertEqual(self.request("POST", "/api/config", {"api_key": "fake-first-key", "model": "model-a"})[0], 200)
         self.assertEqual(self.request("POST", "/api/config", {"api_key": "", "model": "model-b"})[0], 200)
@@ -251,4 +259,3 @@ class DashboardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

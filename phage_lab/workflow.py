@@ -195,4 +195,3 @@ async def run_demo(genome_path: Path, output_root: Path, *, seed: int = 42,
         finally:
             records.close()
     return report, records.directory
-

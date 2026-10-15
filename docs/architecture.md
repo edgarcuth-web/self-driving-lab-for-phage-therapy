@@ -137,4 +137,3 @@ an earlier historical run used that code. Existing records are not rewritten.
 - [Anthropic: Previewing the Model Hardware Standard](https://www.anthropic.com/news/model-hardware-standard-research-preview)
 - [MHS research-preview access](https://modelhardwarestandard.com/)
 - [OpenRouter Tool Calling](https://openrouter.ai/docs/guides/features/tool-calling)
-
