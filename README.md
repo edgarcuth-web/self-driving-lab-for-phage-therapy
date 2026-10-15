@@ -1,6 +1,6 @@
 # Self-driving lab for phage therapy
 
-一个能在设备故障后继续完成流程的实验编排原型，用于黑客松演示：
+一个能在设备故障后继续完成流程的实验编排原型
 
 **输入 FASTA → 选择噬菌体组合 → 虚拟合成 → 制备 / 转运 / 感染 / 读数 → 评估 → 报告。**
 
@@ -79,7 +79,7 @@ python3 -m unittest discover -s tests -v
 1. 真实模型多场景联调，记录规划和恢复成功率。
 2. 接入经过独立验证的候选预测服务。
 
-## MHS 参考
+## 参考
 
 接口设计参考了 Anthropic 的 [MHS 研究预览公告](https://www.anthropic.com/news/model-hardware-standard-research-preview)
 中公开的设备发现、能力描述和读写原语思路。本仓库的 Python 接口是自定义的演示契约，不声称兼容或通过认证。
