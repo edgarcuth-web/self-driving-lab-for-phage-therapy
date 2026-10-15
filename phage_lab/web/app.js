@@ -4,7 +4,7 @@ const $ = (id) => document.getElementById(id);
 const steps = ["synthesize", "prepare", "transfer", "infect", "measure"];
 const names = { synthesize: "合成", prepare: "制备", transfer: "转运", infect: "感染", measure: "读数" };
 const statusNames = { waiting: "等待", running: "执行中", recovering: "恢复中", succeeded: "已完成", failed: "失败", cancelled: "已取消", interrupted: "已中断" };
-const state = { meta: null, runId: null, events: [], report: null, history: [], pending: false, submitting: false, cursor: 0, polls: 0, connected: false, previousRunId: null, followActive: true };
+const state = { meta: null, runId: null, events: [], report: null, history: [], pending: false, submitting: false, cursor: 0, polls: 0, connected: false, previousRunId: null, followActive: true, configuring: false, apiInitialized: false, configRevision: 0 };
 
 function node(tag, className, text) {
   const element = document.createElement(tag);
@@ -37,18 +37,54 @@ function setConnection(connected) {
 }
 function updateControls() {
   const busy = state.submitting || state.pending || Boolean(state.meta?.busy);
-  $("start").disabled = !state.connected || busy;
-  $("configuration").disabled = busy;
-  text("start-label", state.submitting || state.pending ? "正在启动…" : busy ? "实验运行中…" : "启动演示");
+  const needsConfig = $("agent").value === "anthropic" && !state.meta?.anthropic_ready;
+  $("start").disabled = !state.connected || busy || state.configuring || needsConfig;
+  $("configuration").disabled = busy || state.configuring;
+  $("api-fields").disabled = !state.connected || busy || state.configuring;
+  $("api-clear").disabled = !state.meta?.api_key_configured && !state.meta?.model;
+  text("api-save", state.configuring ? "正在保存…" : "保存并使用 Claude");
+  text("start-label", state.submitting || state.pending ? "正在启动…" : busy ? "实验运行中…" : needsConfig ? "请先配置 API" : "启动演示");
 }
 function updateAgent() {
   const available = Boolean(state.meta?.anthropic_ready);
   $("claude-option").disabled = !available;
   $("claude-option").textContent = available ? `Claude · ${state.meta.model}` : "Claude · 未配置 API";
+  text("api-state", available ? "已配置" : "未配置");
+  $("api-key").required = !state.meta?.api_key_configured;
+  $("api-key").placeholder = state.meta?.api_key_configured ? "留空保留当前密钥" : "粘贴你的 Anthropic API Key";
+  text("api-key-note", state.meta?.api_key_configured ? "已有密钥；留空保留，填写则替换。" : "密钥仅保存在本次服务中，不写入文件。");
+  if (state.meta && !state.apiInitialized) {
+    $("api-model").value = state.meta.model || "";
+    $("api-settings").open = !available;
+    state.apiInitialized = true;
+  }
   // Never silently change a user-selected provider.
   text("agent-note", $("agent").value === "anthropic"
-    ? "使用启动终端的 API 配置；只发送摘要，不发送原始序列。"
-    : "固定规则模式，不调用 AI。Claude 需要启动终端里的 API 配置。");
+    ? "使用已配置的 Claude API；只发送摘要，不发送原始序列。"
+    : "固定规则模式，不调用 AI。可在上方填写 Claude API 配置。");
+  updateControls();
+}
+async function saveApiConfig(clear = false) {
+  if (!state.connected || state.configuring || state.submitting || state.pending || state.meta?.busy) return;
+  state.configuring = true; updateControls();
+  $("api-message").hidden = true;
+  try {
+    const options = clear ? { clear: true } : { api_key: $("api-key").value.trim(), model: $("api-model").value.trim() };
+    state.meta = await api("/api/config", { method: "POST", headers: { "Content-Type": "application/json", "X-Lab-Token": state.meta.token }, body: JSON.stringify(options) });
+    state.configRevision++;
+    $("api-key").value = "";
+    $("api-model").value = state.meta.model || "";
+    if (!clear) $("agent").value = "anthropic";
+    updateAgent(); showError("");
+    $("api-message").className = "field-note api-success";
+    text("api-message", clear ? "本次配置已清除。可重新填写，或选择离线规则。" : "已保存并选择 Claude。点击启动演示即可验证 API 并运行。仅保存配置不会产生 API 调用。");
+  } catch (error) {
+    $("api-message").className = "error-message";
+    text("api-message", error.message);
+  } finally {
+    $("api-message").hidden = false;
+    state.configuring = false; updateControls();
+  }
 }
 function derive() {
   const stepStates = Object.fromEntries(steps.map((step) => [step, "waiting"]));
@@ -241,7 +277,9 @@ async function refreshHistory() {
 }
 async function poll() {
   try {
-    state.meta = await api("/api/status"); setConnection(true); updateAgent();
+    const revision = state.configRevision, meta = await api("/api/status");
+    if (revision === state.configRevision) state.meta = meta;
+    setConnection(true); updateAgent();
     text("version", `v${state.meta.source.version}`);
     if (state.polls++ % 6 === 0 || state.pending) await refreshHistory();
     if (state.pending && state.meta.active_run && state.meta.active_run !== state.previousRunId) {
@@ -270,7 +308,7 @@ async function poll() {
 }
 $("run-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (state.submitting || state.pending || state.meta?.busy || !state.connected) return;
+  if (state.submitting || state.pending || state.configuring || state.meta?.busy || !state.connected) return;
   state.submitting = true; updateControls(); showError("");
   try {
     const seed = Number($("seed").value);
@@ -285,6 +323,8 @@ $("run-form").addEventListener("submit", async (event) => {
   finally { state.submitting = false; updateControls(); }
 });
 $("agent").addEventListener("change", updateAgent);
+$("api-form").addEventListener("submit", (event) => { event.preventDefault(); saveApiConfig(); });
+$("api-clear").addEventListener("click", () => saveApiConfig(true));
 $("genome").addEventListener("change", () => {
   const file = $("genome").files[0];
   text("file-label", file ? file.name : "选择 FASTA 文件");

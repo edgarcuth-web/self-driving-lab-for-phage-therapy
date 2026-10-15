@@ -12,6 +12,7 @@ import threading
 from urllib.parse import parse_qs, urlsplit
 import webbrowser
 
+from .agents import AnthropicAgent
 from .devices import FAULT_MODES, OPERATIONS
 from .provenance import source_identity
 from .workflow import run_demo
@@ -35,14 +36,40 @@ class RunManager:
         self.active_run = None
         self.last_error = None
         self.thread = None
+        self._api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        self._model = os.environ.get("ANTHROPIC_MODEL", "").strip()
+        self._config_source = "environment" if self._api_key or self._model else None
 
     def status(self) -> dict:
         with self.lock:
             return {"busy": self.busy, "active_run": self.active_run, "last_error": self.last_error,
                     "token": self.token, "source": self.source,
-                    "anthropic_ready": bool(os.environ.get("ANTHROPIC_API_KEY", "").strip()
-                                            and os.environ.get("ANTHROPIC_MODEL", "").strip()),
-                    "model": os.environ.get("ANTHROPIC_MODEL", "")}
+                    "anthropic_ready": bool(self._api_key and self._model),
+                    "api_key_configured": bool(self._api_key),
+                    "api_config_source": self._config_source, "model": self._model}
+
+    def configure_api(self, options: dict) -> None:
+        if not isinstance(options, dict):
+            raise ValueError("API 配置格式不正确。")
+        with self.lock:
+            if self.busy:
+                raise RuntimeError("实验运行中，请结束后再修改 API 配置。")
+            if set(options) == {"clear"} and options["clear"] is True:
+                self._api_key, self._model, self._config_source = "", "", None
+                return
+            if set(options) != {"api_key", "model"}:
+                raise ValueError("请填写 API Key 和模型 ID。")
+            key, model = options["api_key"], options["model"]
+            if not isinstance(key, str) or not isinstance(model, str):
+                raise ValueError("API Key 和模型 ID 必须为文本。")
+            key, model = key.strip(), model.strip()
+            # A blank key keeps the existing secret; never send it back to the browser.
+            key = key or self._api_key
+            if not key or len(key) > 4096 or any(not 33 <= ord(char) <= 126 for char in key):
+                raise ValueError("请输入有效的 API Key，不能包含空格、换行或非 ASCII 字符。")
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,199}", model):
+                raise ValueError("请输入模型 ID（最长 200 字符，不能包含空格）。")
+            self._api_key, self._model, self._config_source = key, model, "panel"
 
     def directory(self, run_id: str) -> Path:
         if not RUN_ID.fullmatch(run_id):
@@ -115,20 +142,24 @@ class RunManager:
         if genome is not None and (not isinstance(genome, str) or not genome.strip()
                                    or len(genome.encode("utf-8")) > MAX_INPUT):
             raise ValueError("FASTA upload must be nonempty and at most 1 MB.")
-        if agent == "anthropic" and not self.status()["anthropic_ready"]:
-            raise ValueError("Claude API is not configured in the server's terminal environment.")
         with self.lock:
             if self.busy:
                 raise RuntimeError("A run is already active.")
+            decision_agent = None
+            if agent == "anthropic":
+                if not self._api_key or not self._model:
+                    raise ValueError("请先在面板的 Claude API 配置中填写 API Key 和模型 ID。")
+                decision_agent = AnthropicAgent(self._api_key, self._model)
             self.busy, self.active_run, self.last_error = True, None, None
-            self.thread = threading.Thread(target=self._run, args=(seed, agent, fault, step, genome), daemon=True)
+            self.thread = threading.Thread(target=self._run,
+                args=(seed, agent, fault, step, genome, decision_agent), daemon=True)
             self.thread.start()
 
     def _event(self, event: dict) -> None:
         with self.lock:
             self.active_run = event["run_id"]
 
-    def _run(self, seed, agent, fault, step, genome):
+    def _run(self, seed, agent, fault, step, genome, decision_agent):
         try:
             self.output_root.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(prefix=".input-", dir=self.output_root) as temporary:
@@ -138,7 +169,7 @@ class RunManager:
                     path.write_text(genome, encoding="utf-8")
                 asyncio.run(run_demo(path, self.output_root, seed=seed, agent_mode=agent,
                                     fault=fault, fault_step=step, time_scale=self.time_scale,
-                                    echo=False, on_event=self._event))
+                                    echo=False, on_event=self._event, agent=decision_agent))
         except Exception as exc:
             with self.lock:
                 self.last_error = f"{type(exc).__name__}: {exc}"
@@ -226,7 +257,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         token = self.headers.get("X-Lab-Token", "")
         if not self._trusted() or not token.isascii() or not secrets.compare_digest(token, manager.token):
             return self._json(403, {"error": "Reload the local dashboard to authorize this request."})
-        if self.path != "/api/runs":
+        if self.path not in {"/api/runs", "/api/config"}:
             return self._json(404, {"error": "Not found."})
         if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
             return self._json(415, {"error": "JSON body required."})
@@ -236,6 +267,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return self._json(413, {"error": "Request body must be at most 2 MB."})
             self.connection.settimeout(5)
             options = json.loads(self.rfile.read(size))
+            if self.path == "/api/config":
+                manager.configure_api(options)
+                return self._json(200, manager.status())
             manager.start(options)
             return self._json(202, {"accepted": True})
         except (ValueError, UnicodeError) as exc:

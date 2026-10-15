@@ -104,6 +104,7 @@ events every 500 ms. Refreshes and server restarts can read saved reports.
 | Route | Purpose |
 |---|---|
 | `GET /api/status` | Connection state, configured model ID, source identity, local mutation token |
+| `POST /api/config` | Set an in-memory API key/model or clear this process's configuration |
 | `POST /api/runs` | Start a validated run; return 409 while another run is active |
 | `GET /api/runs` | Up to 20 recent runs from the configured output directory |
 | `GET /api/runs/<id>?after=<seq>` | Events newer than the cursor and final report when available |
@@ -111,6 +112,14 @@ events every 500 ms. Refreshes and server restarts can read saved reports.
 
 The server enforces loopback Host/Origin checks and a process-scoped token on writes.
 It does not expose API keys or accept output/input path strings from the browser.
+API settings are initialized from the environment at startup, then may be replaced
+through the dashboard. They stay in process memory, not config files, logs, reports
+or browser storage. An empty key on save retains the existing secret; the explicit
+clear action removes both key and model without falling back to the environment.
+Restarting reads the environment again. Saving does not make a network API call or
+prove access. Settings changes are rejected during a run; each live run receives an
+agent constructed with a snapshot of the current configuration. Process environment
+variables are never modified by the dashboard.
 User FASTA contents (up to 1 MB) are staged in a temporary local file for the run
 and removed afterward. Run IDs and filenames are constrained; symlinked reports
 and directories are refused. This is a local demo server, not a shared hosted service.

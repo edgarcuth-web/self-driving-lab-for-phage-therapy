@@ -42,6 +42,9 @@ the outcome. Keep the one-command offline demo working.
   never guess a commit for a historical run or a ZIP.
 - Bind the dashboard only to loopback. Keep Host/Origin and per-session mutation
   token checks; never return API keys or accept arbitrary filesystem paths.
+- Panel API settings are process-local and never persisted or logged. Capture the
+  configuration when constructing a run's agent; reject edits during active runs.
+  Do not mutate environment variables or treat a saved config as verified API access.
 - Render model output and report data as text, never HTML. Use the actual event
   stream for UI state; label offline and live modes accurately.
 
