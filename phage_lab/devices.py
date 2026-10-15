@@ -10,6 +10,7 @@ from typing import Callable, Protocol
 
 OPERATIONS = ("synthesize", "prepare", "transfer", "infect", "measure")
 FAULT_MODES = ("none", "hang", "response-lost", "unreachable", "random")
+INTERFACE = "mhs-inspired-local-v0"
 
 
 class DeviceError(RuntimeError):
@@ -83,7 +84,7 @@ class SimulatedDevice:
 
     def describe(self) -> dict:
         return {"device_id": self.device_id, "operations": [self.operation],
-                "simulated": True, "interface": "mhs-inspired-local-v0",
+                "simulated": True, "interface": INTERFACE,
                 "state": "quarantined" if self.quarantined else "available",
                 "limits": {"concurrent_jobs": 1},
                 "notes": "Virtual jobs only. Cancellation is acknowledged before reuse."}

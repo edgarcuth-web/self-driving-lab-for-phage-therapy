@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .agents import AnthropicAgent, RuleAgent
 from .biology import mock_candidates, read_fasta
-from .devices import Command, DeviceUnavailable, FaultInjector, OPERATIONS, make_devices
+from .devices import INTERFACE, Command, DeviceUnavailable, FaultInjector, OPERATIONS, make_devices
 from .records import RunRecords, evaluate, utc_now
 from .provenance import source_identity
 
@@ -134,14 +134,14 @@ async def run_demo(genome_path: Path, output_root: Path, *, seed: int = 42,
     injector = FaultInjector(seed, fault, fault_step)
     records = RunRecords(output_root, echo, on_event=on_event)
     report = {"schema_version": 1, "started_at": utc_now(), "status": "running",
-              "simulated": True, "interface": "mhs-inspired-local-v0",
+              "simulated": True, "interface": INTERFACE,
               "agent": agent.name if agent else agent_mode, "seed": seed,
               "fault": {"requested": fault, "selected": injector.mode, "step": injector.step,
                         "injected_count": 0},
               "results": {}, "recoveries": [], "error": None,
               "limitations": ["Synthetic candidates and readings; no biological efficacy assessed.",
                               "No physical instruments or real synthesis orders.",
-                              "No restart/resume or multi-sample concurrency in v0.1."]}
+                              "No restart/resume or multi-sample concurrency."]}
     devices = make_devices(injector, records.emit, seed, time_scale)
     try:
         records.emit("run_started", agent=report["agent"], seed=seed, simulated=True)
@@ -172,8 +172,6 @@ async def run_demo(genome_path: Path, output_root: Path, *, seed: int = 42,
         payload = {"sample_id": "SIM-SAMPLE-" + genome.sha256[:12],
                    "candidate_ids": sorted(plan["candidate_ids"])}
         for operation in OPERATIONS:
-            if not set(DEPENDENCIES[operation]).issubset(report["results"]):
-                raise WorkflowError("Unmet workflow dependency.")
             result = await scheduler.execute(operation, plan["device_assignments"][operation], payload)
             report["results"][operation] = result
             records.emit("step_completed", step=operation, result=result)
