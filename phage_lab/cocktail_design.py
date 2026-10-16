@@ -379,6 +379,8 @@ def phist_screening_design(
     if not ranked_candidates:
         raise ValueError("ranked_candidates must not be empty.")
 
+    if any(not isinstance(profile, PhageProfile) for profile in phage_profiles):
+        raise ValueError("phage_profiles must contain PhageProfile objects.")
     profiles = {profile.profile_id: profile for profile in phage_profiles}
     if len(profiles) != len(phage_profiles):
         raise ValueError("phage_profiles contains duplicate profile IDs.")
@@ -394,6 +396,8 @@ def phist_screening_design(
             raise ValueError(
                 f"ranked candidate {candidate_id!r} has no matching PhageProfile."
             )
+        if profiles[profile_id].provenance.kind == "engineered":
+            continue
         ranking = candidate.get("ranking")
         if (
             not isinstance(ranking, dict)
@@ -427,6 +431,13 @@ def phist_screening_design(
                 "InteractionEvidence for the target HostProfile."
             )
         eligible.append((ranking["rank"], profile_id, matching))
+
+    ranks = [item[0] for item in eligible]
+    if len(set(ranks)) != len(ranks):
+        raise ValueError("PHIST screening candidates carry duplicate cohort ranks.")
+    profile_ids = [item[1] for item in eligible]
+    if len(set(profile_ids)) != len(profile_ids):
+        raise ValueError("PHIST screening candidates repeat a PhageProfile.")
 
     eligible.sort(key=lambda item: (item[0], item[1]))
     if len(eligible) < min_members:
@@ -475,6 +486,8 @@ def phist_screening_design(
         assumptions=(
             "PHIST shared-kmer signal is used for prioritization only and is not "
             "treated as infection probability or susceptibility.",
+            "The baseline excludes engineered PhageProfiles; retrieved provenance "
+            "records source identity but does not itself prove natural biological origin.",
         ),
         unresolved_gaps=(
             "No physical susceptibility phenotype has yet been incorporated.",
