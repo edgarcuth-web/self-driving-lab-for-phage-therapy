@@ -186,6 +186,18 @@ class CocktailDesignTests(unittest.TestCase):
                 created_at=STAMP,
             )
 
+    def test_baseline_rejects_ranking_for_another_host(self):
+        records = [candidate("PH-001", 1), candidate("PH-002", 2)]
+        records[0]["ranking"]["host_genome_sha256"] = "c" * 64
+        with self.assertRaisesRegex(ValueError, "different host genome"):
+            phist_screening_design(
+                host_profile(),
+                profiles(records),
+                records,
+                cocktail_id="cocktail-001",
+                created_at=STAMP,
+            )
+
     def test_baseline_requires_matching_phage_profiles(self):
         records = [candidate("PH-001", 1), candidate("PH-002", 2)]
         with self.assertRaisesRegex(ValueError, "no matching PhageProfile"):
