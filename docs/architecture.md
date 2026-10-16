@@ -99,6 +99,8 @@ PHIST is the first implemented evidence producer. For compatibility it still emi
 - no significant PHIST match → `status=no_signal`;
 - neither status is converted into susceptible/resistant or infection probability.
 
+The PHIST host digest now uses the same normalized genome identity as HostProfile. When a matching HostProfile is supplied, its profile ID is bound into the evidence. Cohort-relative rank remains outside the pairwise evidence object.
+
 Evidence IDs are hashes of the evidence content, so modified evidence fails validation.
 
 ## CocktailDesign
