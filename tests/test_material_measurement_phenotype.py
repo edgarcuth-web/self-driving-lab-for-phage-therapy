@@ -278,6 +278,15 @@ class MeasurementTests(unittest.TestCase):
         self.assertFalse(measurement.physical_execution)
         self.assertEqual(measurement.evidence_class, "none")
 
+    def test_admitted_qc_requires_evidence_reference(self):
+        with self.assertRaisesRegex(ValueError, "requires qc_evidence"):
+            measurement_from_run_report(
+                virtual_report(),
+                measurement_id="measurement-no-qc-lineage",
+                qc_status="valid",
+                created_at=STAMP,
+            )
+
     def test_physical_result_keeps_material_and_spec_lineage(self):
         spec = experiment_spec()
         batches = material_batches()
