@@ -78,11 +78,17 @@ Every model/tool output needs tool/model identity, version, inputs and parameter
 
 `ExperimentSpec` is the scientific-to-orchestration boundary. It locks the exact CocktailDesign reference, target HostProfile, member PhageProfiles and abstract workflow before device assignment. In spec-bound execution, orchestration may assign/recover devices but must never add, drop or replace scientific members or alter the workflow.
 
+`MaterialBatch` represents tracked physical material, not a database candidate or accession. A batch may exist while QC is pending; test-ready binding requires `quality_status=released`, usable availability, and explicit quality evidence. ExperimentSpec-bound real-hardware execution requires one unambiguous host batch and one unambiguous phage batch per member.
+
+`Measurement` preserves run/device/spec/material lineage and raw device output. Its QC status is explicit and must never be inferred from workflow success. `valid` and `invalid` Measurements require one or more QC evidence references; only `pending` may omit them. Virtual run output may be ingested as Measurement only with `evidence_class=none`.
+
+`Phenotype` is an interpretation of admitted physical evidence. It may be created only from physical, QC-valid Measurements bound to the same ExperimentSpec and material set. Invalid, pending or virtual Measurements must never become positive, negative or graded biological phenotypes.
+
 ### Virtual hardware
 
 Virtual hardware may simulate job lifecycle, timeout, cancellation, failover, safe-state and artifact handoff.
 
-It must not create biological evidence. Measurement-shaped test data should come from explicit fixtures or historical-data replay.
+It must not create biological evidence. A virtual run may carry MaterialBatch IDs for lineage testing and may be ingested as a Measurement, but it must remain `evidence_class=none` and must never imply material consumption or support Phenotype.
 
 ### Sequence and external models
 
@@ -118,6 +124,9 @@ For an ExperimentSpec-bound run, the agent interface is limited to `assign_devic
 - `interaction_evidence.py`: InteractionEvidence v1 and PHIST evidence adapter.
 - `cocktail_design.py`: CocktailDesign v1 and conservative PHIST screening baseline.
 - `experiment_spec.py`: ExperimentSpec v1, CocktailDesign freezing and candidate binding.
+- `material_batch.py`: MaterialBatch v1 and test-ready ExperimentSpec binding.
+- `measurement.py`: Measurement v1 and run-report ingestion.
+- `phenotype.py`: Phenotype v1 from admitted physical Measurements.
 - `snapshots.py`, `candidates.py`, `sequences.py`: reference data and retrieved candidates.
 - `ranking.py`: PHIST integration; emits legacy ranking plus InteractionEvidence.
 - `agents.py`: bounded orchestration decisions.
@@ -130,9 +139,8 @@ For an ExperimentSpec-bound run, the agent interface is limited to `assign_devic
 Priority order:
 
 1. host-characterization analyzers;
-2. real measurement / phenotype ingestion;
-3. FailureAttribution and active learning;
-4. engineering escalation.
+2. FailureAttribution and active learning;
+3. engineering escalation.
 
 Do not expand robot simulation unless it supports one of these steps.
 

@@ -20,6 +20,11 @@ from .experiment_spec import (
     bind_candidates_to_spec,
 )
 from .interaction_evidence import interaction_evidence_from_dict
+from .material_batch import (
+    ExperimentMaterials,
+    MaterialBatch,
+    bind_material_batches_to_spec,
+)
 from .records import RunRecords, evaluate, utc_now
 from .provenance import source_identity
 
@@ -582,7 +587,8 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
                          execution_mode: str, selection_size: tuple[int, int] = DEFAULT_SELECTION_SIZE,
                          require_snapshot: bool = False, timeout_seconds: float = 60.0,
                          echo: bool = True, on_event=None,
-                         experiment_spec: ExperimentSpec | None = None) -> tuple[dict, Path]:
+                         experiment_spec: ExperimentSpec | None = None,
+                         material_batches: list[MaterialBatch] | None = None) -> tuple[dict, Path]:
     """Run an experiment plan against physical or explicitly virtual hardware.
 
     ``execution_mode`` is required: there is no default, because a caller that
@@ -598,6 +604,19 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
         raise ValueError(f"execution_mode must be one of {EXECUTION_MODES}.")
     if experiment_spec is not None and not isinstance(experiment_spec, ExperimentSpec):
         raise ValueError("experiment_spec must be an ExperimentSpec or None.")
+    if material_batches is not None:
+        if experiment_spec is None:
+            raise WorkflowError(
+                "MaterialBatch binding requires an ExperimentSpec-bound run."
+            )
+        if (
+            not isinstance(material_batches, list)
+            or any(not isinstance(batch, MaterialBatch) for batch in material_batches)
+        ):
+            raise ValueError(
+                "material_batches must be a list of MaterialBatch objects."
+            )
+    bound_materials: ExperimentMaterials | None = None
     if experiment_spec is not None:
         spec_workflow = experiment_spec.workflow_dict()
         normalized_workflow = {
@@ -619,6 +638,19 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
             max_candidates=len(experiment_spec.member_phage_profile_ids),
             require_snapshot=require_snapshot,
         )
+        if material_batches is not None:
+            try:
+                bound_materials = bind_material_batches_to_spec(
+                    experiment_spec,
+                    material_batches,
+                )
+            except ValueError as exc:
+                raise WorkflowError(str(exc)) from None
+        if execution_mode == "real_hardware" and bound_materials is None:
+            raise WorkflowError(
+                "ExperimentSpec-bound real_hardware requires test-ready MaterialBatch records "
+                "for the host and every phage member."
+            )
     else:
         operations = _validate_workflow(workflow)
         _validate_candidates(candidates, min_candidates=selection_size[0],
@@ -637,7 +669,7 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
                                    require_snapshot=require_snapshot)
 
     physical_execution = execution_mode == "real_hardware"
-    report = {"schema_version": 3, "started_at": utc_now(), "status": "running",
+    report = {"schema_version": 4, "started_at": utc_now(), "status": "running",
               "simulated": not physical_execution, "execution_mode": execution_mode,
               "physical_execution": physical_execution,
               "agent": getattr(agent, "name", type(agent).__name__),
@@ -648,6 +680,10 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
     if not physical_execution:
         report["limitations"].append(
             "Instrument actions and resulting device outputs are virtual; no wet-lab experiment occurred.")
+        if bound_materials is not None:
+            report["limitations"].append(
+                "MaterialBatch metadata was bound for lineage only; virtual execution did not consume physical material."
+            )
     ledger = PhysicalStateLedger(records.emit)
     try:
         records.emit("run_started", agent=report["agent"], execution_mode=execution_mode,
@@ -671,6 +707,17 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
                 spec_id=experiment_spec.spec_id,
                 source_design_id=experiment_spec.source_design.design_id,
                 members=list(experiment_spec.member_phage_profile_ids),
+            )
+        report["material_batch_ids"] = (
+            list(bound_materials.batch_ids) if bound_materials is not None else []
+        )
+        if bound_materials is not None:
+            report["material_batches"] = bound_materials.to_dict()
+            records.emit(
+                "material_batches_bound",
+                spec_id=experiment_spec.spec_id,
+                batch_ids=list(bound_materials.batch_ids),
+                physical_execution=physical_execution,
             )
         report["candidates"] = candidates
         report["candidate_sources"] = sorted({candidate["source_db"] for candidate in candidates})
@@ -740,6 +787,8 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
                 "cocktail_design_id": experiment_spec.source_design.design_id,
                 "phage_profile_ids": list(experiment_spec.member_phage_profile_ids),
             })
+            if bound_materials is not None:
+                payload["material_batch_ids"] = list(bound_materials.batch_ids)
         for operation in operations:
             result = await scheduler.execute(operation, plan["device_assignments"][operation], payload)
             report["results"][operation] = result

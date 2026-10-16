@@ -30,6 +30,9 @@ FailureAttribution / model update
 - InteractionEvidence v1；
 - CocktailDesign v1 与 conservative PHIST screening baseline；
 - ExperimentSpec v1 与 CocktailDesign → spec-bound run；
+- MaterialBatch v1 与 test-ready batch binding；
+- Measurement v1 run-report ingestion；
+- Phenotype v1（仅 physical + QC-valid Measurement）；
 - 固定参考快照、候选检索、序列索引；
 - PHIST 排序及结构化 interaction evidence；
 - 调度、恢复、事件日志；
@@ -39,7 +42,6 @@ FailureAttribution / model update
 待实现：
 
 - host characterization analyzers；
-- 实测 measurement / phenotype ingestion；
 - failure attribution / active learning；
 - host-range engineering；
 - 仪器专用驱动与真实物理运行。
@@ -50,6 +52,8 @@ FailureAttribution / model update
 - 默认先评估天然 phage，再做 cocktail；工程化由明确的 coverage / resistance gap 触发。
 - virtual hardware 只模拟设备行为，不产生 biological evidence。
 - PHIST 是 interaction evidence 的一个来源，不等于 host-range probability。
+- database candidate / accession 不是 MaterialBatch；物理实验要引用明确的 batch identity 与 QC 状态。
+- workflow success 不会自动把 Measurement 标成 QC-valid；virtual Measurement 永远不能支持 Phenotype。
 
 ## 快速开始
 
@@ -146,21 +150,72 @@ python -m phage_lab experiment-spec \
 
 ExperimentSpec 记录 source CocktailDesign ID/hash、目标 HostProfile、锁定的 PhageProfile members、抽象 workflow、scientific questions 与 execution constraints。它不包含 device assignment；如需自定义 workflow，应在创建 ExperimentSpec 时用 `--workflow` 固定下来。
 
-### 7. 执行 locked ExperimentSpec
+### 7. 注册 MaterialBatch v1
+
+MaterialBatch 表示真实跟踪的物理批次，不是数据库 candidate。示例只登记 metadata：
+
+```bash
+python -m phage_lab material-batch \
+  --batch-id phage-batch-001 \
+  --material-type phage \
+  --profile-id NC_000866.4:v1 \
+  --material-source-kind acquired \
+  --material-source-reference "LIMS:phage-batch-001" \
+  --quality-status released \
+  --quality-evidence "LIMS:qc-001" \
+  --out phage-batch-001.json
+```
+
+host 与每个 phage member 都需要自己的 batch record。正式 real-hardware spec-run 只接受 `released` 且 `available/reserved` 的唯一匹配 batch；`released` 或 `rejected` 状态必须带 quality evidence reference。多个 batch 可由 LIMS/上游系统汇总为 `material-batches.json` 数组。
+
+### 8. 执行 locked ExperimentSpec
 
 ```bash
 python -m phage_lab run \
   --experiment-spec experiment-spec.json \
   --candidates ranked.json \
+  --material-batches material-batches.json \
   --genome my_isolate.fasta \
   --sample-id sample-001 \
   --execution-mode virtual_hardware \
   --require-snapshot
 ```
 
-spec-bound run 会从 candidate 文件中只解析 ExperimentSpec 锁定的成员；额外 discovery candidates 不会进入执行。运行时 agent 只能分配/恢复设备，不能改 cocktail membership，也不能覆盖 spec workflow。Host genome、member provenance 或 workflow 不一致时执行被拒绝。
+spec-bound run 只解析 ExperimentSpec 锁定的成员。提供 MaterialBatch 时，report 与 device payload 会记录 exact batch IDs。virtual mode 即使绑定真实 batch metadata，也只用于 lineage 测试，不声明物理消耗；formal `real_hardware + ExperimentSpec` 没有完整 test-ready batches 时会在 dispatch 前拒绝。
 
-未提供 `--experiment-spec` 时，旧 candidate-based `run` 仍保留作兼容路径。virtual hardware 只验证控制链路，不产生 biological evidence。
+未提供 `--experiment-spec` 时，旧 candidate-based `run` 仍保留作兼容路径。
+
+### 9. 摄取 Measurement v1
+
+```bash
+python -m phage_lab measurement \
+  --run-report runs/<run-id>/report.json \
+  --measurement-id measurement-001 \
+  --step measure \
+  --qc-status valid \
+  --qc-evidence "LIMS:measurement-qc-001" \
+  --out measurement.json
+```
+
+`qc_status` 是显式 admission state，不由 workflow success 自动推断；`valid` 或 `invalid` 都必须带至少一个 `qc_evidence` reference，只有 `pending` 可以没有。Measurement 保留 run/spec/device/material/QC lineage 与原始 device result。virtual run 也可以被摄取用于控制链分析，但其 `evidence_class=none`。
+
+### 10. 从有效物理 Measurement 建立 Phenotype v1
+
+```bash
+python -m phage_lab phenotype \
+  --experiment-spec experiment-spec.json \
+  --measurements measurement.json \
+  --phenotype-id phenotype-001 \
+  --phenotype-type growth_response \
+  --phenotype-outcome graded \
+  --phenotype-value 0.42 \
+  --interpretation "Assessor-defined interpretation of the admitted physical measurement." \
+  --assessor manual-review \
+  --assessor-version 1 \
+  --out phenotype.json
+```
+
+Phenotype 不自动从读数猜结论。所有 source Measurement 必须来自 physical execution、`qc_status=valid`、同一 ExperimentSpec，并引用同一组 MaterialBatch。virtual、pending 或 invalid Measurement 都不能被提升为 positive/negative/graded biological phenotype。
 
 ## 真实设备
 

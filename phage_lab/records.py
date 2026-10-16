@@ -89,7 +89,11 @@ def render_report(report: dict) -> str:
     if report.get("sample_id"):
         lines.append(f"- 样本编号：`{report['sample_id']}`")
     if report.get("candidate_sources"):
-        lines.append(f"- 候选来源：`{'`, `'.join(report['candidate_sources'])}`")
+        candidate_sources = "`, `".join(report["candidate_sources"])
+        lines.append(f"- 候选来源：`{candidate_sources}`")
+    if report.get("material_batch_ids"):
+        material_batch_ids = "`, `".join(report["material_batch_ids"])
+        lines.append(f"- MaterialBatch：`{material_batch_ids}`")
     lines.extend(["", "## 候选组合", "",
                   ", ".join(report.get("plan", {}).get("candidate_ids", [])) or "未产生计划", "",
                   "## 完成的步骤", ""])

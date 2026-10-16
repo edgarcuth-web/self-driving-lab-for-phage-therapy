@@ -15,7 +15,20 @@ from .workflow import (
 )
 
 MAX_INPUT_BYTES = 4_000_000
-COMMANDS = ("run", "host-profile", "phage-profiles", "cocktail-design", "experiment-spec", "fetch-snapshot", "candidates", "rank", "version")
+COMMANDS = (
+    "run",
+    "host-profile",
+    "phage-profiles",
+    "cocktail-design",
+    "experiment-spec",
+    "material-batch",
+    "measurement",
+    "phenotype",
+    "fetch-snapshot",
+    "candidates",
+    "rank",
+    "version",
+)
 
 
 def _load_json(path: Path, label: str):
@@ -38,6 +51,23 @@ def _load_candidates(path: Path) -> list[dict]:
     if not isinstance(data, list):
         raise ValueError("Candidate file must contain a JSON array of candidate records.")
     return data
+
+
+def _load_material_batches(path: Path) -> list:
+    from .material_batch import material_batch_from_dict
+
+    data = _load_json(path, "MaterialBatch")
+    if not isinstance(data, list):
+        raise ValueError("MaterialBatch file must contain a JSON array.")
+    return [material_batch_from_dict(item) for item in data]
+
+
+def _load_measurements(path: Path) -> list:
+    from .measurement import measurement_from_dict
+
+    data = _load_json(path, "Measurement")
+    records = data if isinstance(data, list) else [data]
+    return [measurement_from_dict(item) for item in records]
 
 
 def _load_workflow(path: Path | None) -> dict:
@@ -97,6 +127,51 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Caller-owned identifier for an ExperimentSpec.")
     parser.add_argument("--experiment-spec", type=Path,
                         help="ExperimentSpec JSON that locks scientific membership for run.")
+    parser.add_argument("--material-batches", type=Path,
+                        help="JSON array of MaterialBatch records for an ExperimentSpec-bound run.")
+    parser.add_argument("--batch-id", help="Caller-owned physical material batch identifier.")
+    parser.add_argument("--material-type", choices=["host", "phage"])
+    parser.add_argument("--profile-id", help="HostProfile or PhageProfile ID represented by a batch.")
+    parser.add_argument("--material-source-kind",
+                        choices=["acquired", "local_collection", "built"])
+    parser.add_argument("--material-source-reference",
+                        help="LIMS/order/build/source reference for a physical material batch.")
+    parser.add_argument("--quality-status",
+                        choices=["pending", "released", "rejected"], default="pending")
+    parser.add_argument("--availability-status",
+                        choices=["available", "reserved", "consumed", "unavailable"],
+                        default="available")
+    parser.add_argument("--quality-evidence", action="append", default=[],
+                        help="Quality/QC record reference; repeat for multiple references.")
+
+    parser.add_argument("--run-report", type=Path,
+                        help="Completed report.json to ingest as Measurement.")
+    parser.add_argument("--measurement-id", help="Caller-owned Measurement identifier.")
+    parser.add_argument("--step", default="measure",
+                        help="Completed run step to ingest; defaults to measure.")
+    parser.add_argument("--measurement-type", default="device_result",
+                        help="Semantic label for the ingested device output.")
+    parser.add_argument("--qc-status", choices=["pending", "valid", "invalid"],
+                        default="pending",
+                        help="QC admission state; never inferred from workflow success.")
+    parser.add_argument("--qc-evidence", action="append", default=[],
+                        help="QC record/reference; required for valid or invalid Measurement.")
+
+    parser.add_argument("--measurements", type=Path,
+                        help="Measurement JSON object or array used for Phenotype.")
+    parser.add_argument("--phenotype-id", help="Caller-owned Phenotype identifier.")
+    parser.add_argument("--phenotype-type", help="Phenotype semantic type.")
+    parser.add_argument("--phenotype-outcome",
+                        choices=["positive", "negative", "graded"])
+    parser.add_argument("--phenotype-value",
+                        help="Optional scalar value; required for graded outcome.")
+    parser.add_argument("--unit", help="Optional phenotype value unit.")
+    parser.add_argument("--interpretation",
+                        help="Explicit biological interpretation; no automatic thresholding.")
+    parser.add_argument("--assessor", help="Assessor/model identity for Phenotype.")
+    parser.add_argument("--assessor-version", default="1",
+                        help="Assessor/model version.")
+
     parser.add_argument("--cocktail-min", type=int, default=2,
                         help="Minimum PHIST-supported members for cocktail-design.")
     parser.add_argument("--cocktail-max", type=int, default=3,
@@ -271,6 +346,156 @@ def _experiment_spec(args, parser) -> int:
     return 0
 
 
+def _material_batch(args, parser) -> int:
+    """Register one versioned physical MaterialBatch."""
+
+    missing = [
+        name
+        for name, value in (
+            ("--batch-id", args.batch_id),
+            ("--material-type", args.material_type),
+            ("--profile-id", args.profile_id),
+            ("--material-source-kind", args.material_source_kind),
+            ("--material-source-reference", args.material_source_reference),
+            ("--out", args.out),
+        )
+        if not value
+    ]
+    if missing:
+        parser.error("material-batch requires " + ", ".join(missing))
+
+    from .material_batch import new_material_batch, write_material_batch
+
+    try:
+        batch = new_material_batch(
+            args.batch_id,
+            material_type=args.material_type,
+            profile_id=args.profile_id,
+            source_kind=args.material_source_kind,
+            source_reference=args.material_source_reference,
+            quality_status=args.quality_status,
+            availability_status=args.availability_status,
+            quality_evidence=tuple(args.quality_evidence),
+        )
+        write_material_batch(batch, args.out)
+    except (OSError, ValueError) as exc:
+        print(f"MaterialBatch 创建失败：{exc}", file=sys.stderr)
+        return 2
+
+    print(
+        f"MaterialBatch {batch.record_id}：{batch.material_type} / "
+        f"{batch.quality_status} / {batch.availability_status} → {args.out}",
+        flush=True,
+    )
+    return 0
+
+
+def _measurement(args, parser) -> int:
+    """Ingest one run result as a first-class Measurement."""
+
+    missing = [
+        name
+        for name, value in (
+            ("--run-report", args.run_report),
+            ("--measurement-id", args.measurement_id),
+            ("--out", args.out),
+        )
+        if not value
+    ]
+    if missing:
+        parser.error("measurement requires " + ", ".join(missing))
+
+    from .measurement import measurement_from_run_report, write_measurement
+
+    try:
+        report = _load_json(args.run_report, "Run report")
+        measurement = measurement_from_run_report(
+            report,
+            measurement_id=args.measurement_id,
+            source_step=args.step,
+            measurement_type=args.measurement_type,
+            qc_status=args.qc_status,
+            qc_evidence=tuple(args.qc_evidence),
+        )
+        write_measurement(measurement, args.out)
+    except (OSError, ValueError) as exc:
+        print(f"Measurement ingestion 失败：{exc}", file=sys.stderr)
+        return 2
+
+    print(
+        f"Measurement {measurement.record_id}：{measurement.origin} / "
+        f"QC={measurement.qc_status} / evidence={measurement.evidence_class} → {args.out}",
+        flush=True,
+    )
+    if measurement.evidence_class == "none":
+        print(
+            "该 Measurement 来自非物理执行，只能用于控制链路/fixture 分析，不能支持 Phenotype。",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def _phenotype(args, parser) -> int:
+    """Create an explicit Phenotype from admitted physical Measurements."""
+
+    missing = [
+        name
+        for name, value in (
+            ("--experiment-spec", args.experiment_spec),
+            ("--measurements", args.measurements),
+            ("--phenotype-id", args.phenotype_id),
+            ("--phenotype-type", args.phenotype_type),
+            ("--phenotype-outcome", args.phenotype_outcome),
+            ("--interpretation", args.interpretation),
+            ("--assessor", args.assessor),
+            ("--out", args.out),
+        )
+        if not value
+    ]
+    if missing:
+        parser.error("phenotype requires " + ", ".join(missing))
+
+    from .experiment_spec import load_experiment_spec
+    from .phenotype import phenotype_from_measurements, write_phenotype
+
+    value = args.phenotype_value
+    if value is not None:
+        try:
+            parsed = json.loads(value)
+        except ValueError:
+            parsed = value
+        if isinstance(parsed, (dict, list, bool)):
+            parser.error("--phenotype-value must be a scalar JSON value or string")
+        value = parsed
+
+    try:
+        spec = load_experiment_spec(args.experiment_spec)
+        measurements = _load_measurements(args.measurements)
+        phenotype = phenotype_from_measurements(
+            spec,
+            measurements,
+            phenotype_id=args.phenotype_id,
+            phenotype_type=args.phenotype_type,
+            outcome=args.phenotype_outcome,
+            value=value,
+            unit=args.unit,
+            interpretation=args.interpretation,
+            assessor_name=args.assessor,
+            assessor_version=args.assessor_version,
+        )
+        write_phenotype(phenotype, args.out)
+    except (OSError, ValueError) as exc:
+        print(f"Phenotype ingestion 失败：{exc}", file=sys.stderr)
+        return 2
+
+    print(
+        f"Phenotype {phenotype.record_id}：{phenotype.phenotype_type} / "
+        f"{phenotype.outcome} → {args.out}",
+        flush=True,
+    )
+    return 0
+
+
 def _fetch_snapshot(args, parser) -> int:
     from .snapshots import SnapshotError, create_snapshot
     missing = [name for name, value in (("--snapshot", args.snapshot),
@@ -386,6 +611,8 @@ def _run(args, parser) -> int:
             )
     elif bool(args.candidates) == bool(args.snapshot):
         parser.error("run requires exactly one of --candidates or --snapshot")
+    if args.material_batches is not None and not spec_mode:
+        parser.error("--material-batches requires --experiment-spec")
 
     missing = [
         name
@@ -410,6 +637,11 @@ def _run(args, parser) -> int:
     try:
         agent = RuleAgent() if args.agent == "rule" else OpenRouterAgent.from_environment()
         spec = load_experiment_spec(args.experiment_spec) if spec_mode else None
+        material_batches = (
+            _load_material_batches(args.material_batches)
+            if args.material_batches is not None
+            else None
+        )
         if spec_mode:
             candidates = _load_candidates(args.candidates)
             workflow = spec.workflow_dict()
@@ -452,6 +684,7 @@ def _run(args, parser) -> int:
                 timeout_seconds=args.timeout_seconds,
                 echo=not args.quiet,
                 experiment_spec=spec,
+                material_batches=material_batches,
             )
         )
     except WorkflowError as exc:
@@ -486,6 +719,12 @@ def main(argv=None) -> int:
         return _cocktail_design(args, parser)
     if args.command == "experiment-spec":
         return _experiment_spec(args, parser)
+    if args.command == "material-batch":
+        return _material_batch(args, parser)
+    if args.command == "measurement":
+        return _measurement(args, parser)
+    if args.command == "phenotype":
+        return _phenotype(args, parser)
     if args.command == "fetch-snapshot":
         return _fetch_snapshot(args, parser)
     if args.command == "candidates":
