@@ -18,6 +18,7 @@ MAX_INPUT_BYTES = 4_000_000
 COMMANDS = (
     "run",
     "host-profile",
+    "host-state",
     "phage-profiles",
     "cocktail-design",
     "experiment-spec",
@@ -118,6 +119,16 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Host bacterial FASTA to rank candidates against.")
     parser.add_argument("--host-profile", type=Path,
                         help="HostProfile JSON used to bind scientific artifacts.")
+    parser.add_argument("--host-state-id",
+                        help="Caller-owned identifier for a HostState H(t) series.")
+    parser.add_argument("--host-state-revision", type=int, default=1,
+                        help="Positive HostState revision; defaults to 1.")
+    parser.add_argument("--as-of",
+                        help="ISO-8601 time represented by HostState H(t).")
+    parser.add_argument("--state-input", type=Path,
+                        help="Optional JSON object with components/evidence/limitations.")
+    parser.add_argument("--previous-host-state", type=Path,
+                        help="Optional previous HostState snapshot for temporal lineage.")
     parser.add_argument("--phage-profiles", type=Path,
                         help="JSON array of PhageProfile records.")
     parser.add_argument("--cocktail-id",
@@ -239,6 +250,95 @@ def _host_profile(args, parser) -> int:
     print(f"HostProfile {profile.profile_id} → {args.out}", flush=True)
     print("所有 biological feature class 初始为 unknown；尚未运行表征 analyzer。",
           file=sys.stderr)
+    return 0
+
+
+def _host_state(args, parser) -> int:
+    """Create one immutable, evidence-backed HostState H(t) snapshot."""
+
+    required = (
+        ("--host-profile", args.host_profile),
+        ("--host-state-id", args.host_state_id),
+        ("--as-of", args.as_of),
+        ("--out", args.out),
+    )
+    missing = [name for name, value in required if not value]
+    if missing:
+        parser.error("host-state requires " + ", ".join(missing))
+    if args.host_state_revision < 1:
+        parser.error("--host-state-revision must be a positive integer")
+
+    from .host_profile import load_host_profile
+    from .host_state import (
+        host_state_component_from_dict,
+        host_state_evidence_from_dict,
+        load_host_state,
+        new_host_state,
+        write_host_state,
+    )
+
+    try:
+        profile = load_host_profile(args.host_profile)
+        components = ()
+        evidence = ()
+        limitations = ()
+        if args.state_input is not None:
+            payload = _load_json(args.state_input, "HostState input")
+            if not isinstance(payload, dict) or set(payload) != {
+                "components",
+                "evidence",
+                "limitations",
+            }:
+                raise ValueError(
+                    "HostState input must contain exactly components, evidence and limitations."
+                )
+            if not all(
+                isinstance(payload[name], list)
+                for name in ("components", "evidence", "limitations")
+            ):
+                raise ValueError(
+                    "HostState input components/evidence/limitations must be arrays."
+                )
+            components = tuple(
+                host_state_component_from_dict(item)
+                for item in payload["components"]
+            )
+            evidence = tuple(
+                host_state_evidence_from_dict(item)
+                for item in payload["evidence"]
+            )
+            limitations = tuple(payload["limitations"])
+
+        previous = (
+            load_host_state(args.previous_host_state)
+            if args.previous_host_state is not None
+            else None
+        )
+        state = new_host_state(
+            profile,
+            host_state_id=args.host_state_id,
+            revision=args.host_state_revision,
+            as_of=args.as_of,
+            components=components,
+            evidence=evidence,
+            limitations=limitations,
+            previous_state=previous,
+        )
+        write_host_state(state, args.out)
+    except (OSError, ValueError) as exc:
+        print(f"HostState 创建失败：{exc}", file=sys.stderr)
+        return 2
+
+    print(
+        f"HostState {state.record_id} @ {state.as_of}："
+        f"{len(state.components)} components / {len(state.evidence)} evidence → {args.out}",
+        flush=True,
+    )
+    print(
+        "HostState 只包含显式提交的动态状态；未出现的 component 仍是 unknown，"
+        "不会从旧快照自动继承。",
+        file=sys.stderr,
+    )
     return 0
 
 
@@ -830,6 +930,8 @@ def main(argv=None) -> int:
         return 0
     if args.command == "host-profile":
         return _host_profile(args, parser)
+    if args.command == "host-state":
+        return _host_state(args, parser)
     if args.command == "phage-profiles":
         return _phage_profiles(args, parser)
     if args.command == "cocktail-design":
