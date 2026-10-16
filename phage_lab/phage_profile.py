@@ -229,6 +229,11 @@ class PhageProfile:
             raise ValueError("provenance must be a supported provenance object.")
         if self.sequence is not None and not isinstance(self.sequence, SequenceRef):
             raise ValueError("sequence must be a SequenceRef or None.")
+        if (
+            isinstance(self.provenance, EngineeredProvenance)
+            and f"{self.phage_id}:v{self.revision}" in self.provenance.parent_profile_ids
+        ):
+            raise ValueError("engineered profile cannot name itself as a parent.")
         if not isinstance(self.source_annotations, dict):
             raise ValueError("source_annotations must be an object.")
         for key, value in self.source_annotations.items():
