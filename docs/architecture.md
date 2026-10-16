@@ -91,7 +91,7 @@ Future PhageProfile characterization may add RBP/tail, receptor and counter-defe
 
 InteractionEvidence v1 is now implemented as a content-addressed record linking one host identity and one versioned PhageProfile to a source signal. It stores evidence kind, signal, raw result fields, interpretation, producer identity/version/parameters, observation time and input provenance.
 
-Current evidence kinds are `source_annotation` and `computational`. Physical measurements will enter through the later Measurement/Phenotype slice rather than being mislabeled as generic computational evidence.
+Current InteractionEvidence kinds are `source_annotation` and `computational`. Physical evidence now enters through the separate Measurement/Phenotype objects rather than being mislabeled as generic computational InteractionEvidence.
 
 PHIST is the first implemented evidence producer. For compatibility it still emits the legacy `ranking` block, but it also emits `interaction_evidence` for every candidate:
 
@@ -131,7 +131,7 @@ ExperimentSpec v1 is the implemented boundary between scientific design and exec
 - an abstract operation/dependency workflow;
 - purpose, scientific questions and execution constraints.
 
-ExperimentSpec contains no device assignments or instrument-specific commands. Candidate records remain temporary execution inputs until MaterialBatch exists; a binding step resolves only the records whose PhageProfile IDs are locked in the spec and ignores unrelated discovery candidates.
+ExperimentSpec contains no device assignments or instrument-specific commands. Candidate records still bridge discovery/source identity for compatibility, but physical execution lineage is now represented separately by MaterialBatch. A candidate binding step resolves only records whose PhageProfile IDs are locked in the spec and ignores unrelated discovery candidates.
 
 For spec-bound runs:
 
@@ -164,22 +164,27 @@ unresolved coverage / resistance gap?
 
 Each escalation step needs an explicit gap and its own design provenance.
 
-## Materials and Synbio
+## MaterialBatch and physical material lineage
 
-Keep these separate:
+MaterialBatch v1 is implemented as an immutable, content-hashed record tied to one HostProfile or PhageProfile. It records:
 
-- design;
-- acquisition/order;
-- synthesis/build product;
-- material batch;
-- quality status;
-- inventory/reservation/consumption.
+- caller-owned physical batch identity and revision;
+- material type (`host` or `phage`);
+- versioned profile identity;
+- source kind/reference and timestamp;
+- quality state (`pending`, `released`, `rejected`);
+- availability state (`available`, `reserved`, `consumed`, `unavailable`);
+- quality evidence references.
 
-A completed device task does not by itself make material test-ready. Experiments reference the exact material batches used.
+A database candidate/accession is not a MaterialBatch. A completed acquisition/build/device task does not make material test-ready. `released` and `rejected` states require explicit quality evidence.
+
+For ExperimentSpec binding, exactly one test-ready host batch and one test-ready phage batch per locked member must be resolvable. Formal spec-bound real-hardware execution requires this binding before device dispatch. Virtual runs may carry the same batch IDs for lineage tests but explicitly state that no physical material was consumed.
+
+Design, acquisition/build, material identity, QC state and inventory state remain separate concepts.
 
 ## Experiment execution
 
-The testing layer is moving toward:
+The testing layer now has the formal boundary:
 
 ```text
 ExperimentSpec
@@ -187,7 +192,7 @@ ExperimentSpec
 + device capabilities
 ```
 
-ExperimentSpec is now consumed directly. MaterialBatch and first-class Measurement ingestion are still pending; current candidate records bridge material identity temporarily. Execution produces run records and device outputs, not biological phenotype claims.
+ExperimentSpec is consumed directly. Formal real-hardware spec execution requires test-ready MaterialBatch lineage; legacy candidate records remain a compatibility/source bridge. Execution produces run records and device outputs, not biological phenotype claims.
 
 The current `prepare → infect → measure` workflow is an orchestration example, not the final domain model.
 
@@ -202,17 +207,29 @@ Execution rules:
 
 Virtual hardware tests the control path only. It does not create biological evidence.
 
-## Measurement and feedback
+## Measurement and Phenotype
+
+Measurement v1 ingests a completed run step into a content-hashed artifact while preserving:
+
+- run ID;
+- exact ExperimentSpec ID/hash when present;
+- source step and assigned device;
+- MaterialBatch IDs when bound;
+- raw JSON-compatible device result;
+- physical vs virtual provenance;
+- explicit QC status.
+
+Workflow success does not imply `qc_status=valid`. A virtual Measurement may be useful for control-path analysis but always carries `evidence_class=none`.
+
+Phenotype v1 is a separate content-hashed interpretation artifact. It is never automatically inferred from a device value. A caller must state phenotype type, outcome, interpretation and assessor identity/version. Every source Measurement must be physical, QC-valid, bound to the same ExperimentSpec, and reference the same material batch set. This rule applies equally to positive, graded and negative phenotypes.
 
 Keep these outcomes distinct:
 
-1. acquisition/build failure;
+1. acquisition/build/material failure;
 2. device execution failure;
-3. invalid/incomplete measurement;
-4. valid negative phenotype;
-5. valid positive/graded phenotype.
-
-Only valid physical measurements can support physical phenotype claims.
+3. invalid/pending Measurement;
+4. valid negative Phenotype;
+5. valid positive/graded Phenotype.
 
 `FailureAttribution` may later classify mechanisms such as adsorption-level failure, intracellular incompatibility, kinetics or unknown, but only from supporting evidence.
 
@@ -228,6 +245,9 @@ Feedback creates a new design/version; it does not overwrite previous experiment
 | `interaction_evidence.py` | InteractionEvidence v1 and PHIST adapter |
 | `cocktail_design.py` | CocktailDesign v1 and conservative PHIST screening baseline |
 | `experiment_spec.py` | ExperimentSpec v1, design freezing and member binding |
+| `material_batch.py` | MaterialBatch v1 and test-ready material binding |
+| `measurement.py` | Measurement v1 and run-report ingestion |
+| `phenotype.py` | Phenotype v1 from admitted physical Measurements |
 | `snapshots.py`, `candidates.py` | Reference snapshots and retrieved candidate records |
 | `sequences.py` | Accession-indexed sequences |
 | `ranking.py` | PHIST ranking compatibility layer and evidence producer |
@@ -242,10 +262,9 @@ Current implementation status belongs in [README.md](../README.md).
 ## Build order
 
 1. host-characterization analyzers;
-2. MaterialBatch and measurement / phenotype ingestion;
-3. FailureAttribution;
-4. active learning;
-5. engineering escalation;
-6. additional real-device and Synbio integrations.
+2. FailureAttribution;
+3. active learning;
+4. engineering escalation;
+5. additional real-device and Synbio integrations.
 
 Each step should be mergeable and keep `main` runnable.
