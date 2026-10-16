@@ -6,6 +6,7 @@ import textwrap
 import unittest
 import unittest.mock
 
+from phage_lab.biology import read_fasta
 from phage_lab.interaction_evidence import phist_ranking_to_evidence
 from phage_lab.ranking import (
     PhistRanker,
@@ -157,6 +158,36 @@ class PhistAdapterTests(unittest.TestCase):
                     else "no_signal"
                 )
                 self.assertEqual(evidence["result"]["status"], expected)
+
+    def test_host_identity_matches_host_profile_semantics(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = sequence_store(root)
+            host = root / "host.fna"
+            host.write_text(">original-header\nacgt\nacgt\n")
+            expected = read_fasta(host).sha256
+
+            ranked = PhistRanker(
+                fake_phist(root, WORKING_PHIST)
+            ).rank(
+                host,
+                CANDIDATES,
+                store,
+                host_profile_id="isolate-001:v1",
+            )
+            first = ranked[0]
+            self.assertEqual(first["ranking"]["host_genome_sha256"], expected)
+            self.assertEqual(
+                first["interaction_evidence"][0]["host"]["genome_sha256"],
+                expected,
+            )
+            self.assertEqual(
+                first["interaction_evidence"][0]["host"]["profile_id"],
+                "isolate-001:v1",
+            )
+
+            host.write_text(">different-header\nACGTACGT\n")
+            self.assertEqual(read_fasta(host).sha256, expected)
 
     def test_a_value_less_row_is_no_match_rather_than_a_parse_error(self):
         # Real PHIST writes the phage name alone when nothing matched; that is an
