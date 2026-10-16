@@ -88,8 +88,8 @@ def render_report(report: dict) -> str:
         lines.append(f"- 真实物理执行：`{report['physical_execution']}`")
     if report.get("sample_id"):
         lines.append(f"- 样本编号：`{report['sample_id']}`")
-    if report.get("candidate_sources"):
-        lines.append(f"- 候选来源：`{'`, `'.join(report['candidate_sources'])}`")
+'.join(report['candidate_sources'])}`")
+`, `'.join(report['candidate_sources'])}`")
     lines.extend(["", "## 候选组合", "",
                   ", ".join(report.get("plan", {}).get("candidate_ids", [])) or "未产生计划", "",
                   "## 完成的步骤", ""])
