@@ -13,6 +13,7 @@ from phage_lab.cocktail_design import (
     DesignProducer,
     write_cocktail_design,
 )
+from phage_lab.devices import DeviceError, validate_execution_payload
 from phage_lab.experiment_spec import (
     ExperimentSpec,
     ExperimentStep,
@@ -176,6 +177,39 @@ class ExperimentSpecTests(unittest.TestCase):
                 spec(),
                 [CANDIDATES[0], dict(CANDIDATES[0]), CANDIDATES[1]],
             )
+
+
+class ExecutionPayloadTests(unittest.TestCase):
+    def test_legacy_and_complete_spec_payloads_are_accepted(self):
+        legacy = {
+            "sample_id": "sample-001",
+            "candidate_ids": ["PH-1", "PH-2"],
+        }
+        self.assertIs(validate_execution_payload(legacy), legacy)
+
+        locked = spec()
+        spec_payload = {
+            **legacy,
+            "experiment_spec_id": locked.spec_id,
+            "experiment_spec_sha256": locked.content_sha256,
+            "cocktail_design_id": locked.source_design.design_id,
+            "phage_profile_ids": list(locked.member_phage_profile_ids),
+        }
+        self.assertIs(validate_execution_payload(spec_payload), spec_payload)
+
+    def test_partial_or_unknown_lineage_is_rejected(self):
+        with self.assertRaisesRegex(DeviceError, "lineage payload is incomplete"):
+            validate_execution_payload({
+                "sample_id": "sample-001",
+                "candidate_ids": ["PH-1", "PH-2"],
+                "experiment_spec_id": "experiment-001:v1",
+            })
+        with self.assertRaisesRegex(DeviceError, "unknown field"):
+            validate_execution_payload({
+                "sample_id": "sample-001",
+                "candidate_ids": ["PH-1", "PH-2"],
+                "override_members": ["PH-X"],
+            })
 
 
 class SpecBoundRunTests(unittest.IsolatedAsyncioTestCase):
