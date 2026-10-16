@@ -333,6 +333,49 @@ class RankingProvenanceTests(unittest.TestCase):
             self.check(partial)
 
 
+class RankingCliTests(unittest.TestCase):
+    def test_rank_can_bind_evidence_to_host_profile(self):
+        from phage_lab.__main__ import main
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = sequence_store(root)
+            candidates_path = root / "candidates.json"
+            candidates_path.write_text(json.dumps(CANDIDATES), encoding="utf-8")
+            host = root / "host.fna"
+            host.write_text(">host\nACGTACGT\n")
+            profile_path = root / "host-profile.json"
+            self.assertEqual(
+                0,
+                main([
+                    "host-profile",
+                    "--genome", str(host),
+                    "--sample-id", "isolate-001",
+                    "--out", str(profile_path),
+                ]),
+            )
+            output = root / "ranked.json"
+            self.assertEqual(
+                0,
+                main([
+                    "rank",
+                    "--candidates", str(candidates_path),
+                    "--sequences", str(store.snapshot.directory),
+                    "--host-genome", str(host),
+                    "--host-profile", str(profile_path),
+                    "--phist", str(fake_phist(root, WORKING_PHIST)),
+                    "--out", str(output),
+                ]),
+            )
+            ranked = json.loads(output.read_text(encoding="utf-8"))
+            self.assertTrue(ranked)
+            for record in ranked:
+                self.assertEqual(
+                    record["interaction_evidence"][0]["host"]["profile_id"],
+                    "isolate-001:v1",
+                )
+
+
 @unittest.skipUnless(os.environ.get("PHIST_PATH"),
                      "Set PHIST_PATH to phist.py to run against the real tool.")
 class RealPhistTests(unittest.TestCase):
