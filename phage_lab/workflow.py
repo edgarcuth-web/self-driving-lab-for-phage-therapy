@@ -1,6 +1,7 @@
 """Validated experiment orchestration with explicit hardware execution modes."""
 
 import asyncio
+from datetime import datetime
 import math
 from pathlib import Path
 
@@ -10,6 +11,18 @@ from .records import RunRecords, evaluate, utc_now
 from .provenance import source_identity
 
 EXECUTION_MODES = ("real_hardware", "virtual_hardware")
+
+# Every experiment-path candidate must carry all of these, as nonempty strings.
+CANDIDATE_PROVENANCE_FIELDS = ("source_db", "accession", "retrieved_at", "source_uri")
+
+# Inclusive (minimum, maximum) candidates a plan may select when the caller
+# does not state its own bound.
+DEFAULT_SELECTION_SIZE = (1, 3)
+
+# The default operation graph for a run that is not synthesizing anything new:
+# prepare the host and the candidate phages, infect, then read out. Callers pass
+# their own workflow when their protocol differs.
+STANDARD_WORKFLOW = {"prepare": (), "infect": ("prepare",), "measure": ("infect",)}
 
 
 class WorkflowError(RuntimeError):
@@ -31,16 +44,28 @@ def _infer_operations(devices: dict) -> tuple[str, ...]:
 
 
 def validate_plan(plan: dict, candidates: list[dict], devices: dict,
-                  operations: tuple[str, ...] | list[str] | None = None) -> None:
+                  operations: tuple[str, ...] | list[str] | None = None, *,
+                  selection_size: tuple[int, int] = DEFAULT_SELECTION_SIZE) -> None:
+    """Validate an agent plan against the offered candidates and devices.
+
+    ``selection_size`` is the inclusive ``(minimum, maximum)`` number of
+    candidates a plan may select. A single phage and a six-member cocktail are
+    both legitimate experiments, so the bound belongs to the experiment spec
+    rather than to this function.
+    """
+    low, high = selection_size
+    if not 1 <= low <= high:
+        raise WorkflowError("selection_size must be an inclusive range of at least one candidate.")
     if not isinstance(plan, dict) or set(plan) != {"candidate_ids", "device_assignments", "reason"}:
         raise WorkflowError("Invalid plan fields.")
     _validate_reason(plan)
     ids = plan["candidate_ids"]
     allowed = {item["id"] for item in candidates if isinstance(item, dict) and isinstance(item.get("id"), str)}
-    if (not isinstance(ids, list) or not 2 <= len(ids) <= 3
+    if (not isinstance(ids, list) or not low <= len(ids) <= high
             or any(not isinstance(item, str) or item not in allowed for item in ids)
             or len(set(ids)) != len(ids)):
-        raise WorkflowError("Plan must select two or three distinct offered candidate IDs.")
+        raise WorkflowError(
+            f"Plan must select between {low} and {high} distinct offered candidate IDs.")
     operations = tuple(operations or _infer_operations(devices))
     assignments = plan["device_assignments"]
     if not isinstance(assignments, dict) or set(assignments) != set(operations):
@@ -65,21 +90,45 @@ def validate_recovery(decision: dict, alternatives: list[str]) -> None:
         raise WorkflowError("Only failover can specify a replacement device.")
 
 
-def _validate_candidates(candidates: list[dict]) -> None:
-    """Keep synthetic biology fixtures out of the experiment path.
+def _validate_candidates(candidates: list[dict], *,
+                         min_candidates: int = 1, max_candidates: int | None = None) -> None:
+    """Require positive, traceable provenance on every experiment-path candidate.
 
-    Virtual hardware is allowed, but candidates still need to come from an
-    external, traceable source rather than the old hackathon mock generator.
+    This is an allowlist, not a denylist. A candidate record is accepted only
+    when it names where it came from and when it was retrieved, so that a plan
+    can be traced back to an external source. Rejecting by naming convention
+    (``SIM-*`` prefixes and the like) only catches fixtures that happen to be
+    labelled honestly, so it is not used here.
     """
     if not candidates:
         raise WorkflowError("An experiment run requires externally supplied candidate records.")
+    if len(candidates) < min_candidates:
+        raise WorkflowError(f"An experiment run requires at least {min_candidates} candidate records.")
+    if max_candidates is not None and len(candidates) > max_candidates:
+        raise WorkflowError(f"An experiment run accepts at most {max_candidates} candidate records.")
+    seen: set[str] = set()
     for candidate in candidates:
-        if not isinstance(candidate, dict) or not isinstance(candidate.get("id"), str) or not candidate["id"].strip():
+        if not isinstance(candidate, dict):
+            raise WorkflowError("Each candidate must be a record object.")
+        identifier = candidate.get("id")
+        if not isinstance(identifier, str) or not identifier.strip():
             raise WorkflowError("Each candidate requires a nonempty string ID.")
-        if (candidate.get("simulated") is True
-                or candidate.get("source") == "synthetic_fixture"
-                or candidate["id"].startswith("SIM-")):
-            raise WorkflowError("Experiment runs reject synthetic candidate fixtures.")
+        if identifier in seen:
+            raise WorkflowError(f"Duplicate candidate ID {identifier!r}.")
+        seen.add(identifier)
+        missing = [field for field in CANDIDATE_PROVENANCE_FIELDS
+                   if not isinstance(candidate.get(field), str) or not candidate[field].strip()]
+        if missing:
+            raise WorkflowError(
+                f"Candidate {identifier!r} is missing traceable provenance: {', '.join(missing)}. "
+                "Experiment-path candidates must record the external source they came from.")
+        if candidate.get("simulated") is True:
+            raise WorkflowError(f"Candidate {identifier!r} is explicitly marked simulated.")
+        try:
+            datetime.fromisoformat(candidate["retrieved_at"])
+        except ValueError:
+            raise WorkflowError(
+                f"Candidate {identifier!r} has a non-ISO-8601 retrieved_at timestamp.") from None
 
 
 def validate_experiment_inputs(candidates: list[dict], devices: dict, execution_mode: str) -> None:
@@ -99,11 +148,6 @@ def validate_experiment_inputs(candidates: list[dict], devices: dict, execution_
             raise WorkflowError("Device manifest must match its configured device ID.")
 
 
-def validate_real_inputs(candidates: list[dict], devices: dict) -> None:
-    """Compatibility alias for callers that require physical hardware."""
-    validate_experiment_inputs(candidates, devices, "real_hardware")
-
-
 def _validate_workflow(workflow: dict) -> tuple[str, ...]:
     if not isinstance(workflow, dict) or not workflow:
         raise WorkflowError("Workflow must contain at least one operation.")
@@ -118,6 +162,13 @@ def _validate_workflow(workflow: dict) -> tuple[str, ...]:
         if any(operations.index(dep) >= operations.index(operation) for dep in dependencies):
             raise WorkflowError("Workflow dependencies must appear before dependent operations.")
     return operations
+
+
+def _quarantine(device) -> None:
+    """Advisory: take a driver out of service when it supports being stopped."""
+    hook = getattr(device, "quarantine", None)
+    if callable(hook):
+        hook()
 
 
 class Scheduler:
@@ -147,8 +198,7 @@ class Scheduler:
             try:
                 observed = await device.read(job_id)
             except DeviceUnavailable:
-                if hasattr(device, "quarantined"):
-                    device.quarantined = True
+                _quarantine(device)
                 self.report["recoveries"].append({"step": operation, "outcome": "unknown_state_stop"})
                 self.records.emit("reconciliation_failed", step=operation, device=device_id,
                                   reason="No authoritative job state; duplicate work refused.")
@@ -187,8 +237,7 @@ class Scheduler:
             self.report["recoveries"].append({"step": operation, "outcome": decision["action"],
                                               "from_device": device_id, **decision})
             if decision["action"] == "cancel_and_failover":
-                if hasattr(device, "quarantined"):
-                    device.quarantined = True
+                _quarantine(device)
                 device_id = decision["replacement_device_id"]
             self.records.emit("recovery_executing", step=operation, device=device_id,
                               action=decision["action"], next_attempt=attempt + 1)
@@ -197,20 +246,24 @@ class Scheduler:
 
 async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str,
                          candidates: list[dict], devices: dict | None, workflow: dict, agent,
-                         execution_mode: str = "real_hardware", timeout_seconds: float = 60.0,
+                         execution_mode: str, selection_size: tuple[int, int] = DEFAULT_SELECTION_SIZE,
+                         timeout_seconds: float = 60.0,
                          echo: bool = True, on_event=None) -> tuple[dict, Path]:
     """Run an experiment plan against physical or explicitly virtual hardware.
 
-    Candidate records must always be externally supplied and non-synthetic.
-    `virtual_hardware` may emulate instruments, but its outputs are not physical
-    measurements and must not be represented as experimental evidence.
+    ``execution_mode`` is required: there is no default, because a caller that
+    did not state which kind of hardware it expects should not be given either.
+
+    Candidate records must always be externally supplied and carry traceable
+    provenance. ``virtual_hardware`` may emulate instruments, but its outputs
+    are not physical measurements and must never be represented as evidence.
     """
     if not isinstance(sample_id, str) or not sample_id.strip():
         raise ValueError("sample_id must be a nonempty string.")
     if execution_mode not in EXECUTION_MODES:
         raise ValueError(f"execution_mode must be one of {EXECUTION_MODES}.")
     operations = _validate_workflow(workflow)
-    _validate_candidates(candidates)
+    _validate_candidates(candidates, min_candidates=selection_size[0])
     if execution_mode == "real_hardware" and not devices:
         raise WorkflowError("real_hardware requires configured physical device drivers.")
     if devices:
@@ -218,7 +271,7 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
 
     records = RunRecords(output_root, echo, on_event=on_event)
     if execution_mode == "virtual_hardware" and not devices:
-        from .simulation import make_virtual_devices
+        from .virtual_hardware import make_virtual_devices
         devices = make_virtual_devices(operations, records.emit)
         validate_experiment_inputs(candidates, devices, execution_mode)
 
@@ -241,14 +294,17 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
         report["genome"] = genome.public_metadata()
         records.emit("input_validated", **report["genome"])
         report["candidates"] = candidates
+        report["candidate_sources"] = sorted({candidate["source_db"] for candidate in candidates})
         manifests = [device.describe() for device in devices.values()]
         records.emit("devices_discovered", count=len(manifests), execution_mode=execution_mode)
         records.emit("planning_requested", agent=report["agent"])
         plan = await agent.plan({"genome": genome.public_metadata(), "candidates": candidates,
                                 "devices": manifests, "workflow": workflow,
                                 "execution_mode": execution_mode,
-                                "physical_execution": physical_execution})
-        validate_plan(plan, candidates, devices, operations=operations)
+                                "physical_execution": physical_execution,
+                                "selection_size": list(selection_size)})
+        validate_plan(plan, candidates, devices, operations=operations,
+                      selection_size=selection_size)
         report["plan"] = plan
         records.emit("plan_accepted", agent=report["agent"], **plan)
         scheduler = Scheduler(devices, agent, records, report, timeout_seconds=timeout_seconds)
@@ -277,8 +333,3 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
             records.close()
     return report, records.directory
 
-
-async def run_demo(*args, **kwargs):
-    """Compatibility wrapper for the legacy all-synthetic hackathon harness."""
-    from .simulation import run_demo as _run_demo
-    return await _run_demo(*args, **kwargs)

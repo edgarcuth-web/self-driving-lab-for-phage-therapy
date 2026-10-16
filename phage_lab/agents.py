@@ -24,6 +24,14 @@ def _operations(context: dict) -> tuple[str, ...]:
     return tuple(operations)
 
 
+def _selection_size(context: dict) -> tuple[int, int]:
+    value = context.get("selection_size")
+    if (isinstance(value, (list, tuple)) and len(value) == 2
+            and all(isinstance(item, int) for item in value) and 1 <= value[0] <= value[1]):
+        return int(value[0]), int(value[1])
+    return 1, 3
+
+
 class RuleAgent:
     name = "rule"
     model = None
@@ -35,10 +43,16 @@ class RuleAgent:
                         if operation in device.get("operations", [])]
             if not eligible:
                 raise AgentError(f"No compatible device is available for {operation}.")
-            assignments[operation] = next((item for item in eligible if item.endswith("-primary")), eligible[0])
-        return {"candidate_ids": [item["id"] for item in context["candidates"][:2]],
+            assignments[operation] = sorted(eligible)[0]
+        low, high = _selection_size(context)
+        offered = [item["id"] for item in context["candidates"]]
+        if len(offered) < low:
+            raise AgentError("Fewer candidates were offered than the plan requires.")
+        chosen = offered[:max(low, min(high, 2))]
+        return {"candidate_ids": chosen,
                 "device_assignments": assignments,
-                "reason": "Offline policy: choose the first two offered candidates and compatible preferred devices."}
+                "reason": (f"Offline policy: take the first {len(chosen)} offered candidate(s) "
+                           "and a compatible device per operation.")}
 
     async def recover(self, context: dict) -> dict:
         alternatives = context["alternatives"]
@@ -50,7 +64,8 @@ class RuleAgent:
 TASKS = {
     "submit_plan": (
         "Plan the run using only the offered candidate IDs and compatible devices. "
-        "Choose 2-3 distinct candidate IDs and assign one compatible device to every operation. "
+        "Choose distinct candidate IDs within the allowed selection_size range and assign one "
+        "compatible device to every operation. "
         "Do not invent biological results. Call submit_plan."),
     "choose_recovery": (
         "A job timed out and is still running. The controller will cancel it and wait for "
@@ -83,7 +98,8 @@ class OpenRouterAgent:
         schema = {
             "type": "object", "additionalProperties": False,
             "properties": {
-                "candidate_ids": {"type": "array",
+                "candidate_ids": {"type": "array", "minItems": _selection_size(context)[0],
+                                  "maxItems": _selection_size(context)[1],
                                   "items": {"type": "string", "enum": [item["id"] for item in context["candidates"]]}},
                 "device_assignments": {"type": "object", "additionalProperties": False,
                     "properties": {operation: {"type": "string", "enum": [device["device_id"]

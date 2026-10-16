@@ -1,39 +1,75 @@
-"""Command-line entry point for experiment orchestration and explicit simulation."""
+"""Command-line entry point for experiment orchestration."""
 
 import argparse
 import asyncio
 import json
-import math
 from pathlib import Path
 import sys
 
-from .simulation import FAULT_MODES, OPERATIONS
-from .workflow import run_demo
+from .workflow import (
+    DEFAULT_SELECTION_SIZE,
+    EXECUTION_MODES,
+    STANDARD_WORKFLOW,
+    WorkflowError,
+    run_experiment,
+)
+
+MAX_INPUT_BYTES = 4_000_000
 
 
-def scale(value: str) -> float:
+def _load_json(path: Path, label: str):
+    if path.stat().st_size > MAX_INPUT_BYTES:
+        raise ValueError(f"{label} file exceeds the {MAX_INPUT_BYTES // 1_000_000} MB limit.")
     try:
-        result = float(value)
-    except ValueError:
-        raise argparse.ArgumentTypeError("time scale must be a number") from None
-    if not math.isfinite(result) or not 0.01 <= result <= 10:
-        raise argparse.ArgumentTypeError("time scale must be between 0.01 and 10")
-    return result
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise ValueError(f"{label} file is not valid JSON: {exc}") from None
+
+
+def _load_candidates(path: Path) -> list[dict]:
+    """Load externally supplied candidate records.
+
+    This is a stopgap entry point: it reads records someone else retrieved. It
+    does not fetch anything, so the provenance fields in the file are only as
+    honest as whoever wrote it. A CandidateProvider that queries a real
+    database and stamps provenance itself is the next piece of work.
+    """
+    data = _load_json(path, "Candidate")
+    if not isinstance(data, list):
+        raise ValueError("Candidate file must contain a JSON array of candidate records.")
+    return data
+
+
+def _load_workflow(path: Path | None) -> dict:
+    if path is None:
+        return dict(STANDARD_WORKFLOW)
+    data = _load_json(path, "Workflow")
+    if not isinstance(data, dict):
+        raise ValueError("Workflow file must contain a JSON object of operation -> dependencies.")
+    return {key: tuple(value) if isinstance(value, list) else value for key, value in data.items()}
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Self-driving laboratory orchestration for phage research.")
-    parser.add_argument("command", nargs="?", default="run", choices=["run", "demo", "dashboard", "version"])
+    parser = argparse.ArgumentParser(
+        description="Self-driving laboratory orchestration for phage research.")
+    parser.add_argument("command", nargs="?", default="run", choices=["run", "version"])
     parser.add_argument("--genome", type=Path,
-                        default=Path(__file__).resolve().parent.parent / "examples" / "toy_genome.fasta")
+                        default=Path(__file__).resolve().parent.parent / "examples" / "toy_genome.fasta",
+                        help="Host bacterial FASTA; only a hash and summary are retained.")
+    parser.add_argument("--candidates", type=Path,
+                        help="JSON array of externally supplied candidate records.")
+    parser.add_argument("--execution-mode", choices=EXECUTION_MODES,
+                        help="Required for a run. No default: state which hardware you expect.")
+    parser.add_argument("--sample-id", help="Caller-owned sample identifier.")
+    parser.add_argument("--workflow", type=Path,
+                        help="JSON object of operation -> dependency list. Defaults to the standard pipeline.")
     parser.add_argument("--agent", choices=["rule", "openrouter"], default="rule")
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--fault", choices=FAULT_MODES, default="hang")
-    parser.add_argument("--fault-step", choices=OPERATIONS)
-    parser.add_argument("--time-scale", type=scale, default=1.0)
+    parser.add_argument("--select-min", type=int, default=DEFAULT_SELECTION_SIZE[0],
+                        help="Fewest candidates a plan may select.")
+    parser.add_argument("--select-max", type=int, default=DEFAULT_SELECTION_SIZE[1],
+                        help="Most candidates a plan may select.")
+    parser.add_argument("--timeout-seconds", type=float, default=60.0)
     parser.add_argument("--output-dir", type=Path, default=Path("runs"))
-    parser.add_argument("--port", type=int, default=8765, help="Local dashboard port")
-    parser.add_argument("--no-browser", action="store_true", help="Do not automatically open the dashboard")
     args = parser.parse_args(argv)
 
     if args.command == "version":
@@ -41,37 +77,42 @@ def main(argv=None) -> int:
         print(json.dumps(source_identity(), ensure_ascii=False, indent=2))
         return 0
 
-    if args.command == "run":
-        print(
-            "运行入口现在需要真实候选数据源。若没有实验硬件，可通过 "
-            "phage_lab.workflow.run_experiment(..., execution_mode='virtual_hardware', devices=None) "
-            "显式使用软件设备 twin；它不会被记作真实湿实验。",
-            file=sys.stderr,
-        )
+    missing = [name for name, value in (("--candidates", args.candidates),
+                                        ("--execution-mode", args.execution_mode),
+                                        ("--sample-id", args.sample_id)) if not value]
+    if missing:
+        parser.error("run requires " + ", ".join(missing))
+    if not 1 <= args.select_min <= args.select_max:
+        parser.error("--select-min must be at least 1 and no greater than --select-max")
+
+    from .agents import AgentError, OpenRouterAgent, RuleAgent
+    try:
+        agent = RuleAgent() if args.agent == "rule" else OpenRouterAgent.from_environment()
+        candidates = _load_candidates(args.candidates)
+        workflow = _load_workflow(args.workflow)
+    except (AgentError, OSError, ValueError) as exc:
+        print(f"无法启动：{exc}", file=sys.stderr)
         return 2
 
-    if args.command == "dashboard":
-        if not 1024 <= args.port <= 65535:
-            parser.error("dashboard port must be between 1024 and 65535")
-        from .dashboard import serve
-        try:
-            serve(args.output_dir, args.port, args.time_scale, open_browser=not args.no_browser)
-        except OSError as exc:
-            print(f"面板无法启动：{exc}\n若端口已被占用，可以添加 --port 8766。", file=sys.stderr)
-            return 2
-        return 0
+    if args.execution_mode == "virtual_hardware":
+        print("VIRTUAL HARDWARE: 设备动作与读数由软件 twin 产生，不是湿实验证据。", flush=True)
 
-    print("LEGACY SIMULATION: 候选、订单、设备和读数均为模拟。", flush=True)
-    print("决策模式：" + ("离线规则（没有调用 AI）" if args.agent == "rule" else "OpenRouter API（真实模型调用）"), flush=True)
     try:
-        report, directory = asyncio.run(run_demo(
-            args.genome, args.output_dir, seed=args.seed, fault=args.fault,
-            fault_step=args.fault_step, agent_mode=args.agent, time_scale=args.time_scale))
+        report, directory = asyncio.run(run_experiment(
+            args.genome, args.output_dir, sample_id=args.sample_id,
+            candidates=candidates, devices=None, workflow=workflow, agent=agent,
+            execution_mode=args.execution_mode,
+            selection_size=(args.select_min, args.select_max),
+            timeout_seconds=args.timeout_seconds))
+    except WorkflowError as exc:
+        print(f"运行被拒绝：{exc}", file=sys.stderr)
+        return 2
     except (OSError, ValueError) as exc:
         print(f"无法启动或保存报告：{exc}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
         return 130
+
     print(f"\n流程状态：{report['status']}\n报告：{directory / 'report.md'}", flush=True)
     return 0 if report["status"] == "succeeded" else 2
 

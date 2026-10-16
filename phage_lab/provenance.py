@@ -13,9 +13,8 @@ def source_identity(root: Path | None = None) -> dict:
     paths = sorted(path for path in (root / "phage_lab").rglob("*")
                    if path.is_file() and path.suffix in {".py", ".html", ".css", ".js", ".json"}
                    and "__pycache__" not in path.parts)
-    for name in ("examples/toy_genome.fasta", "start-dashboard.bat"):
-        if (root / name).is_file():
-            paths.append(root / name)
+    if (root / "examples/toy_genome.fasta").is_file():
+        paths.append(root / "examples/toy_genome.fasta")
     manifest = []
     for path in sorted(paths):
         # Windows Git checkouts can use CRLF; normalize that harmless difference.
@@ -35,7 +34,7 @@ def source_identity(root: Path | None = None) -> dict:
             return identity
         identity["git_commit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], **options).strip()
         changes = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all",
-                                           "--", "phage_lab", "examples/toy_genome.fasta", "start-dashboard.bat"], **options)
+                                           "--", "phage_lab", "examples/toy_genome.fasta"], **options)
         identity["git_dirty"] = bool(changes.strip())
     except (OSError, subprocess.SubprocessError):
         pass

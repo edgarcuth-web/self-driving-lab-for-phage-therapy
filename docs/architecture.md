@@ -2,16 +2,14 @@
 
 ## System boundary
 
-项目把“科学输入是否真实”和“硬件是否真实”分开处理。
+项目把"科学输入是否真实"和"硬件是否真实"分开处理。
 
-实验路径中的 candidate records 必须来自外部、可追溯的数据源；旧黑客松的 synthetic candidate fixtures 不进入这一层。硬件执行则有两个显式模式：
+实验路径中的 candidate records 必须带可追溯的外部来源。硬件执行则有两个显式模式：
 
-- **`real_hardware`**：真实设备 adapter，manifest 必须声明 `simulated=false`。
+- **`real_hardware`**：真实设备 adapter，manifest 必须声明 `simulated=false`。没有提供 adapter 时直接拒绝运行。
 - **`virtual_hardware`**：软件 device twin，manifest 必须声明 `simulated=true`。没有物理动作，输出不构成实验数据。
 
-另外保留 **`legacy_demo`**，其中候选、设备和读数全部模拟，只用于旧 dashboard 与回归测试。
-
-任何模式切换都必须显式发生；系统不会从 real hardware 静默 fallback 到 virtual hardware。
+`execution_mode` 没有默认值。调用方没说清楚期望哪种硬件，就什么都拿不到；模式切换必须显式发生，系统不会从 real hardware 静默 fallback 到 virtual hardware。
 
 ## Components
 
@@ -19,12 +17,11 @@
 |---|---|
 | `biology.py` | FASTA validation and privacy-preserving input summary |
 | `devices.py` | Generic command/device contract |
-| `workflow.py` | Candidate validation, execution-mode validation, scheduling and reconciliation |
-| `simulation.py` | Virtual device twins plus isolated legacy all-synthetic demo |
+| `workflow.py` | Candidate provenance, execution-mode validation, scheduling and reconciliation |
+| `virtual_hardware.py` | Software device twins |
 | `agents.py` | Bounded structured planning/recovery proposals |
 | `records.py` | Append-only events, reports and execution-mode disclosure |
 | `provenance.py` | Runtime source identity |
-| `dashboard.py` | Legacy demo UI during migration |
 
 ## Experiment path
 
@@ -32,14 +29,33 @@
 
 - FASTA/input reference;
 - caller-owned sample ID;
-- externally supplied candidate records;
+- externally supplied candidate records with provenance;
 - workflow/dependency definition;
 - planner;
 - an explicit execution mode.
 
-For `virtual_hardware`, callers may pass `devices=None`; the workflow then creates no-fault software twins for the declared operations. These twins can carry real candidate IDs through the orchestration stack, but any generated reading remains marked as simulated and `evidence=none`.
+For `virtual_hardware`, callers may pass `devices=None`; the workflow then creates no-fault software twins for the declared operations. These twins carry real candidate IDs through the orchestration stack, but every reading stays marked `simulated` with `evidence: "none"`.
 
 For `real_hardware`, callers must provide concrete device adapters.
+
+## Candidate provenance
+
+Admission is an allowlist. Every candidate record must carry, as nonempty strings:
+
+| Field | Meaning |
+|---|---|
+| `source_db` | the external database the record came from |
+| `accession` | that database's identifier for it |
+| `retrieved_at` | ISO 8601 timestamp of retrieval |
+| `source_uri` | a URI the record can be traced back to |
+
+The previous denylist rejected `SIM-` prefixes and a `synthetic_fixture` source label. That only stops fixtures that label themselves honestly — a hand-written record with an invented `source` string passed it. Positive provenance is the invariant; naming conventions are not.
+
+`--candidates` reads records someone else retrieved, so its provenance fields are only as honest as the file's author. A `CandidateProvider` that queries a database and stamps provenance itself is the next milestone.
+
+## Selection size
+
+How many candidates a plan may select is part of the experiment spec (`selection_size`, default 1–3), not a constant. A single phage and a six-member cocktail are both legitimate experiments, and the bound is passed to both the plan validator and the planning context so the agent sees the same rule the validator enforces.
 
 ## DeviceDriver
 
@@ -53,6 +69,7 @@ The shared contract is transport-neutral:
 | `wait(job_id)` | wait for completion without implying cancellation on timeout |
 | `cancel(job_id)` | confirm cancellation where supported |
 | `close()` | release local driver resources |
+| `quarantine()` | optional, advisory: stop routing new work here after a failover |
 
 A future Computer Use adapter can implement the same boundary for software-controlled instruments or services. Its UI actions are still an execution transport; they do not by themselves make a virtual measurement physical evidence.
 
@@ -65,7 +82,7 @@ A future Computer Use adapter can implement the same boundary for software-contr
 5. Require authoritative cancellation before retry/failover.
 6. Stop when state is unknown rather than duplicate an irreversible action.
 
-Virtual hardware exercises these invariants before physical equipment exists.
+Virtual hardware exercises these invariants before physical equipment exists. Fault injection lives in `tests/support.py`: the control plane needs to be tested against hangs, lost responses and unreachable devices, but the shipped system has no reason to contain the means of breaking itself.
 
 ## Evidence boundary
 
@@ -75,12 +92,8 @@ The orchestration layer distinguishes:
 - **execution provenance** — physical hardware vs device twin;
 - **result interpretation** — never inferred automatically from workflow success.
 
-A virtual readout may be useful for UI, scheduler or model-interface testing, but it must remain labeled synthetic and cannot support a biological conclusion.
+A virtual readout may be useful for UI, scheduler or model-interface testing, but it stays labeled synthetic and cannot support a biological conclusion. `evaluate()` decides which case it is from the device's own `simulated` / `physical_execution` flags, never by recognizing a unit string — a provenance check that depends on a naming convention is a lint rule, not an invariant.
 
 ## Persistence
 
 Current artifacts are file-backed. The next infrastructure milestone is durable storage of experiment IDs, logical command IDs, remote/virtual job IDs, attempts, result provenance and reconciliation state. SQLite is sufficient for the first implementation.
-
-## Legacy simulation
-
-`simulation.run_demo()` remains intentionally all-synthetic for deterministic regression and fault-injection tests. It is separate from the hybrid experiment path even though both can reuse the same `SimulatedDevice` implementation.

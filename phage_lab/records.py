@@ -47,14 +47,21 @@ class RunRecords:
 
 
 def evaluate(results: dict) -> dict:
-    readout = results.get("measure", {}).get("readings")
+    """Summarize a run's readout without ever inferring a biological result.
+
+    Whether a readout is synthetic is decided by the device's own ``simulated``
+    flag, not by recognizing a unit string: provenance is reported by the
+    driver, never guessed from a naming convention.
+    """
+    measurement = results.get("measure", {})
+    readout = measurement.get("readings")
     if readout is None:
         return {"quality": "incomplete", "biological_conclusion": "not_assessed"}
-    unit = results.get("measure", {}).get("unit")
-    if unit == "arbitrary_simulation_units":
-        return {"quality": "synthetic_readout_complete", "reading_count": len(readout),
-                "mean_simulated_signal": round(mean(readout), 4),
-                "unit": unit, "biological_conclusion": "not_assessed"}
+    unit = measurement.get("unit")
+    if measurement.get("simulated") is True or measurement.get("physical_execution") is False:
+        return {"quality": "virtual_readout_complete", "reading_count": len(readout),
+                "mean_virtual_signal": round(mean(readout), 4),
+                "unit": unit, "evidence": "none", "biological_conclusion": "not_assessed"}
     result = {"quality": "measurement_complete", "reading_count": len(readout),
               "biological_conclusion": "not_assessed"}
     if readout and all(isinstance(value, (int, float)) for value in readout):
@@ -66,20 +73,13 @@ def evaluate(results: dict) -> dict:
 
 def render_report(report: dict) -> str:
     mode = report.get("execution_mode")
-    if mode == "virtual_hardware":
-        title = "# 虚拟硬件运行报告"
-    elif mode == "legacy_demo":
-        title = "# 模拟实验运行报告"
-    else:
-        title = "# 实验运行报告"
-    lines = [title, ""]
-    if mode == "virtual_hardware":
+    physical = report.get("physical_execution") is True
+    lines = ["# 实验运行报告" if physical else "# 虚拟硬件运行报告", ""]
+    if not physical:
         lines.extend([
             "> 本次运行使用软件设备 twin；没有执行物理湿实验。虚拟设备输出不能作为实验或疗效证据。",
             "",
         ])
-    elif report.get("simulated") is True:
-        lines.extend(["> 这是显式 simulation/test harness；候选、设备及读数不能作为生物学证据。", ""])
     lines.extend([f"- 运行编号：`{report['run_id']}`", f"- 流程状态：`{report['status']}`",
                   f"- 决策模式：`{report.get('agent', 'unknown')}`"])
     if mode:
@@ -88,10 +88,8 @@ def render_report(report: dict) -> str:
         lines.append(f"- 真实物理执行：`{report['physical_execution']}`")
     if report.get("sample_id"):
         lines.append(f"- 样本编号：`{report['sample_id']}`")
-    if "seed" in report:
-        lines.append(f"- 随机种子：`{report['seed']}`")
-    if isinstance(report.get("fault"), dict):
-        lines.append(f"- 实际注入故障次数：`{report['fault'].get('injected_count', 0)}`")
+    if report.get("candidate_sources"):
+        lines.append(f"- 候选来源：`{'`, `'.join(report['candidate_sources'])}`")
     lines.extend(["", "## 候选组合", "",
                   ", ".join(report.get("plan", {}).get("candidate_ids", [])) or "未产生计划", "",
                   "## 完成的步骤", ""])
