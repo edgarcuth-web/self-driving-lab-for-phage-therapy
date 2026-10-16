@@ -131,6 +131,17 @@ class PhistEvidenceTests(unittest.TestCase):
         self.assertNotIn("resistant", serialized)
         self.assertNotIn("susceptible", serialized)
 
+    def test_pairwise_evidence_id_does_not_depend_on_cohort_rank(self):
+        first = ranked_candidate()
+        second = ranked_candidate()
+        first["ranking"]["rank"] = 1
+        second["ranking"]["rank"] = 7
+
+        self.assertEqual(
+            phist_ranking_to_evidence(first).evidence_id,
+            phist_ranking_to_evidence(second).evidence_id,
+        )
+
     def test_phist_adapter_rejects_other_tools(self):
         candidate = ranked_candidate()
         candidate["ranking"]["tool"] = "other"
