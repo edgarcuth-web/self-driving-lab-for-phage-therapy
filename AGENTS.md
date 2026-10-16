@@ -81,7 +81,10 @@ It must not create biological evidence. Measurement-shaped test data should come
 
 Raw FASTA and headers are not sent to external models by default. Local bioinformatics tools may consume sequence; external reasoning components receive structured data unless explicitly required otherwise.
 
-Generated/engineered phages and retrieved natural phages use different provenance. Never invent database accessions for designed candidates.
+`PhageProfile` provenance kinds are `retrieved`, `natural`, and `engineered`.
+`retrieved` describes record provenance and must not be treated as proof of natural biological origin.
+`natural` requires local collection/isolate lineage. `engineered` requires design identity and parent profile lineage.
+Never invent database accessions for designed candidates.
 
 ## Hardware execution
 
@@ -102,7 +105,8 @@ Never execute model-generated code directly on devices.
 
 - `biology.py`: FASTA validation and sequence summary.
 - `host_profile.py`: HostProfile v1.
-- `snapshots.py`, `candidates.py`, `sequences.py`: reference data and natural candidates.
+- `phage_profile.py`: PhageProfile v1 and provenance variants.
+- `snapshots.py`, `candidates.py`, `sequences.py`: reference data and retrieved candidates.
 - `ranking.py`: PHIST integration.
 - `agents.py`: bounded orchestration decisions.
 - `workflow.py`: validation, scheduling and recovery.
@@ -114,13 +118,12 @@ Never execute model-generated code directly on devices.
 Priority order:
 
 1. host-characterization analyzers;
-2. PhageProfile;
-3. InteractionEvidence;
-4. CocktailDesign;
-5. ExperimentSpec integration;
-6. real measurement / phenotype ingestion;
-7. FailureAttribution and active learning;
-8. engineering escalation.
+2. InteractionEvidence;
+3. CocktailDesign;
+4. ExperimentSpec integration;
+5. real measurement / phenotype ingestion;
+6. FailureAttribution and active learning;
+7. engineering escalation.
 
 Do not expand robot simulation unless it supports one of these steps.
 

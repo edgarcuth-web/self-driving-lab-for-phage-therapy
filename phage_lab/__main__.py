@@ -15,7 +15,7 @@ from .workflow import (
 )
 
 MAX_INPUT_BYTES = 4_000_000
-COMMANDS = ("run", "host-profile", "fetch-snapshot", "candidates", "rank", "version")
+COMMANDS = ("run", "host-profile", "phage-profiles", "fetch-snapshot", "candidates", "rank", "version")
 
 
 def _load_json(path: Path, label: str):
@@ -126,6 +126,36 @@ def _host_profile(args, parser) -> int:
     print("所有 biological feature class 初始为 unknown；尚未运行表征 analyzer。",
           file=sys.stderr)
     return 0
+
+
+def _phage_profiles(args, parser) -> int:
+    """Convert sourced candidate records into retrieved PhageProfile records."""
+
+    missing = [name for name, value in (("--candidates", args.candidates), ("--out", args.out))
+               if not value]
+    if missing:
+        parser.error("phage-profiles requires " + ", ".join(missing))
+    from .phage_profile import retrieved_candidate_to_phage_profile
+    try:
+        candidates = _load_candidates(args.candidates)
+        profiles = [
+            retrieved_candidate_to_phage_profile(candidate).to_dict()
+            for candidate in candidates
+        ]
+        args.out.write_text(
+            json.dumps(profiles, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except (OSError, ValueError) as exc:
+        print(f"PhageProfile 转换失败：{exc}", file=sys.stderr)
+        return 2
+    print(f"{len(profiles)} 个 PhageProfile → {args.out}", flush=True)
+    print(
+        "retrieved provenance 只表示外部记录来源；不会自动声明 biological origin。",
+        file=sys.stderr,
+    )
+    return 0
+
 
 def _fetch_snapshot(args, parser) -> int:
     from .snapshots import SnapshotError, create_snapshot
@@ -277,6 +307,8 @@ def main(argv=None) -> int:
         return 0
     if args.command == "host-profile":
         return _host_profile(args, parser)
+    if args.command == "phage-profiles":
+        return _phage_profiles(args, parser)
     if args.command == "fetch-snapshot":
         return _fetch_snapshot(args, parser)
     if args.command == "candidates":

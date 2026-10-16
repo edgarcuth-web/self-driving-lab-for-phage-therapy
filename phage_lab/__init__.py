@@ -1,3 +1,3 @@
-"""Simulated phage workflow orchestration. No real laboratory operations."""
+"""Closed-loop phage R&D domain models and laboratory orchestration."""
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
