@@ -139,6 +139,7 @@ Build failures, device failures, invalid measurements and biological negative re
 
 Implemented:
 
+- HostProfile v1 schema, unknown/assessed semantics and local serialization;
 - pinned reference snapshots and candidate retrieval;
 - sequence indexing;
 - PHIST ranking with provenance;
@@ -152,7 +153,7 @@ Implemented:
 
 Near-term direction:
 
-1. establish `HostProfile` as the first scientific domain object;
+1. add real host-characterization analyzers that contribute versioned evidence to `HostProfile`;
 2. establish `PhageProfile`;
 3. add an `InteractionEvidence` interface;
 4. add `CocktailDesign`;
