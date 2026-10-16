@@ -11,9 +11,11 @@ HostState H(t)
         ↓
 PhageProfile + InteractionEvidence
         ↓
-[next: InteractionPrediction]
+InteractionPrediction
         ↓
-CandidateSet / CocktailDesign / scientific intent
+[next: CandidateSet / natural-phage recommender]
+        ↓
+CocktailDesign / scientific intent
         ↓
 ExperimentSpec v2 + ExperimentArm(s)
         ↓
@@ -36,7 +38,8 @@ Scientific components choose what to test. The orchestration layer executes a va
 | `HostProfile` | Stable versioned host identity and characterization anchor |
 | `HostState` | Content-addressed H(t): explicit time-dependent host state backed by admitted evidence |
 | `PhageProfile` | Versioned natural or designed phage characterization |
-| `InteractionEvidence` | One traceable phage-host observation or model output |
+| `InteractionEvidence` | One traceable phage-host source signal; never a calibrated infection probability |
+| `InteractionPrediction` | Content-addressed probability prediction for one exact HostState-phage pair with uncertainty and model provenance |
 | `CocktailDesign` | Versioned member set, objectives and supporting evidence; one optional ExperimentSpec source |
 | `ExperimentArm` | One control/treatment arm with host, 0/1/N phages, conditions and expected readouts |
 | `ExperimentSpec` | Versioned arm-aware experimental intent independent of any one design artifact |
@@ -52,6 +55,8 @@ Target lineage:
 ```text
 HostProfile
   → HostState H(t)
+  → PhageProfile + InteractionEvidence
+  → InteractionPrediction
   → scientific source(s) / intent
   → ExperimentSpec + ExperimentArm(s)
   → MaterialBatch
@@ -136,6 +141,29 @@ PHIST is the first implemented evidence producer. For compatibility it still emi
 The PHIST host digest now uses the same normalized genome identity as HostProfile. When a matching HostProfile is supplied, its profile ID is bound into the evidence. Cohort-relative rank remains outside the pairwise evidence object.
 
 Evidence IDs are hashes of the evidence content, so modified evidence fails validation.
+
+## InteractionPrediction
+
+InteractionPrediction v1 is the only domain layer allowed to emit probability-shaped interaction outputs. It binds one exact HostState record/hash to one exact PhageProfile ID plus a SHA-256 fingerprint of the serialized profile content. It also records the exact pairwise InteractionEvidence IDs supplied to the predictor and exact producer/model provenance.
+
+The fixed v1 targets are:
+
+- `P(adsorption)`;
+- `P(productive infection)`;
+- `P(resistance emergence)`.
+
+Each target is a `ProbabilityEstimate` with one of two states:
+
+- `estimated`: requires probability in [0,1], uncertainty lower/upper bounds that contain the point estimate, and a named uncertainty method;
+- `not_estimated`: all probability/uncertainty numeric fields must be null.
+
+This distinction prevents missing models from being represented by arbitrary priors or fake precision.
+
+Creation-time lineage checks require every supplied InteractionEvidence record to match the same phage, host genome and (when present) HostProfile. Evidence observed after HostState.as_of is rejected to prevent temporal leakage. Pairwise evidence may be empty for a genuinely unseen pair because a feature-based model must be able to generalize; the absence remains explicit in the prediction lineage/limitations.
+
+The repository includes an `evidence_only_unresolved_prediction` adapter. It preserves PHIST or other source signals but deliberately emits `not_estimated` for all three probabilities. It is a migration/boundary tool, not a biological model.
+
+A calibrated biological predictor is not yet implemented. External or future model output can be ingested only when it supplies all probability/uncertainty fields plus mechanistic explanation, limitations and producer identity/version/parameters. Optional model artifact SHA-256 can pin exact weights/artifacts.
 
 ## CocktailDesign
 
@@ -272,6 +300,7 @@ Feedback creates a new design/version; it does not overwrite previous experiment
 | `host_state.py` | HostState H(t) v1, temporal lineage and artifact-evidence adapters |
 | `phage_profile.py` | PhageProfile v1 and retrieved/natural/engineered provenance |
 | `interaction_evidence.py` | InteractionEvidence v1 and PHIST adapter |
+| `interaction_prediction.py` | InteractionPrediction v1, calibrated probability contract, uncertainty and exact input lineage |
 | `cocktail_design.py` | CocktailDesign v1 and conservative PHIST screening baseline |
 | `experiment_spec.py` | ExperimentSpec v2, ExperimentArm, generic scientific intent and optional source binding |
 | `material_batch.py` | MaterialBatch v1 and test-ready material binding |
@@ -290,9 +319,9 @@ Current implementation status belongs in [README.md](../README.md).
 
 ## Build order
 
-1. add InteractionPrediction above InteractionEvidence, consuming exact HostState H(t) lineage;
-2. natural-phage recommender / CandidateSet;
-3. active learning and FailureAttribution;
+1. build the natural-phage recommender / CandidateSet on InteractionPrediction;
+2. active learning and FailureAttribution;
+3. replace evidence-only unresolved records with calibrated predictors as training/evaluation data becomes available;
 4. engineering escalation.
 
 MaterialBatch, provenance, device abstraction and simulator detail are otherwise frozen unless one of these scientific-layer steps requires a change.

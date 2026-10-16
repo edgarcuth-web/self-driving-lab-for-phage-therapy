@@ -11,9 +11,11 @@ HostState H(t)
         ↓
 PhageProfile + InteractionEvidence
         ↓
-[next: InteractionPrediction]
+InteractionPrediction v1
         ↓
-CandidateSet / CocktailDesign / scientific intent
+[next: CandidateSet / natural-phage recommender]
+        ↓
+CocktailDesign / scientific intent
         ↓
 ExperimentSpec v2 + ExperimentArm(s)
         ↓
@@ -35,6 +37,7 @@ FailureAttribution / model update
 - HostState v1：content-addressed H(t)、explicit evidence、previous-state lineage、no implicit inheritance；
 - PhageProfile v1（retrieved / natural / engineered provenance）；
 - InteractionEvidence v1；
+- InteractionPrediction v1：exact HostState/PhageProfile/evidence/model lineage，P(adsorption) / P(productive infection) / P(resistance emergence) + uncertainty；
 - CocktailDesign v1 与 conservative PHIST screening baseline；
 - ExperimentSpec v2 / ExperimentArm：control / treatment、0/1/N phage、conditions、expected readouts；
 - MaterialBatch v1 与 test-ready batch binding；
@@ -61,6 +64,8 @@ FailureAttribution / model update
 - 默认先评估天然 phage，再做 cocktail；工程化由明确的 coverage / resistance gap 触发。
 - virtual hardware 只模拟设备行为，不产生 biological evidence。
 - PHIST 是 interaction evidence 的一个来源，不等于 host-range probability。
+- 只有 InteractionPrediction 层可以输出 probability-shaped biological predictions；每个 estimated probability 必须同时给 uncertainty interval 与 uncertainty method。
+- 当前仓库没有把 PHIST 硬映射为概率的“假模型”；evidence-only baseline 会显式输出 not_estimated。
 - database candidate / accession 不是 MaterialBatch；物理实验要引用明确的 batch identity 与 QC 状态。
 - workflow success 不会自动把 Measurement 标成 QC-valid；virtual Measurement 永远不能支持 Phenotype。
 
@@ -95,6 +100,42 @@ python -m phage_lab host-state \
 `host-state-input.json` 只含 `components`、`evidence`、`limitations`。component domain 当前包括 receptor/surface/defense state、physiology、antimicrobial state、phage exposure、phenotype history 与 environment；每个 component 必须引用同一 snapshot 内的 evidence ID。Measurement / Phenotype 可以通过代码适配器转换为 HostState evidence reference，适配器只复制 artifact ID/hash/timestamp，不解释生物学结果。
 
 新的 H(t+1) 使用 `--previous-host-state` 指向旧 snapshot，但**不会自动继承**旧 components。调用方必须重新声明在 t+1 仍然成立的动态状态；否则它们回到 unknown。这是为了防止历史 phenotype、培养条件或 defense state 被错误当作“当前事实”。
+
+### InteractionPrediction v1
+
+InteractionPrediction 是 Evidence 与 recommender/optimizer 之间的预测层。每条 prediction 固定：
+
+- exact HostState record ID + content hash；
+- exact PhageProfile ID + profile-content fingerprint；
+- exact supporting InteractionEvidence IDs；
+- model / rule producer name、version、parameters，以及可选 model artifact SHA-256；
+- prediction timestamp。
+
+v1 有三个固定 target：
+
+```text
+P(adsorption)
+P(productive infection)
+P(resistance emergence)
+```
+
+每个 target 要么是 `estimated`，此时必须提供 0–1 probability、uncertainty lower/upper 和 uncertainty method；要么是 `not_estimated`，此时禁止塞入占位概率。
+
+仓库目前没有一个经过校准的 biological predictor。只有 PHIST / source signals 时，应显式生成 unresolved prediction：
+
+```bash
+python -m phage_lab interaction-prediction \
+  --host-state host-state.json \
+  --phage-profile phage-profile.json \
+  --interaction-evidence interaction-evidence.json \
+  --prediction-id prediction-001 \
+  --evidence-only-unresolved \
+  --out interaction-prediction.json
+```
+
+这会保留 evidence lineage，但三个概率全部为 `not_estimated`。它不会把 shared k-mer signal 伪装成 infection probability。
+
+真正模型的输出可以通过 `--prediction-input model-output.json` 摄取；输入必须同时给三类 target、mechanistic explanation、limitations 和 producer provenance。模型可以预测没有 pair-specific InteractionEvidence 的 unseen pair，但这种 evidence absence 必须保持显式，不能伪造 pair evidence。
 
 ### 2. 获取参考快照并检索候选
 
@@ -298,6 +339,8 @@ python -m phage_lab phenotype-comparison \
 ```text
 HostProfile
   → HostState H(t)
+  → PhageProfile + InteractionEvidence
+  → InteractionPrediction
   → source artifact(s) / scientific intent
   → ExperimentSpec v2 + ExperimentArm(s)
   → MaterialBatch

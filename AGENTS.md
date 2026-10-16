@@ -16,6 +16,7 @@ Scientific components may produce:
 - `HostState`
 - `PhageProfile`
 - `InteractionEvidence`
+- `InteractionPrediction`
 - `CocktailDesign`
 - `ExperimentSpec`
 - `ExperimentArm`
@@ -42,6 +43,7 @@ Treat the following as versioned objects, not anonymous dicts:
 - `HostState`
 - `PhageProfile`
 - `InteractionEvidence`
+- `InteractionPrediction`
 - `CocktailDesign`
 - `ExperimentSpec`
 - `ExperimentArm`
@@ -77,6 +79,8 @@ Keep source annotation, prediction and physical measurement distinct.
 Every model/tool output needs tool/model identity, version, inputs and parameters.
 
 `InteractionEvidence` is an evidence record, not a susceptibility verdict. It links a host identity and a versioned PhageProfile to one source signal. Evidence objects must remain content-addressed and reject probability-shaped fields that are not actually emitted by the source. Cohort-relative ordering such as rank belongs to ranking/design context, not pairwise InteractionEvidence.
+
+`InteractionPrediction` is the probability-bearing layer. It must bind an exact HostState ID/hash, an exact PhageProfile ID/content fingerprint, exact supporting InteractionEvidence IDs and exact producer/model provenance. Estimated probabilities require explicit uncertainty intervals and methods. A missing calibrated model must be represented as `not_estimated`, never by translating PHIST or another weak source signal into an invented probability. Supporting pairwise evidence may be empty for unseen-pair prediction, but that absence must remain explicit.
 
 `CocktailDesign` is a scientific design artifact, not an execution plan. Every member must reference supporting InteractionEvidence; objectives, assumptions and unresolved gaps must be explicit. A baseline may prioritize weak computational evidence, but must not relabel it as mechanistic complementarity, cross-resistance protection or efficacy.
 
@@ -129,6 +133,7 @@ For an ExperimentSpec-bound run, the agent interface is limited to `assign_devic
 - `host_state.py`: HostState H(t) v1, explicit dynamic components/evidence and previous-state lineage.
 - `phage_profile.py`: PhageProfile v1 and provenance variants.
 - `interaction_evidence.py`: InteractionEvidence v1 and PHIST evidence adapter.
+- `interaction_prediction.py`: InteractionPrediction v1, exact H(t)/phage/evidence/model lineage and calibrated probability/uncertainty contract.
 - `cocktail_design.py`: CocktailDesign v1 and conservative PHIST screening baseline.
 - `experiment_spec.py`: ExperimentSpec v2, ExperimentArm, generic scientific intent and optional CocktailDesign source binding.
 - `material_batch.py`: MaterialBatch v1 and test-ready ExperimentSpec binding.
@@ -145,9 +150,9 @@ For an ExperimentSpec-bound run, the agent interface is limited to `assign_devic
 
 Priority order:
 
-1. add InteractionPrediction above InteractionEvidence and bind each prediction to an exact HostState ID/hash;
-2. build the natural-phage recommender / CandidateSet;
-3. active learning and FailureAttribution;
+1. build the natural-phage recommender / CandidateSet consuming InteractionPrediction rather than raw PHIST rank;
+2. active learning and FailureAttribution;
+3. add calibrated prediction models when suitable training/evaluation data are available;
 4. engineering escalation.
 
 Freeze provenance, MaterialBatch, device abstraction and robot/simulator detail unless a scientific-layer requirement forces a change.
