@@ -58,10 +58,10 @@ def _validate_text_tuple(values: tuple[str, ...], field_name: str) -> None:
 
 
 def _validate_scalar(value, field_name: str) -> None:
-    if value is None or isinstance(value, (str, int)):
-        return
     if isinstance(value, bool):
         raise ValueError(f"{field_name} must not be a boolean.")
+    if value is None or isinstance(value, (str, int)):
+        return
     if isinstance(value, float) and math.isfinite(value):
         return
     raise ValueError(f"{field_name} must be a finite scalar value or null.")
