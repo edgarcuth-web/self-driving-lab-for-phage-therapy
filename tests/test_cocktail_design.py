@@ -13,13 +13,16 @@ from phage_lab.cocktail_design import (
     phist_screening_design,
     write_cocktail_design,
 )
-from phage_lab.host_profile import new_host_profile
+from phage_lab.host_profile import new_host_profile, write_host_profile
 from phage_lab.interaction_evidence import (
     EvidenceProducer,
     HostReference,
     InteractionEvidence,
 )
-from phage_lab.phage_profile import retrieved_candidate_to_phage_profile
+from phage_lab.phage_profile import (
+    new_engineered_phage_profile,
+    retrieved_candidate_to_phage_profile,
+)
 
 
 STAMP = "2026-10-16T18:00:00+00:00"
@@ -225,6 +228,79 @@ class CocktailDesignTests(unittest.TestCase):
                 designer=EvidenceProducer(name="test", version="1"),
                 created_at=STAMP,
             )
+
+    def test_baseline_excludes_engineered_profiles(self):
+        records = [candidate("PH-001", 1), candidate("PH-002", 2)]
+        natural_profiles = profiles(records)
+        engineered = new_engineered_phage_profile(
+            "PH-002",
+            design_id="design-002",
+            parent_profile_ids=("PH-PARENT:v1",),
+            designed_at=STAMP,
+            revision=1,
+            created_at=STAMP,
+        )
+        with self.assertRaisesRegex(ValueError, "Only 1 candidate"):
+            phist_screening_design(
+                host_profile(),
+                [natural_profiles[0], engineered],
+                records,
+                cocktail_id="cocktail-001",
+                created_at=STAMP,
+            )
+
+    def test_duplicate_phist_ranks_are_refused(self):
+        records = [candidate("PH-001", 1), candidate("PH-002", 1)]
+        with self.assertRaisesRegex(ValueError, "duplicate cohort ranks"):
+            phist_screening_design(
+                host_profile(),
+                profiles(records),
+                records,
+                cocktail_id="cocktail-001",
+                created_at=STAMP,
+            )
+
+    def test_cli_writes_a_valid_design(self):
+        from phage_lab.__main__ import main
+
+        records = [candidate("PH-001", 1), candidate("PH-002", 2)]
+        phage_profiles = profiles(records)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            host_path = root / "host.json"
+            profiles_path = root / "phages.json"
+            ranked_path = root / "ranked.json"
+            design_path = root / "cocktail.json"
+
+            write_host_profile(host_profile(), host_path)
+            profiles_path.write_text(
+                json.dumps(
+                    [profile.to_dict() for profile in phage_profiles],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            ranked_path.write_text(
+                json.dumps(records, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                0,
+                main([
+                    "cocktail-design",
+                    "--host-profile", str(host_path),
+                    "--phage-profiles", str(profiles_path),
+                    "--candidates", str(ranked_path),
+                    "--cocktail-id", "cocktail-cli",
+                    "--cocktail-min", "2",
+                    "--cocktail-max", "2",
+                    "--out", str(design_path),
+                ]),
+            )
+            loaded = load_cocktail_design(design_path)
+            self.assertEqual(loaded.design_id, "cocktail-cli:v1")
+            self.assertEqual(len(loaded.members), 2)
 
     def test_supporting_evidence_must_match_target_host(self):
         records = [candidate("PH-001", 1), candidate("PH-002", 2)]
