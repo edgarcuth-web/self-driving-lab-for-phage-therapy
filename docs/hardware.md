@@ -37,6 +37,32 @@ timeout 表示 **outcome unknown**，不是 failure。
 
 不要猜测 job 已完成或失败。
 
+### Execution payload
+
+controller 在所有 driver 前统一验证 payload。
+
+legacy run 的必需字段：
+
+```json
+{
+  "sample_id": "sample-001",
+  "candidate_ids": ["..."]
+}
+```
+
+ExperimentSpec-bound run 会额外携带一整组 lineage metadata：
+
+```json
+{
+  "experiment_spec_id": "experiment-001:v1",
+  "experiment_spec_sha256": "...",
+  "cocktail_design_id": "cocktail-001:v1",
+  "phage_profile_ids": ["..."]
+}
+```
+
+这组 lineage 字段必须全有或全无；未知字段被拒绝。driver 应把它们当成审计/幂等上下文，不得据此自行改写 scientific membership。
+
 ### Idempotent write
 
 同一个 `command_id` 重投必须返回原 job，而不是启动第二次物理动作。
