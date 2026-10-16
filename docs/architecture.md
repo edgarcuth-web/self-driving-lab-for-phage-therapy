@@ -341,6 +341,7 @@ virtual hardware 保留，用于：
 
 已实现：
 
+- HostProfile v1 schema、unknown/assessed semantics 与本地 serialization；
 - reference snapshot / candidate retrieval；
 - sequence indexing；
 - PHIST integration；
