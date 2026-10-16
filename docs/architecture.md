@@ -79,9 +79,15 @@ HostProfile v1 currently implements schema, genome identity, feature-state seman
 
 ## PhageProfile and InteractionEvidence
 
-Natural/retrieved phages and generated/engineered designs have different provenance.
+PhageProfile v1 separates identity from interaction evidence and defines three provenance variants:
 
-`PhageProfile` may include sequence/design identity, RBP/tail annotations, receptor evidence, counter-defense annotations, host-range phenotype references and material references.
+- `retrieved`: constructed from an external reference/database record. This states record provenance only; it does not by itself prove natural biological origin.
+- `natural`: a locally tracked natural isolate with collection and isolate identity.
+- `engineered`: a designed/engineered phage with design identity and one or more parent PhageProfile IDs.
+
+A profile may carry sequence accession/hash/length and scalar source annotations. Host queries, PHIST rankings and other phage-host signals are not intrinsic profile fields; they belong in `InteractionEvidence`.
+
+Future PhageProfile characterization may add RBP/tail, receptor and counter-defense annotations through separately versioned analyzers.
 
 `InteractionEvidence` separates evidence from design decisions. Sources may include:
 
@@ -186,7 +192,8 @@ Feedback creates a new design/version; it does not overwrite previous experiment
 | --- | --- |
 | `biology.py` | FASTA validation and genome summary |
 | `host_profile.py` | HostProfile v1 |
-| `snapshots.py`, `candidates.py` | Reference snapshots and natural candidate retrieval |
+| `phage_profile.py` | PhageProfile v1 and retrieved/natural/engineered provenance |
+| `snapshots.py`, `candidates.py` | Reference snapshots and retrieved candidate records |
 | `sequences.py` | Accession-indexed sequences |
 | `ranking.py` | PHIST evidence source |
 | `agents.py` | Bounded orchestration decisions |
@@ -200,14 +207,13 @@ Current implementation status belongs in [README.md](../README.md).
 ## Build order
 
 1. host-characterization analyzers;
-2. PhageProfile;
-3. InteractionEvidence;
-4. CocktailDesign;
-5. ExperimentSpec integration;
-6. measurement / phenotype ingestion;
-7. FailureAttribution;
-8. active learning;
-9. engineering escalation;
-10. additional real-device and Synbio integrations.
+2. InteractionEvidence;
+3. CocktailDesign;
+4. ExperimentSpec integration;
+5. measurement / phenotype ingestion;
+6. FailureAttribution;
+7. active learning;
+8. engineering escalation;
+9. additional real-device and Synbio integrations.
 
 Each step should be mergeable and keep `main` runnable.
