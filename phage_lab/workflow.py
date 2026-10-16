@@ -12,6 +12,7 @@ from .devices import (
     DeviceError,
     DeviceUnavailable,
     SafeStateError,
+    validate_execution_payload,
     validate_safe_state,
 )
 from .experiment_spec import (
@@ -507,6 +508,7 @@ class Scheduler:
         self.timeout = timeout_seconds
 
     async def execute(self, operation: str, device_id: str, payload: dict) -> dict:
+        validate_execution_payload(payload)
         command_id = f"{self.records.run_id}:{operation}"
         for attempt in (1, 2):
             device = self.devices[device_id]
