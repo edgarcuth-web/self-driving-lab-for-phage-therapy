@@ -635,7 +635,7 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
                                    require_snapshot=require_snapshot)
 
     physical_execution = execution_mode == "real_hardware"
-    report = {"schema_version": 2, "started_at": utc_now(), "status": "running",
+    report = {"schema_version": 3, "started_at": utc_now(), "status": "running",
               "simulated": not physical_execution, "execution_mode": execution_mode,
               "physical_execution": physical_execution,
               "agent": getattr(agent, "name", type(agent).__name__),
