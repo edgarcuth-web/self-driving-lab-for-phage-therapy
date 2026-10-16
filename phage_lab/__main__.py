@@ -15,7 +15,7 @@ from .workflow import (
 )
 
 MAX_INPUT_BYTES = 4_000_000
-COMMANDS = ("run", "fetch-snapshot", "candidates", "rank", "version")
+COMMANDS = ("run", "host-profile", "fetch-snapshot", "candidates", "rank", "version")
 
 
 def _load_json(path: Path, label: str):
@@ -51,7 +51,7 @@ def _load_workflow(path: Path | None) -> dict:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Self-driving laboratory orchestration for phage research.")
+        description="Closed-loop phage R&D tools and laboratory orchestration.")
     parser.add_argument("command", nargs="?", default="run", choices=COMMANDS)
 
     parser.add_argument("--genome", type=Path,
@@ -63,7 +63,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Snapshot directory to retrieve candidates from.")
     parser.add_argument("--host", help="Host organism to search the snapshot for.")
     parser.add_argument("--limit", type=int, default=20, help="Maximum candidates to retrieve.")
-    parser.add_argument("--out", type=Path, help="Write retrieved candidate records here.")
+    parser.add_argument("--out", type=Path, help="Write the command output artifact here.")
     parser.add_argument("--execution-mode", choices=EXECUTION_MODES,
                         help="Required for a run. No default: state which hardware you expect.")
     parser.add_argument("--require-snapshot", action="store_true",
@@ -104,6 +104,28 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Skip re-hashing a large snapshot on load.")
     return parser
 
+
+
+def _host_profile(args, parser) -> int:
+    """Create the first version of a host record without inventing annotations."""
+
+    missing = [name for name, value in (("--sample-id", args.sample_id), ("--out", args.out))
+               if not value]
+    if missing:
+        parser.error("host-profile requires " + ", ".join(missing))
+    from .biology import read_fasta
+    from .host_profile import new_host_profile, write_host_profile
+    try:
+        genome = read_fasta(args.genome)
+        profile = new_host_profile(args.sample_id, genome)
+        write_host_profile(profile, args.out)
+    except (OSError, ValueError) as exc:
+        print(f"HostProfile 创建失败：{exc}", file=sys.stderr)
+        return 2
+    print(f"HostProfile {profile.profile_id} → {args.out}", flush=True)
+    print("所有 biological feature class 初始为 unknown；尚未运行表征 analyzer。",
+          file=sys.stderr)
+    return 0
 
 def _fetch_snapshot(args, parser) -> int:
     from .snapshots import SnapshotError, create_snapshot
@@ -253,6 +275,8 @@ def main(argv=None) -> int:
         from .provenance import source_identity
         print(json.dumps(source_identity(), ensure_ascii=False, indent=2))
         return 0
+    if args.command == "host-profile":
+        return _host_profile(args, parser)
     if args.command == "fetch-snapshot":
         return _fetch_snapshot(args, parser)
     if args.command == "candidates":
