@@ -223,7 +223,7 @@ def measurement_from_run_report(
     mode = report.get("execution_mode")
     simulated = report.get("simulated")
     if physical:
-        if mode != "real_hardware" or simulated is True:
+        if mode != "real_hardware" or simulated is not False:
             raise ValueError(
                 "run report execution_mode/simulated contradict physical_execution=True."
             )
