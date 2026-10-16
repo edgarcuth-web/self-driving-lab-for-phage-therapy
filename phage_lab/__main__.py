@@ -122,7 +122,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cocktail-id",
                         help="Caller-owned identifier for a CocktailDesign.")
     parser.add_argument("--cocktail-design", type=Path,
-                        help="CocktailDesign JSON used to create an ExperimentSpec.")
+                        help="Optional CocktailDesign source for an ExperimentSpec.")
+    parser.add_argument("--arms", type=Path,
+                        help="JSON array of ExperimentArm records for a generic ExperimentSpec.")
+    parser.add_argument("--objective",
+                        help="Scientific objective for a generic arm-based ExperimentSpec.")
+    parser.add_argument("--scientific-question", action="append", default=[],
+                        help="Scientific question for ExperimentSpec; repeat as needed.")
+    parser.add_argument("--execution-constraint", action="append", default=[],
+                        help="Additional generic ExperimentSpec constraint; repeat as needed.")
     parser.add_argument("--experiment-id",
                         help="Caller-owned identifier for an ExperimentSpec.")
     parser.add_argument("--experiment-spec", type=Path,
@@ -302,12 +310,11 @@ def _cocktail_design(args, parser) -> int:
 
 
 def _experiment_spec(args, parser) -> int:
-    """Freeze a CocktailDesign into an execution-neutral ExperimentSpec."""
+    """Create an arm-aware, execution-neutral ExperimentSpec v2."""
 
     missing = [
         name
         for name, value in (
-            ("--cocktail-design", args.cocktail_design),
             ("--experiment-id", args.experiment_id),
             ("--out", args.out),
         )
@@ -315,32 +322,60 @@ def _experiment_spec(args, parser) -> int:
     ]
     if missing:
         parser.error("experiment-spec requires " + ", ".join(missing))
+    if bool(args.cocktail_design) == bool(args.arms):
+        parser.error(
+            "experiment-spec requires exactly one of --cocktail-design or --arms"
+        )
+    if args.arms and not args.objective:
+        parser.error("generic experiment-spec with --arms requires --objective")
 
-    from .cocktail_design import load_cocktail_design
     from .experiment_spec import (
+        experiment_arm_from_dict,
+        experiment_spec_from_arms,
         experiment_spec_from_cocktail,
         write_experiment_spec,
     )
 
     try:
-        design = load_cocktail_design(args.cocktail_design)
         workflow = _load_workflow(args.workflow)
-        spec = experiment_spec_from_cocktail(
-            design,
-            experiment_id=args.experiment_id,
-            workflow=workflow,
-        )
+        if args.cocktail_design:
+            from .cocktail_design import load_cocktail_design
+
+            design = load_cocktail_design(args.cocktail_design)
+            spec = experiment_spec_from_cocktail(
+                design,
+                experiment_id=args.experiment_id,
+                workflow=workflow,
+                purpose=args.objective,
+            )
+        else:
+            arm_payload = _load_json(args.arms, "ExperimentArm")
+            if not isinstance(arm_payload, list) or not arm_payload:
+                raise ValueError("ExperimentArm file must contain a nonempty JSON array.")
+            arms = tuple(experiment_arm_from_dict(item) for item in arm_payload)
+            questions = tuple(args.scientific_question) or (args.objective,)
+            constraints = tuple(args.execution_constraint) or None
+            spec = experiment_spec_from_arms(
+                arms,
+                experiment_id=args.experiment_id,
+                workflow=workflow,
+                objective=args.objective,
+                scientific_questions=questions,
+                execution_constraints=constraints,
+            )
         write_experiment_spec(spec, args.out)
     except (OSError, ValueError) as exc:
         print(f"ExperimentSpec 创建失败：{exc}", file=sys.stderr)
         return 2
 
     print(
-        f"ExperimentSpec {spec.spec_id}：{len(spec.member_phage_profile_ids)} 个锁定成员 → {args.out}",
+        f"ExperimentSpec {spec.spec_id}：{len(spec.arms)} 个 arm / "
+        f"{len(spec.member_phage_profile_ids)} 个唯一 phage → {args.out}",
         flush=True,
     )
     print(
-        "ExperimentSpec 不分配设备；cocktail membership 已冻结，运行时 orchestration 只能分配/恢复设备。",
+        "ExperimentSpec v2 锁定 arm、条件与 expected readouts；"
+        "设备分配仍由 orchestration 层处理。",
         file=sys.stderr,
     )
     return 0

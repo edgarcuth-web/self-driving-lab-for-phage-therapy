@@ -15,9 +15,12 @@ from phage_lab.cocktail_design import (
 )
 from phage_lab.devices import DeviceError, validate_execution_payload
 from phage_lab.experiment_spec import (
+    ExperimentArm,
     ExperimentSpec,
     ExperimentStep,
     bind_candidates_to_spec,
+    experiment_arm_from_dict,
+    experiment_spec_from_arms,
     experiment_spec_from_cocktail,
     experiment_spec_from_dict,
     load_experiment_spec,
@@ -38,18 +41,21 @@ GENOME = ROOT / "examples" / "toy_genome.fasta"
 STAMP = "2026-10-16T18:30:00+00:00"
 
 
-def design(host_sha=None):
-    host_sha = host_sha or read_fasta(GENOME).sha256
-    host = HostReference(
-        genome_sha256=host_sha,
+def host(host_sha=None):
+    return HostReference(
+        genome_sha256=host_sha or read_fasta(GENOME).sha256,
         profile_id="isolate-001:v1",
     )
+
+
+def design(host_sha=None):
+    target = host(host_sha)
     evidences = []
     members = []
     for index, candidate in enumerate(CANDIDATES[:2], start=1):
         profile_id = f"{candidate['id']}:v1"
         evidence = InteractionEvidence(
-            host=host,
+            host=target,
             phage_profile_id=profile_id,
             kind="computational",
             signal="shared_kmer_similarity",
@@ -73,7 +79,7 @@ def design(host_sha=None):
     return CocktailDesign(
         cocktail_id="cocktail-001",
         revision=1,
-        target_host=host,
+        target_host=target,
         members=tuple(members),
         supporting_evidence=tuple(evidences),
         objectives=(
@@ -99,8 +105,36 @@ def spec(host_sha=None):
     )
 
 
+def single_phage_spec(host_sha=None):
+    target = host(host_sha)
+    return experiment_spec_from_arms(
+        (
+            ExperimentArm(
+                arm_id="host-control",
+                role="control",
+                target_host=target,
+                phage_profile_ids=(),
+                conditions={"assay_context": "screen"},
+                expected_readouts=("biological_phenotype",),
+            ),
+            ExperimentArm(
+                arm_id="single-phage",
+                role="treatment",
+                target_host=target,
+                phage_profile_ids=(f"{CANDIDATES[0]['id']}:v1",),
+                conditions={"assay_context": "screen"},
+                expected_readouts=("biological_phenotype",),
+            ),
+        ),
+        experiment_id="single-phage-001",
+        workflow=WORKFLOW,
+        objective="Compare one phage arm with its host control.",
+        created_at=STAMP,
+    )
+
+
 class ExperimentSpecTests(unittest.TestCase):
-    def test_cocktail_becomes_locked_experiment_spec(self):
+    def test_cocktail_becomes_arm_aware_experiment_spec(self):
         source = design()
         result = experiment_spec_from_cocktail(
             source,
@@ -111,43 +145,107 @@ class ExperimentSpecTests(unittest.TestCase):
         payload = result.to_dict()
 
         self.assertEqual(result.spec_id, "experiment-001:v1")
-        self.assertEqual(payload["source_design"]["design_id"], source.design_id)
+        self.assertEqual(payload["schema_version"], 2)
+        self.assertNotIn("source_design", payload)
+        self.assertNotIn("member_phage_profile_ids", payload)
         self.assertEqual(
-            payload["source_design"]["content_sha256"],
+            payload["source_references"][0]["artifact_id"],
+            source.design_id,
+        )
+        self.assertEqual(
+            payload["source_references"][0]["content_sha256"],
             source.content_sha256,
         )
+        self.assertEqual(
+            [arm.role for arm in result.arms],
+            ["control", "treatment"],
+        )
+        self.assertEqual(result.arms[0].phage_profile_ids, ())
         self.assertEqual(
             list(result.member_phage_profile_ids),
             [member.phage_profile_id for member in source.members],
         )
+        self.assertEqual(result.source_design.design_id, source.design_id)
         self.assertEqual(result.workflow_dict(), WORKFLOW)
         self.assertIn("locked", " ".join(result.execution_constraints).lower())
 
-    def test_content_hash_detects_tampering(self):
+    def test_generic_single_phage_spec_requires_no_cocktail_design(self):
+        result = single_phage_spec()
+        self.assertIsNone(result.source_design)
+        self.assertEqual(result.member_phage_profile_ids, (f"{CANDIDATES[0]['id']}:v1",))
+        self.assertEqual(result.target_host.profile_id, "isolate-001:v1")
+        self.assertEqual(result.arms[0].role, "control")
+        self.assertEqual(result.arms[1].role, "treatment")
+
+    def test_arm_validation_rejects_treatment_without_phage(self):
+        with self.assertRaisesRegex(ValueError, "treatment arm requires"):
+            ExperimentArm(
+                arm_id="empty-treatment",
+                role="treatment",
+                target_host=host(),
+                phage_profile_ids=(),
+                conditions={},
+                expected_readouts=("biological_phenotype",),
+            )
+
+    def test_v2_keeps_one_common_host_boundary(self):
+        with self.assertRaisesRegex(ValueError, "share one target host"):
+            experiment_spec_from_arms(
+                (
+                    ExperimentArm(
+                        arm_id="a",
+                        role="control",
+                        target_host=host(),
+                        phage_profile_ids=(),
+                        conditions={},
+                        expected_readouts=("biological_phenotype",),
+                    ),
+                    ExperimentArm(
+                        arm_id="b",
+                        role="treatment",
+                        target_host=HostReference(
+                            genome_sha256="f" * 64,
+                            profile_id="isolate-other:v1",
+                        ),
+                        phage_profile_ids=(f"{CANDIDATES[0]['id']}:v1",),
+                        conditions={},
+                        expected_readouts=("biological_phenotype",),
+                    ),
+                ),
+                experiment_id="bad",
+                workflow=WORKFLOW,
+                objective="Invalid multi-host spec.",
+                created_at=STAMP,
+            )
+
+    def test_content_hash_detects_arm_tampering(self):
         payload = spec().to_dict()
         rebuilt = experiment_spec_from_dict(payload)
         self.assertEqual(rebuilt.content_sha256, payload["content_sha256"])
 
         tampered = json.loads(json.dumps(payload))
-        tampered["member_phage_profile_ids"].reverse()
+        tampered["arms"][1]["conditions"]["changed"] = True
         with self.assertRaisesRegex(ValueError, "content_sha256"):
             experiment_spec_from_dict(tampered)
+
+    def test_arm_round_trip_parser(self):
+        arm = single_phage_spec().arms[1]
+        self.assertEqual(experiment_arm_from_dict(arm.to_dict()), arm)
 
     def test_workflow_rejects_later_dependencies(self):
         with self.assertRaisesRegex(ValueError, "missing or later"):
             ExperimentSpec(
                 experiment_id="bad",
                 revision=1,
-                source_design=spec().source_design,
-                target_host=spec().target_host,
-                member_phage_profile_ids=spec().member_phage_profile_ids,
+                arms=single_phage_spec().arms,
                 workflow=(
                     ExperimentStep("measure", ("infect",)),
                     ExperimentStep("infect"),
                 ),
-                purpose="Invalid dependency order.",
+                objective="Invalid dependency order.",
                 scientific_questions=("Can this run?",),
-                execution_constraints=("Membership is locked.",),
+                execution_constraints=("Arm definitions are locked.",),
+                source_references=(),
                 created_at=STAMP,
             )
 
@@ -159,14 +257,42 @@ class ExperimentSpecTests(unittest.TestCase):
             loaded = load_experiment_spec(path)
         self.assertEqual(loaded.to_dict(), original.to_dict())
 
-    def test_candidate_binding_uses_only_locked_members_in_spec_order(self):
+    def test_candidate_binding_uses_unique_arm_members_in_first_seen_order(self):
+        target = host()
+        result = experiment_spec_from_arms(
+            (
+                ExperimentArm(
+                    arm_id="single",
+                    role="treatment",
+                    target_host=target,
+                    phage_profile_ids=(f"{CANDIDATES[1]['id']}:v1",),
+                    conditions={},
+                    expected_readouts=("biological_phenotype",),
+                ),
+                ExperimentArm(
+                    arm_id="combo",
+                    role="treatment",
+                    target_host=target,
+                    phage_profile_ids=(
+                        f"{CANDIDATES[0]['id']}:v1",
+                        f"{CANDIDATES[1]['id']}:v1",
+                    ),
+                    conditions={},
+                    expected_readouts=("biological_phenotype",),
+                ),
+            ),
+            experiment_id="ordered",
+            workflow=WORKFLOW,
+            objective="Exercise union ordering.",
+            created_at=STAMP,
+        )
         bound = bind_candidates_to_spec(
-            spec(),
-            [CANDIDATES[2], CANDIDATES[1], CANDIDATES[0]],
+            result,
+            [CANDIDATES[2], CANDIDATES[0], CANDIDATES[1]],
         )
         self.assertEqual(
             [candidate["id"] for candidate in bound],
-            [CANDIDATES[0]["id"], CANDIDATES[1]["id"]],
+            [CANDIDATES[1]["id"], CANDIDATES[0]["id"]],
         )
 
     def test_candidate_binding_refuses_missing_or_duplicate_member(self):
@@ -194,8 +320,34 @@ class ExecutionPayloadTests(unittest.TestCase):
             "experiment_spec_sha256": locked.content_sha256,
             "cocktail_design_id": locked.source_design.design_id,
             "phage_profile_ids": list(locked.member_phage_profile_ids),
+            "experiment_arms": [arm.to_dict() for arm in locked.arms],
         }
         self.assertIs(validate_execution_payload(spec_payload), spec_payload)
+
+        generic = single_phage_spec()
+        generic_payload = {
+            "sample_id": "sample-001",
+            "candidate_ids": [CANDIDATES[0]["id"]],
+            "experiment_spec_id": generic.spec_id,
+            "experiment_spec_sha256": generic.content_sha256,
+            "phage_profile_ids": list(generic.member_phage_profile_ids),
+            "experiment_arms": [arm.to_dict() for arm in generic.arms],
+        }
+        self.assertIs(validate_execution_payload(generic_payload), generic_payload)
+
+    def test_arm_payload_cannot_smuggle_phage_membership(self):
+        locked = single_phage_spec()
+        payload = {
+            "sample_id": "sample-001",
+            "candidate_ids": [CANDIDATES[0]["id"]],
+            "experiment_spec_id": locked.spec_id,
+            "experiment_spec_sha256": locked.content_sha256,
+            "phage_profile_ids": list(locked.member_phage_profile_ids),
+            "experiment_arms": [arm.to_dict() for arm in locked.arms],
+        }
+        payload["experiment_arms"][0]["phage_profile_ids"] = ["PH-X:v1"]
+        with self.assertRaisesRegex(DeviceError, "arm phage membership"):
+            validate_execution_payload(payload)
 
     def test_partial_or_unknown_lineage_is_rejected(self):
         with self.assertRaisesRegex(DeviceError, "lineage payload is incomplete"):
@@ -249,6 +401,10 @@ class SpecBoundRunTests(unittest.IsolatedAsyncioTestCase):
             report["experiment_spec"]["content_sha256"],
             locked.content_sha256,
         )
+        self.assertEqual(
+            [arm["arm_id"] for arm in report["experiment_spec"]["arms"]],
+            ["host-control", "cocktail-treatment"],
+        )
         events = [
             json.loads(line)
             for line in (directory / "events.jsonl").read_text().splitlines()
@@ -257,6 +413,26 @@ class SpecBoundRunTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("experiment_spec_bound", names)
         self.assertIn("device_assignment_requested", names)
         self.assertNotIn("planning_requested", names)
+
+    async def test_generic_single_phage_spec_runs_without_cocktail_design(self):
+        locked = single_phage_spec()
+        report, _ = await run_experiment(
+            GENOME,
+            self.output,
+            sample_id="sample-single",
+            candidates=[CANDIDATES[2], CANDIDATES[0]],
+            devices=None,
+            workflow=locked.workflow_dict(),
+            agent=RuleAgent(),
+            execution_mode="virtual_hardware",
+            timeout_seconds=0.2,
+            echo=False,
+            experiment_spec=locked,
+        )
+        self.assertEqual(report["status"], "succeeded")
+        self.assertEqual(report["plan"]["candidate_ids"], [CANDIDATES[0]["id"]])
+        self.assertEqual(report["experiment_spec"]["source_references"], [])
+        self.assertEqual(len(report["experiment_spec"]["arms"]), 2)
 
     async def test_assignment_cannot_smuggle_new_scientific_membership(self):
         class InvalidAgent(RuleAgent):
@@ -380,6 +556,35 @@ class ExperimentSpecCliTests(unittest.TestCase):
             loaded = load_experiment_spec(spec_path)
             self.assertEqual(loaded.spec_id, "experiment-cli:v1")
             self.assertEqual(loaded.workflow_dict(), WORKFLOW)
+            self.assertEqual(len(loaded.arms), 2)
+
+    def test_cli_creates_generic_single_phage_spec_from_arms(self):
+        from phage_lab.__main__ import main
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            arms_path = root / "arms.json"
+            spec_path = root / "spec.json"
+            source = single_phage_spec()
+            arms_path.write_text(
+                json.dumps([arm.to_dict() for arm in source.arms]),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                0,
+                main([
+                    "experiment-spec",
+                    "--arms", str(arms_path),
+                    "--experiment-id", "experiment-generic",
+                    "--objective", "Compare one phage with host control.",
+                    "--out", str(spec_path),
+                ]),
+            )
+            loaded = load_experiment_spec(spec_path)
+            self.assertEqual(loaded.spec_id, "experiment-generic:v1")
+            self.assertIsNone(loaded.source_design)
+            self.assertEqual(len(loaded.member_phage_profile_ids), 1)
 
     def test_cli_spec_run_locks_members(self):
         from phage_lab.__main__ import main

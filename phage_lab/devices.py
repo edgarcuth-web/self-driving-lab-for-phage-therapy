@@ -63,13 +63,15 @@ REQUIRED_EXECUTION_PAYLOAD_FIELDS = {"sample_id", "candidate_ids"}
 SPEC_LINEAGE_PAYLOAD_FIELDS = {
     "experiment_spec_id",
     "experiment_spec_sha256",
-    "cocktail_design_id",
     "phage_profile_ids",
+    "experiment_arms",
 }
+OPTIONAL_SOURCE_LINEAGE_PAYLOAD_FIELDS = {"cocktail_design_id"}
 MATERIAL_LINEAGE_PAYLOAD_FIELDS = {"material_batch_ids"}
 ALLOWED_EXECUTION_PAYLOAD_FIELDS = (
     REQUIRED_EXECUTION_PAYLOAD_FIELDS
     | SPEC_LINEAGE_PAYLOAD_FIELDS
+    | OPTIONAL_SOURCE_LINEAGE_PAYLOAD_FIELDS
     | MATERIAL_LINEAGE_PAYLOAD_FIELDS
 )
 
@@ -121,16 +123,32 @@ def validate_execution_payload(payload: dict) -> dict:
             + ", ".join(sorted(missing_lineage))
             + "."
         )
-    if "material_batch_ids" in payload and not present_lineage:
+    if (
+        OPTIONAL_SOURCE_LINEAGE_PAYLOAD_FIELDS & set(payload)
+        and present_lineage != SPEC_LINEAGE_PAYLOAD_FIELDS
+    ):
+        raise DeviceError(
+            "source lineage is allowed only with complete ExperimentSpec lineage."
+        )
+    if "material_batch_ids" in payload and present_lineage != SPEC_LINEAGE_PAYLOAD_FIELDS:
         raise DeviceError(
             "material_batch_ids are allowed only with complete ExperimentSpec lineage."
         )
     if present_lineage:
-        for field in ("experiment_spec_id", "cocktail_design_id"):
-            if not isinstance(payload[field], str) or not payload[field].strip():
-                raise DeviceError(
-                    f"Command payload {field} must be a nonempty string."
-                )
+        if (
+            not isinstance(payload["experiment_spec_id"], str)
+            or not payload["experiment_spec_id"].strip()
+        ):
+            raise DeviceError(
+                "Command payload experiment_spec_id must be a nonempty string."
+            )
+        if "cocktail_design_id" in payload and (
+            not isinstance(payload["cocktail_design_id"], str)
+            or not payload["cocktail_design_id"].strip()
+        ):
+            raise DeviceError(
+                "Command payload cocktail_design_id must be a nonempty string."
+            )
         digest = payload["experiment_spec_sha256"]
         if (
             not isinstance(digest, str)
@@ -152,6 +170,66 @@ def validate_execution_payload(payload: dict) -> dict:
                 "Command payload phage_profile_ids must be unique strings aligned "
                 "one-to-one with candidate_ids."
             )
+        arms = payload["experiment_arms"]
+        if not isinstance(arms, list) or not arms:
+            raise DeviceError(
+                "Command payload experiment_arms must be a nonempty array."
+            )
+        arm_ids = []
+        arm_profiles = set()
+        required_arm_fields = {
+            "arm_id",
+            "role",
+            "target_host",
+            "phage_profile_ids",
+            "conditions",
+            "expected_readouts",
+        }
+        for arm in arms:
+            if not isinstance(arm, dict) or set(arm) != required_arm_fields:
+                raise DeviceError(
+                    "Command payload experiment_arms contain an invalid arm shape."
+                )
+            if not isinstance(arm["arm_id"], str) or not arm["arm_id"].strip():
+                raise DeviceError("Experiment arm_id must be a nonempty string.")
+            arm_ids.append(arm["arm_id"])
+            if arm["role"] not in {"control", "treatment"}:
+                raise DeviceError("Experiment arm role must be control or treatment.")
+            arm_phages = arm["phage_profile_ids"]
+            if (
+                not isinstance(arm_phages, list)
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in arm_phages
+                )
+                or len(set(arm_phages)) != len(arm_phages)
+            ):
+                raise DeviceError(
+                    "Experiment arm phage_profile_ids must be unique strings."
+                )
+            arm_profiles.update(arm_phages)
+            if not isinstance(arm["conditions"], dict):
+                raise DeviceError("Experiment arm conditions must be an object.")
+            if (
+                not isinstance(arm["expected_readouts"], list)
+                or not arm["expected_readouts"]
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in arm["expected_readouts"]
+                )
+            ):
+                raise DeviceError(
+                    "Experiment arm expected_readouts must be nonempty strings."
+                )
+            if not isinstance(arm["target_host"], dict):
+                raise DeviceError("Experiment arm target_host must be an object.")
+        if len(set(arm_ids)) != len(arm_ids):
+            raise DeviceError("Experiment arm IDs must be unique.")
+        if arm_profiles != set(profile_ids):
+            raise DeviceError(
+                "Experiment arm phage membership must match phage_profile_ids."
+            )
+
         if "material_batch_ids" in payload:
             batch_ids = payload["material_batch_ids"]
             if (

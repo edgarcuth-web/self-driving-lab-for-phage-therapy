@@ -632,10 +632,15 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
         except ValueError as exc:
             raise WorkflowError(str(exc)) from None
         operations = _validate_workflow(spec_workflow)
+        locked_member_count = len(experiment_spec.member_phage_profile_ids)
+        if locked_member_count < 1:
+            raise WorkflowError(
+                "The current run executor requires at least one phage across ExperimentSpec arms."
+            )
         _validate_candidates(
             candidates,
-            min_candidates=len(experiment_spec.member_phage_profile_ids),
-            max_candidates=len(experiment_spec.member_phage_profile_ids),
+            min_candidates=locked_member_count,
+            max_candidates=locked_member_count,
             require_snapshot=require_snapshot,
         )
         if material_batches is not None:
@@ -702,10 +707,14 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
         records.emit("input_validated", **report["genome"])
         if experiment_spec is not None:
             report["experiment_spec"] = experiment_spec.to_dict()
+            source_design = experiment_spec.source_design
             records.emit(
                 "experiment_spec_bound",
                 spec_id=experiment_spec.spec_id,
-                source_design_id=experiment_spec.source_design.design_id,
+                source_design_id=(
+                    source_design.design_id if source_design is not None else None
+                ),
+                arm_ids=[arm.arm_id for arm in experiment_spec.arms],
                 members=list(experiment_spec.member_phage_profile_ids),
             )
         report["material_batch_ids"] = (
@@ -784,9 +793,12 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
             payload.update({
                 "experiment_spec_id": experiment_spec.spec_id,
                 "experiment_spec_sha256": experiment_spec.content_sha256,
-                "cocktail_design_id": experiment_spec.source_design.design_id,
                 "phage_profile_ids": list(experiment_spec.member_phage_profile_ids),
+                "experiment_arms": [arm.to_dict() for arm in experiment_spec.arms],
             })
+            source_design = experiment_spec.source_design
+            if source_design is not None:
+                payload["cocktail_design_id"] = source_design.design_id
             if bound_materials is not None:
                 payload["material_batch_ids"] = list(bound_materials.batch_ids)
         for operation in operations:
