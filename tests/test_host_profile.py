@@ -58,6 +58,20 @@ class HostProfileTests(unittest.TestCase):
         self.assertEqual(group.to_dict()["status"], "assessed")
         self.assertEqual(group.to_dict()["items"], [])
 
+    def test_assessed_profile_requires_analysis_provenance(self):
+        features = {name: FeatureGroup() for name in FEATURE_GROUPS}
+        features["receptors"] = FeatureGroup(status="assessed", items=())
+        with self.assertRaisesRegex(ValueError, "require at least one analysis run"):
+            HostProfile(
+                host_id="isolate-001",
+                revision=1,
+                genome=self.genome,
+                taxonomy={},
+                features=features,
+                analysis_runs=(),
+                created_at=CREATED_AT,
+            )
+
     def test_analysis_run_must_match_profile_genome(self):
         features = {name: FeatureGroup() for name in FEATURE_GROUPS}
         wrong = AnalysisRun(
