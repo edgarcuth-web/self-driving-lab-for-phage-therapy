@@ -152,6 +152,7 @@ def physical_measurement(*, qc_status="valid", spec=None, batch_ids=None):
         origin="physical_run",
         physical_execution=True,
         qc_status=qc_status,
+        qc_evidence=(f"qc:{qc_status}",) if qc_status in {"valid", "invalid"} else (),
         measurement_type="device_result",
         data={"signal": [0.1, 0.2, 0.3], "unit": "instrument_units"},
         recorded_at=STAMP,
@@ -270,6 +271,7 @@ class MeasurementTests(unittest.TestCase):
             virtual_report(),
             measurement_id="measurement-virtual",
             qc_status="valid",
+            qc_evidence=("qc:virtual-control",),
             created_at=STAMP,
         )
         self.assertEqual(measurement.origin, "virtual_run")
@@ -306,6 +308,7 @@ class MeasurementTests(unittest.TestCase):
             report,
             measurement_id="measurement-physical",
             qc_status="valid",
+            qc_evidence=("qc:physical",),
             created_at=STAMP,
         )
         self.assertTrue(measurement.physical_execution)
@@ -379,6 +382,7 @@ class PhenotypeTests(unittest.TestCase):
             origin="virtual_run",
             physical_execution=False,
             qc_status="valid",
+            qc_evidence=("qc:virtual-control",),
             measurement_type="device_result",
             data={"readings": [0.1]},
             recorded_at=STAMP,
@@ -502,6 +506,7 @@ class MaterialRunIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 persisted,
                 measurement_id="measurement-from-run",
                 qc_status="valid",
+                qc_evidence=("qc:run",),
                 created_at=STAMP,
             )
             self.assertEqual(
@@ -604,6 +609,7 @@ class IngestionCliTests(unittest.TestCase):
                     "--run-report", str(report_path),
                     "--measurement-id", "measurement-virtual",
                     "--qc-status", "valid",
+                    "--qc-evidence", "qc:virtual-control",
                     "--out", str(measurement_path),
                 ]),
             )
