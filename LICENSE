@@ -1,0 +1,85 @@
+Required Notice: Copyright <<<COPYRIGHT HOLDER — FILL THIS IN BEFORE MERGING>>>
+(https://github.com/edgarcuth-web/self-driving-lab-for-phage-therapy)
+
+================================================================================
+self-driving-lab-for-phage-therapy — licensing
+================================================================================
+
+This software is source-available, not open source. It is offered under two
+licenses. You may use it free of charge if your use is permitted by EITHER of
+them. You only need to satisfy one.
+
+  1. PolyForm Noncommercial License 1.0.0
+     LICENSES/PolyForm-Noncommercial-1.0.0.md
+     https://polyformproject.org/licenses/noncommercial/1.0.0
+
+     Covers any noncommercial purpose. This explicitly includes use by
+     charitable organizations, educational institutions, public research
+     organizations, public safety or health organizations, environmental
+     protection organizations and government institutions, regardless of the
+     source of their funding. It also covers personal research, experiment and
+     testing for the benefit of public knowledge, personal study, and hobby
+     projects.
+
+     If you are a university lab, a hospital, a public research institute, or
+     an individual working on this for research or for your own interest, this
+     license covers you and you owe nothing.
+
+  2. PolyForm Small Business License 1.0.0
+     LICENSES/PolyForm-Small-Business-1.0.0.md
+     https://polyformproject.org/licenses/small-business/1.0.0
+
+     Covers commercial use for the benefit of your company, provided your
+     company has fewer than 100 total individuals working as employees and
+     independent contractors, AND had less than 1,000,000 USD (2019 dollars,
+     inflation-adjusted per the stated CPI series) in total revenue in the
+     prior tax year. "Your company" includes parents, subsidiaries and
+     entities under common control.
+
+Both licenses permit you to modify the software and to distribute your
+modified versions, within their permitted purposes. Adapting this to your own
+hardware is expected and intended.
+
+--------------------------------------------------------------------------------
+Commercial use beyond those limits
+--------------------------------------------------------------------------------
+
+If your company exceeds the Small Business thresholds and your use is
+commercial, neither license above covers you, and you need a separate
+commercial license.
+
+  Contact: <<<COMMERCIAL LICENSING CONTACT — FILL THIS IN BEFORE MERGING>>>
+
+--------------------------------------------------------------------------------
+Passing the software on
+--------------------------------------------------------------------------------
+
+Both licenses require that anyone who receives any part of this software from
+you also receives a copy of the license terms (or their URL), together with the
+"Required Notice:" line at the top of this file. Keep that line intact when you
+redistribute or fork.
+
+--------------------------------------------------------------------------------
+What this is not
+--------------------------------------------------------------------------------
+
+These are not OSI-approved open source licenses. They restrict who may use the
+software commercially, which an open source license may not do. Practically:
+GitHub will not label this repository as open source, the code cannot be
+combined with GPL-licensed code, and some people will decline to contribute to
+a project they cannot use commercially. That is the cost of the large-company
+restriction, and it is deliberate.
+
+--------------------------------------------------------------------------------
+No warranty
+--------------------------------------------------------------------------------
+
+As stated in both licenses, the software is provided as is, without any
+warranty or condition, and the licensor is not liable for any damages.
+
+This matters more than usual here. This software orchestrates laboratory
+equipment. Nothing in it has been validated for safety, for clinical use, or
+for use with hazardous materials, and no run it produces is evidence of
+biological efficacy. Anyone connecting it to physical instruments is
+responsible for their own risk assessment, interlocks and institutional
+approvals.
