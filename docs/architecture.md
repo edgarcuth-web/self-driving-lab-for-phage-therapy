@@ -104,10 +104,21 @@ The shared contract is transport-neutral:
 | `write(Command)` | submit one asynchronous command |
 | `wait(job_id)` | wait for completion without implying cancellation on timeout |
 | `cancel(job_id)` | confirm cancellation where supported |
+| `enter_safe_state(reason)` | bring the apparatus to its declared safe state and report whether it confirmed |
 | `close()` | release local driver resources |
 | `quarantine()` | optional, advisory: stop routing new work here after a failover |
 
 A future Computer Use adapter can implement the same boundary for software-controlled instruments or services. Its UI actions are still an execution transport; they do not by themselves make a virtual measurement physical evidence.
+
+## Apparatus safety
+
+Halting the orchestrator does not make the bench safe, so the contract separates the two.
+
+Every non-simulated driver declares a `safe_state` block: a `policy` (`park_and_release`, `contained_hold` or `operator_required`), an explicit `retains_hazard` boolean, and a description written for whoever walks up to the apparatus. `real_hardware` refuses a driver without it, and the hazard-retaining policies cannot claim to retain none.
+
+The controller requests `enter_safe_state()` on every abandoned step and records what each device confirmed in `report["physical_state"]`. A device that cannot be asked, does not answer, or raises is recorded as `unknown` rather than assumed safe, and the overall status is the worst device's: a person approaching the bench meets all of it, not the average. Virtual twins declare and implement the same thing, so the path is exercised before hardware exists.
+
+This is auditability, not certification. It forces "what happens physically when this fails" to be answered and written down; it does not replace containment, a real emergency stop or institutional approval. `docs/hardware.md` carries the integration guide.
 
 ## Recovery invariant
 

@@ -56,12 +56,18 @@ class VirtualDevice:
         self._commands: dict[str, Job] = {}
         self.quarantined = False
         self.effect_count = 0
+        self.safe_state_requests: list[str] = []
 
     def describe(self) -> dict:
         return {"device_id": self.device_id, "operations": [self.operation],
                 "simulated": True, "interface": VIRTUAL_INTERFACE,
                 "state": "quarantined" if self.quarantined else "available",
                 "limits": {"concurrent_jobs": 1},
+                # A twin declares a safe state like any driver, so the
+                # safe-state path is exercised before real hardware exists.
+                "safe_state": {"policy": "park_and_release", "retains_hazard": False,
+                               "description": ("Software twin: there is nothing to park and "
+                                               "no material to release.")},
                 "notes": "Software-only device twin. No physical action occurs."}
 
     def quarantine(self) -> None:
@@ -163,6 +169,22 @@ class VirtualDevice:
         job.state = "cancelled"
         self.emit("cancellation_acknowledged", device=self.device_id, job_id=job_id)
         return True
+
+    async def enter_safe_state(self, reason: str) -> dict:
+        """Abandon running jobs. Nothing physical exists, so this always succeeds."""
+        for job in self.jobs.values():
+            if job.state == "running" and job.task and not job.task.done():
+                job.task.cancel()
+                try:
+                    await job.task
+                except asyncio.CancelledError:
+                    pass
+                job.state = "cancelled"
+        self.safe_state_requests.append(reason)
+        self.emit("virtual_safe_state_entered", device=self.device_id, reason=reason)
+        return {"entered": True, "policy": "park_and_release", "retains_hazard": False,
+                "detail": "Software twin; no physical apparatus was involved.",
+                "simulated": True}
 
     async def close(self) -> None:
         pending = [job.task for job in self.jobs.values() if job.task and not job.task.done()]
