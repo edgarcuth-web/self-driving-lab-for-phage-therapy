@@ -54,7 +54,7 @@ virtual hardware 可以测试 job 生命周期、超时、取消、恢复和 saf
 | 结构化规划、调度、恢复、事件日志 | 已实现 |
 | 设备契约、real/virtual execution mode、safe-state | 已实现 |
 | HTTP instrument adapter 范例 | 已实现 |
-| HostProfile 领域模型 | 建设中 |
+| HostProfile v1 领域模型与本地序列化 | 已实现 |
 | PhageProfile / interaction evidence | 待实现 |
 | CocktailDesign | 待实现 |
 | 实测 phenotype ingestion | 待实现 |
@@ -67,6 +67,18 @@ virtual hardware 可以测试 job 生命周期、超时、取消、恢复和 saf
 ## 当前可运行链路
 
 环境要求：Python 3.11+。
+
+### 0. 建立 HostProfile v1
+
+```bash
+python -m phage_lab host-profile \
+  --genome my_isolate.fasta \
+  --sample-id isolate-001 \
+  --out host-profile.json
+```
+
+v1 只记录 genome identity、profile version 和 feature-class assessment state。receptors、surface structures、defense systems、AMR、virulence 在没有真实 analyzer 运行时都明确保持 `unknown`；raw FASTA 不写入 profile。
+
 
 ### 1. 获取固定参考快照
 
