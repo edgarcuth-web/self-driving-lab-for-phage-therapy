@@ -6,6 +6,7 @@ import textwrap
 import unittest
 import unittest.mock
 
+from phage_lab.interaction_evidence import phist_ranking_to_evidence
 from phage_lab.ranking import (
     PhistRanker,
     RankingError,
@@ -140,6 +141,22 @@ class PhistAdapterTests(unittest.TestCase):
                 self.assertEqual(record["ranking"]["tool"], "phist")
                 self.assertEqual(len(record["ranking"]["host_genome_sha256"]), 64)
                 self.assertEqual(record["ranking"]["sequence_snapshot_version"], "1Oct2026")
+                self.assertEqual(len(record["interaction_evidence"]), 1)
+                evidence = record["interaction_evidence"][0]
+                self.assertEqual(evidence["producer"]["name"], "phist")
+                self.assertEqual(
+                    evidence["host"]["genome_sha256"],
+                    record["ranking"]["host_genome_sha256"],
+                )
+                self.assertEqual(
+                    evidence["phage_profile_id"], f"{record['id']}:v1"
+                )
+                expected = (
+                    "reported_signal"
+                    if record["ranking"]["reported"]
+                    else "no_signal"
+                )
+                self.assertEqual(evidence["result"]["status"], expected)
 
     def test_a_value_less_row_is_no_match_rather_than_a_parse_error(self):
         # Real PHIST writes the phage name alone when nothing matched; that is an
@@ -223,6 +240,7 @@ class RankingProvenanceTests(unittest.TestCase):
     def setUp(self):
         self.devices = {"prepare-1": RealDeviceDouble("prepare-1", "prepare")}
         self.block = {"tool": "phist", "tool_version": "1.2.1",
+                      "parameters": {"k": 25, "threads": 2},
                       "ranked_at": "2026-10-15T00:00:00+00:00",
                       "host_genome_sha256": "c" * 64, "statistic": "shared_25mers",
                       "interpretation": "not a probability of infection",
@@ -260,6 +278,23 @@ class RankingProvenanceTests(unittest.TestCase):
                  {**CANDIDATES[1], "ranking": {**self.block, "host_genome_sha256": "d" * 64}}]
         with self.assertRaisesRegex(WorkflowError, "separate comparisons"):
             self.check(mixed)
+
+    def test_tampered_interaction_evidence_is_refused(self):
+        candidate = self.ranked()[0]
+        evidence = phist_ranking_to_evidence(candidate).to_dict()
+        evidence["result"]["status"] = "tampered"
+        candidate["interaction_evidence"] = [evidence]
+        with self.assertRaisesRegex(WorkflowError, "evidence_id"):
+            self.check([candidate])
+
+    def test_interaction_evidence_must_target_candidate_profile(self):
+        candidate = self.ranked()[0]
+        other = {**candidate, "id": "PH-OTHER"}
+        candidate["interaction_evidence"] = [
+            phist_ranking_to_evidence(other).to_dict()
+        ]
+        with self.assertRaisesRegex(WorkflowError, "not 'PH-001:v1'"):
+            self.check([candidate])
 
     def test_a_partly_ranked_set_is_refused(self):
         partial = [{**CANDIDATES[0], "ranking": dict(self.block)}, CANDIDATES[1]]
