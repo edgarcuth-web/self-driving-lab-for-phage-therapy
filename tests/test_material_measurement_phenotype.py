@@ -231,10 +231,9 @@ class MaterialBatchTests(unittest.TestCase):
             material_batch_from_dict(tampered)
 
 
-class MeasurementTests(unittest.TestCase):
-    def virtual_report(self):
-        spec = experiment_spec()
-        return {
+def virtual_report():
+    spec = experiment_spec()
+    return {
             "schema_version": 4,
             "run_id": "run-virtual-001",
             "started_at": STAMP,
@@ -265,9 +264,11 @@ class MeasurementTests(unittest.TestCase):
             },
         }
 
+
+class MeasurementTests(unittest.TestCase):
     def test_virtual_result_is_ingested_as_non_evidence(self):
         measurement = measurement_from_run_report(
-            self.virtual_report(),
+            virtual_report(),
             measurement_id="measurement-virtual",
             qc_status="valid",
             created_at=STAMP,
@@ -317,7 +318,7 @@ class MeasurementTests(unittest.TestCase):
         self.assertEqual(measurement.experiment_spec_id, spec.spec_id)
 
     def test_physical_report_cannot_wrap_a_simulated_result(self):
-        report = self.virtual_report()
+        report = virtual_report()
         report["execution_mode"] = "real_hardware"
         report["physical_execution"] = True
         with self.assertRaisesRegex(ValueError, "contradicts"):
@@ -533,7 +534,7 @@ class IngestionCliTests(unittest.TestCase):
             spec_path = root / "spec.json"
             phenotype_path = root / "phenotype.json"
 
-            report = MeasurementTests().virtual_report()
+            report = virtual_report()
             report_path.write_text(json.dumps(report), encoding="utf-8")
             write_experiment_spec(spec, spec_path)
 
