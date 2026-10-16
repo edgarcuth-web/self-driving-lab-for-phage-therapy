@@ -545,7 +545,7 @@ class MaterialRunIntegrationTests(unittest.IsolatedAsyncioTestCase):
         spec = experiment_spec()
         batches = material_batches()
         with tempfile.TemporaryDirectory() as temporary:
-            report, _ = await run_experiment(
+            report, directory = await run_experiment(
                 GENOME,
                 Path(temporary) / "runs",
                 sample_id="sample-001",
@@ -558,11 +558,14 @@ class MaterialRunIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 material_batches=batches,
                 echo=False,
             )
+            rendered = (directory / "report.md").read_text(encoding="utf-8")
         self.assertEqual(report["status"], "succeeded")
         self.assertEqual(
             report["material_batch_ids"],
             [batch.record_id for batch in batches],
         )
+        self.assertIn("MaterialBatch", rendered)
+        self.assertIn(batches[0].record_id, rendered)
         self.assertTrue(
             any("did not consume physical material" in item for item in report["limitations"])
         )
