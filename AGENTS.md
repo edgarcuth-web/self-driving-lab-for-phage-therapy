@@ -80,7 +80,7 @@ Every model/tool output needs tool/model identity, version, inputs and parameter
 
 `MaterialBatch` represents tracked physical material, not a database candidate or accession. A batch may exist while QC is pending; test-ready binding requires `quality_status=released`, usable availability, and explicit quality evidence. ExperimentSpec-bound real-hardware execution requires one unambiguous host batch and one unambiguous phage batch per member.
 
-`Measurement` preserves run/device/spec/material lineage and raw device output. Its QC status is explicit and must never be inferred from workflow success. Virtual run output may be ingested as Measurement only with `evidence_class=none`.
+`Measurement` preserves run/device/spec/material lineage and raw device output. Its QC status is explicit and must never be inferred from workflow success. `valid` and `invalid` Measurements require one or more QC evidence references; only `pending` may omit them. Virtual run output may be ingested as Measurement only with `evidence_class=none`.
 
 `Phenotype` is an interpretation of admitted physical evidence. It may be created only from physical, QC-valid Measurements bound to the same ExperimentSpec and material set. Invalid, pending or virtual Measurements must never become positive, negative or graded biological phenotypes.
 
