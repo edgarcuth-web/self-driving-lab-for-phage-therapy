@@ -2,16 +2,33 @@
 
 ## Goal and scope
 
-Build a real AI-driven laboratory for phage research: AI proposes phage designs and experiments, connected instruments perform physical tests, and measured results feed the next design cycle.
+Build a real autonomous phage R&D system. A human supplies a target bacterial genome and research objectives; Bioinformatics proposes candidates and cocktails, Synbio obtains or produces physical material, connected instruments test it, and measured results inform the next design cycle.
 
 The deliverable is a traceable design–build–test–learn loop on real hardware. Candidate retrieval and ranking support that loop; they are not the full design capability. Software twins and test doubles are development tools, not the project endpoint or evidence of physical execution.
+
+## Subsystem responsibilities
+
+- **Bioinformatics:** support existing-phage selection, cocktail composition, complementary candidates, and new or modified genome proposals. These are composable paths, not mutually exclusive modes. Emit versioned design packages with rationale and provenance.
+- **Synbio:** manage design handoff, build planning, external synthesis/services, internal device tasks, inventory, quality confirmation and material delivery. Choose stock, acquisition or synthesis/build paths as appropriate; nucleotide synthesis alone is not the delivered phage material.
+- **Automated testing:** consume identified physical materials and experiment specifications; link actual device execution and measurements to their inputs.
+- **Analysis and learning:** evaluate measured outcomes and inform subsequent design, with versioned data, models and evaluation records.
+- **Shared control/data:** provide scheduling, validated device dispatch, durable state, artifact storage and traceability across subsystems. Detailed boundaries and milestones live in `docs/architecture.md`.
+
+## Handoffs and completion criteria
+
+- Treat designs, synthesis products, build batches, inventory materials, cocktail versions and experiments as distinct objects. Preserve links from design version through material batch and measurement to the next design.
+- Design changes create new versions; do not overwrite a version already used in a build or test. Track each cocktail member and the actual material batches used.
+- Synbio delivers identified physical material with quality evidence and sufficient availability for the intended experiment, or an explicit incomplete outcome. Device-task completion alone does not release material for testing.
+- Keep build status, quality status, inventory and experiment outcomes separate. Track reservations, transfers and consumption; resetting a task must not erase physical changes.
+- Classify build failures, device failures and biological measurements separately. Missing material or a failed measurement is not a negative biological result.
+- Deliver vertical slices with real integration artifacts. Tests verify software behavior; subsystem completion requires the documented end-to-end deliverable.
 
 ## Current implementation and direction
 
 - Implemented: reference snapshots, candidate retrieval, PHIST ranking, structured planning, scheduling, reconciliation, execution records and device contracts.
 - Hardware integration currently has a runnable HTTP adapter example; instrument-specific drivers and confirmed physical runs remain work to deliver.
-- Autonomous phage design, experimental result feedback and model evaluation are development goals, not existing capabilities. Describe their implementation status accurately.
-- Prioritize real device integration, durable experiment state and measured-result ingestion. Connect design and learning components through explicit, versioned interfaces.
+- Multi-path design, Synbio services/material management, experimental feedback and model evaluation are development goals, not existing capabilities. Describe their implementation status accurately.
+- Prioritize a real testing slice, durable task/material state and a real acquisition/build-to-test path; connect design and feedback components through versioned interfaces.
 - The existing external-ranker implementation is a starting point, not a permanent restriction on future models. New models need their own provenance, evaluation and documented output semantics.
 
 ## Code map
@@ -59,6 +76,8 @@ python -m unittest discover -s tests -v
 
 Use `PHIST_PATH` for the opt-in real-tool integration test. CLI usage belongs in `README.md`; architecture details belong in `docs/architecture.md`.
 
-Maintain coverage for provenance and checksum validation, sequence indexing, ranking/no-match behavior, selection bounds, explicit execution modes, adapter contracts, reconciliation, cancellation and safe-state handling. Tests with twins verify software behavior; physical integration checks record the actual device and result artifacts.
+Maintain coverage for provenance and checksum validation, sequence indexing, ranking/no-match behavior, selection bounds, explicit execution modes, adapter contracts, reconciliation, cancellation and safe-state handling. As domain components arrive, verify design-version lineage, material allocation/consumption, quality handoffs and outcome classification. Physical integration checks record the actual device, material and result artifacts.
+
+Keep `README.md` (purpose and implemented status), `docs/architecture.md` (subsystems and contracts) and this file (development rules) consistent. Do not document planned interfaces as existing APIs.
 
 For GitHub changes, inspect the current branch head and diff before updating it. Preserve concurrent work and never force-push over another contributor's changes.
