@@ -154,6 +154,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--qc-status", choices=["pending", "valid", "invalid"],
                         default="pending",
                         help="QC admission state; never inferred from workflow success.")
+    parser.add_argument("--qc-evidence", action="append", default=[],
+                        help="QC record/reference; required for valid or invalid Measurement.")
 
     parser.add_argument("--measurements", type=Path,
                         help="Measurement JSON object or array used for Phenotype.")
@@ -413,6 +415,7 @@ def _measurement(args, parser) -> int:
             source_step=args.step,
             measurement_type=args.measurement_type,
             qc_status=args.qc_status,
+            qc_evidence=tuple(args.qc_evidence),
         )
         write_measurement(measurement, args.out)
     except (OSError, ValueError) as exc:
