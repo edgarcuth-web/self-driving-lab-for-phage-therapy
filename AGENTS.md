@@ -13,6 +13,7 @@ Scientific components decide what to test and why. The lab layer executes valida
 Scientific components may produce:
 
 - `HostProfile`
+- `HostState`
 - `PhageProfile`
 - `InteractionEvidence`
 - `CocktailDesign`
@@ -38,6 +39,7 @@ Do not let the orchestration agent invent biological conclusions or bypass `Expe
 Treat the following as versioned objects, not anonymous dicts:
 
 - `HostProfile`
+- `HostState`
 - `PhageProfile`
 - `InteractionEvidence`
 - `CocktailDesign`
@@ -86,6 +88,8 @@ Every model/tool output needs tool/model identity, version, inputs and parameter
 
 `Phenotype` is an interpretation of admitted physical evidence. It may be created only from physical, QC-valid Measurements bound to the same ExperimentSpec and material set. Invalid, pending or virtual Measurements must never become positive, negative or graded biological phenotypes.
 
+`HostState` is a time-indexed scientific state artifact, not a mutable field bag on HostProfile. It must bind one exact HostProfile ID/genome, one `as_of` time, explicit state components and the evidence supporting each component. Missing components are unknown. A later HostState may reference an earlier state but must not inherit its dynamic components implicitly. Measurement/Phenotype-to-HostState adapters may copy artifact lineage only; they must not invent a state interpretation.
+
 ### Virtual hardware
 
 Virtual hardware may simulate job lifecycle, timeout, cancellation, failover, safe-state and artifact handoff.
@@ -122,6 +126,7 @@ For an ExperimentSpec-bound run, the agent interface is limited to `assign_devic
 
 - `biology.py`: FASTA validation and sequence summary.
 - `host_profile.py`: HostProfile v1.
+- `host_state.py`: HostState H(t) v1, explicit dynamic components/evidence and previous-state lineage.
 - `phage_profile.py`: PhageProfile v1 and provenance variants.
 - `interaction_evidence.py`: InteractionEvidence v1 and PHIST evidence adapter.
 - `cocktail_design.py`: CocktailDesign v1 and conservative PHIST screening baseline.
@@ -140,11 +145,10 @@ For an ExperimentSpec-bound run, the agent interface is limited to `assign_devic
 
 Priority order:
 
-1. introduce HostState H(t);
-2. add InteractionPrediction above InteractionEvidence;
-3. build the natural-phage recommender / CandidateSet;
-4. active learning and FailureAttribution;
-5. engineering escalation.
+1. add InteractionPrediction above InteractionEvidence and bind each prediction to an exact HostState ID/hash;
+2. build the natural-phage recommender / CandidateSet;
+3. active learning and FailureAttribution;
+4. engineering escalation.
 
 Freeze provenance, MaterialBatch, device abstraction and robot/simulator detail unless a scientific-layer requirement forces a change.
 

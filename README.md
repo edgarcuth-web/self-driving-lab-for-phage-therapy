@@ -7,7 +7,11 @@ Host genome / isolate
         ↓
 HostProfile
         ↓
+HostState H(t)
+        ↓
 PhageProfile + InteractionEvidence
+        ↓
+[next: InteractionPrediction]
         ↓
 CandidateSet / CocktailDesign / scientific intent
         ↓
@@ -28,6 +32,7 @@ FailureAttribution / model update
 已实现：
 
 - HostProfile v1；
+- HostState v1：content-addressed H(t)、explicit evidence、previous-state lineage、no implicit inheritance；
 - PhageProfile v1（retrieved / natural / engineered provenance）；
 - InteractionEvidence v1；
 - CocktailDesign v1 与 conservative PHIST screening baseline；
@@ -51,6 +56,8 @@ FailureAttribution / model update
 ## 关键边界
 
 - Scientific decision layer 决定“测什么、为什么”；orchestrator 只负责执行已验证的 ExperimentSpec。
+- HostProfile 是稳定 identity/characterization anchor；HostState H(t) 是时间标记的动态状态快照，不能把旧状态默认为当前状态。
+- HostState 未出现的 component 代表 unknown，不代表 assessed negative；每个出现的 component 必须引用 admitted evidence。
 - 默认先评估天然 phage，再做 cocktail；工程化由明确的 coverage / resistance gap 触发。
 - virtual hardware 只模拟设备行为，不产生 biological evidence。
 - PHIST 是 interaction evidence 的一个来源，不等于 host-range probability。
@@ -71,6 +78,23 @@ python -m phage_lab host-profile \
 ```
 
 没有 analyzer 运行时，receptors、surface structures、defense systems、AMR、virulence 保持 `unknown`。raw FASTA 不写入 profile。
+
+### HostState H(t)
+
+`HostProfile` 不承担“当前状态”的职责。动态状态单独写入不可变 `HostState`：
+
+```bash
+python -m phage_lab host-state \
+  --host-profile host-profile.json \
+  --host-state-id isolate-001-state \
+  --as-of 2026-10-16T12:00:00+00:00 \
+  --state-input host-state-input.json \
+  --out host-state.json
+```
+
+`host-state-input.json` 只含 `components`、`evidence`、`limitations`。component domain 当前包括 receptor/surface/defense state、physiology、antimicrobial state、phage exposure、phenotype history 与 environment；每个 component 必须引用同一 snapshot 内的 evidence ID。Measurement / Phenotype 可以通过代码适配器转换为 HostState evidence reference，适配器只复制 artifact ID/hash/timestamp，不解释生物学结果。
+
+新的 H(t+1) 使用 `--previous-host-state` 指向旧 snapshot，但**不会自动继承**旧 components。调用方必须重新声明在 t+1 仍然成立的动态状态；否则它们回到 unknown。这是为了防止历史 phenotype、培养条件或 defense state 被错误当作“当前事实”。
 
 ### 2. 获取参考快照并检索候选
 
@@ -272,7 +296,8 @@ python -m phage_lab phenotype-comparison \
 目标 lineage：
 
 ```text
-HostProfile / scientific state
+HostProfile
+  → HostState H(t)
   → source artifact(s) / scientific intent
   → ExperimentSpec v2 + ExperimentArm(s)
   → MaterialBatch

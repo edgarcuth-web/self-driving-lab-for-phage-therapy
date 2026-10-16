@@ -7,7 +7,11 @@ Host genome / isolate
         ↓
 HostProfile
         ↓
+HostState H(t)
+        ↓
 PhageProfile + InteractionEvidence
+        ↓
+[next: InteractionPrediction]
         ↓
 CandidateSet / CocktailDesign / scientific intent
         ↓
@@ -29,7 +33,8 @@ Scientific components choose what to test. The orchestration layer executes a va
 
 | Object | Purpose |
 | --- | --- |
-| `HostProfile` | Versioned host characterization |
+| `HostProfile` | Stable versioned host identity and characterization anchor |
+| `HostState` | Content-addressed H(t): explicit time-dependent host state backed by admitted evidence |
 | `PhageProfile` | Versioned natural or designed phage characterization |
 | `InteractionEvidence` | One traceable phage-host observation or model output |
 | `CocktailDesign` | Versioned member set, objectives and supporting evidence; one optional ExperimentSpec source |
@@ -46,6 +51,7 @@ Target lineage:
 
 ```text
 HostProfile
+  → HostState H(t)
   → scientific source(s) / intent
   → ExperimentSpec + ExperimentArm(s)
   → MaterialBatch
@@ -79,6 +85,31 @@ Semantics:
 Every assessed feature must point to analysis provenance. Raw FASTA is not sent to external models by default.
 
 HostProfile v1 currently implements schema, genome identity, feature-state semantics and local serialization; analyzers are separate components.
+
+## HostState H(t)
+
+`HostState` v1 separates time-dependent state from stable `HostProfile` identity. It is an immutable, content-addressed snapshot with:
+
+- exact HostProfile ID and genome hash;
+- an explicit `as_of` timestamp;
+- zero or more state components;
+- evidence records referenced by every component;
+- explicit limitations;
+- an optional previous-state ID/hash/time pointer.
+
+Current component domains are `receptor_state`, `surface_state`, `defense_state`, `physiology`, `antimicrobial_state`, `phage_exposure`, `phenotype_history`, and `environment`. Component basis is explicitly `observed`, `derived`, or `declared`.
+
+Important semantics:
+
+- omission means unknown; HostState does not encode an implicit negative;
+- evidence observed after `as_of` is rejected;
+- evidence for another HostProfile is rejected;
+- every component must cite admitted evidence in the same snapshot;
+- H(t+1) may point to H(t), but no components are inherited automatically;
+- stable HostProfile features are not copied into HostState;
+- Measurement/Phenotype adapters copy lineage only and do not infer state values.
+
+This makes the future prediction boundary explicit: `InteractionPrediction` should consume an exact HostState record/hash rather than an unversioned notion of “current host”. New experimental evidence can produce a new H(t+1) without rewriting either HostProfile or earlier state snapshots.
 
 ## PhageProfile and InteractionEvidence
 
@@ -126,13 +157,7 @@ Cocktail selection is a scientific decision, not an orchestration-agent task.
 
 ## ExperimentSpec
 
-ExperimentSpec v1 is the implemented boundary between scientific design and execution. It freezes:
-
-- the exact source CocktailDesign ID and content hash;
-- target HostProfile identity;
-- the complete ordered set of member PhageProfile IDs;
-- an abstract operation/dependency workflow;
-- purpose, scientific questions and execution constraints.
+ExperimentSpec v2 is the implemented boundary between scientific design and execution. It freezes explicit ExperimentArms, each with role, target HostProfile, 0/1/N phages, conditions and expected readouts. CocktailDesign is one optional source artifact rather than a required parent. It also freezes the abstract operation/dependency workflow, scientific objective/questions and execution constraints.
 
 ExperimentSpec contains no device assignments or instrument-specific commands. Candidate records still bridge discovery/source identity for compatibility, but physical execution lineage is now represented separately by MaterialBatch. A candidate binding step resolves only records whose PhageProfile IDs are locked in the spec and ignores unrelated discovery candidates.
 
@@ -212,7 +237,7 @@ Virtual hardware tests the control path only. It does not create biological evid
 
 ## Measurement and Phenotype
 
-Measurement v1 ingests a completed run step into a content-hashed artifact while preserving:
+Measurement v2 ingests one arm-scoped completed run result into a content-hashed artifact while preserving:
 
 - run ID;
 - exact ExperimentSpec ID/hash when present;
@@ -224,7 +249,7 @@ Measurement v1 ingests a completed run step into a content-hashed artifact while
 
 Workflow success does not imply `qc_status=valid`. `valid` and `invalid` both require explicit QC evidence references; `pending` is the only status allowed without them. A virtual Measurement may be useful for control-path analysis but always carries `evidence_class=none`.
 
-Phenotype v1 is a separate content-hashed interpretation artifact. It is never automatically inferred from a device value. A caller must state phenotype type, outcome, interpretation and assessor identity/version. Every source Measurement must be physical, QC-valid, bound to the same ExperimentSpec, and reference the same material batch set. This rule applies equally to positive, graded and negative phenotypes.
+Phenotype v2 is a separate single-arm content-hashed interpretation artifact. It is never automatically inferred from a device value. A caller must state phenotype type, outcome, interpretation and assessor identity/version. Every source Measurement must be physical, QC-valid and belong to the same ExperimentSpec and ExperimentArm. PhenotypeComparison v1 then records an explicit assessor-stated comparison between two admitted arm phenotypes; it does not infer efficacy from raw values.
 
 Keep these outcomes distinct:
 
@@ -244,6 +269,7 @@ Feedback creates a new design/version; it does not overwrite previous experiment
 | --- | --- |
 | `biology.py` | FASTA validation and genome summary |
 | `host_profile.py` | HostProfile v1 |
+| `host_state.py` | HostState H(t) v1, temporal lineage and artifact-evidence adapters |
 | `phage_profile.py` | PhageProfile v1 and retrieved/natural/engineered provenance |
 | `interaction_evidence.py` | InteractionEvidence v1 and PHIST adapter |
 | `cocktail_design.py` | CocktailDesign v1 and conservative PHIST screening baseline |
@@ -264,11 +290,10 @@ Current implementation status belongs in [README.md](../README.md).
 
 ## Build order
 
-1. introduce HostState H(t) without bloating stable HostProfile identity;
-2. add InteractionPrediction above InteractionEvidence;
-3. natural-phage recommender / CandidateSet;
-4. active learning and FailureAttribution;
-5. engineering escalation.
+1. add InteractionPrediction above InteractionEvidence, consuming exact HostState H(t) lineage;
+2. natural-phage recommender / CandidateSet;
+3. active learning and FailureAttribution;
+4. engineering escalation.
 
 MaterialBatch, provenance, device abstraction and simulator detail are otherwise frozen unless one of these scientific-layer steps requires a change.
 
