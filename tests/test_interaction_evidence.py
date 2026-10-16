@@ -109,7 +109,7 @@ class PhistEvidenceTests(unittest.TestCase):
         self.assertEqual(payload["producer"]["version"], "1.2.1")
         self.assertEqual(payload["result"]["status"], "reported_signal")
         self.assertEqual(payload["result"]["value"], 17)
-        self.assertEqual(payload["result"]["rank"], 1)
+        self.assertNotIn("rank", payload["result"])
         self.assertNotIn("probability", payload["result"])
         self.assertEqual(
             payload["input_provenance"]["sequence_snapshot_sha256"],
@@ -121,7 +121,7 @@ class PhistEvidenceTests(unittest.TestCase):
         payload = evidence.to_dict()
 
         self.assertEqual(payload["result"]["status"], "no_signal")
-        self.assertIsNone(payload["result"]["rank"])
+        self.assertNotIn("rank", payload["result"])
         self.assertNotIn("value", payload["result"])
         self.assertIn(
             "not evidence that infection cannot occur",
