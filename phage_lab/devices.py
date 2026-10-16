@@ -66,8 +66,11 @@ SPEC_LINEAGE_PAYLOAD_FIELDS = {
     "cocktail_design_id",
     "phage_profile_ids",
 }
+MATERIAL_LINEAGE_PAYLOAD_FIELDS = {"material_batch_ids"}
 ALLOWED_EXECUTION_PAYLOAD_FIELDS = (
-    REQUIRED_EXECUTION_PAYLOAD_FIELDS | SPEC_LINEAGE_PAYLOAD_FIELDS
+    REQUIRED_EXECUTION_PAYLOAD_FIELDS
+    | SPEC_LINEAGE_PAYLOAD_FIELDS
+    | MATERIAL_LINEAGE_PAYLOAD_FIELDS
 )
 
 
@@ -118,6 +121,10 @@ def validate_execution_payload(payload: dict) -> dict:
             + ", ".join(sorted(missing_lineage))
             + "."
         )
+    if "material_batch_ids" in payload and not present_lineage:
+        raise DeviceError(
+            "material_batch_ids are allowed only with complete ExperimentSpec lineage."
+        )
     if present_lineage:
         for field in ("experiment_spec_id", "cocktail_design_id"):
             if not isinstance(payload[field], str) or not payload[field].strip():
@@ -145,6 +152,21 @@ def validate_execution_payload(payload: dict) -> dict:
                 "Command payload phage_profile_ids must be unique strings aligned "
                 "one-to-one with candidate_ids."
             )
+        if "material_batch_ids" in payload:
+            batch_ids = payload["material_batch_ids"]
+            if (
+                not isinstance(batch_ids, list)
+                or not batch_ids
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in batch_ids
+                )
+                or len(set(batch_ids)) != len(batch_ids)
+            ):
+                raise DeviceError(
+                    "Command payload material_batch_ids must be a nonempty array "
+                    "of unique strings."
+                )
     return payload
 
 
