@@ -217,9 +217,9 @@ Measurement v1 ingests a completed run step into a content-hashed artifact while
 - MaterialBatch IDs when bound;
 - raw JSON-compatible device result;
 - physical vs virtual provenance;
-- explicit QC status.
+- explicit QC status and QC evidence references.
 
-Workflow success does not imply `qc_status=valid`. A virtual Measurement may be useful for control-path analysis but always carries `evidence_class=none`.
+Workflow success does not imply `qc_status=valid`. `valid` and `invalid` both require explicit QC evidence references; `pending` is the only status allowed without them. A virtual Measurement may be useful for control-path analysis but always carries `evidence_class=none`.
 
 Phenotype v1 is a separate content-hashed interpretation artifact. It is never automatically inferred from a device value. A caller must state phenotype type, outcome, interpretation and assessor identity/version. Every source Measurement must be physical, QC-valid, bound to the same ExperimentSpec, and reference the same material batch set. This rule applies equally to positive, graded and negative phenotypes.
 
