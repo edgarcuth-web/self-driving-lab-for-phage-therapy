@@ -193,10 +193,11 @@ python -m phage_lab measurement \
   --measurement-id measurement-001 \
   --step measure \
   --qc-status valid \
+  --qc-evidence "LIMS:measurement-qc-001" \
   --out measurement.json
 ```
 
-`qc_status` 是显式 admission state，不由 workflow success 自动推断。Measurement 保留 run/spec/device/material lineage 与原始 device result。virtual run 也可以被摄取用于控制链分析，但其 `evidence_class=none`。
+`qc_status` 是显式 admission state，不由 workflow success 自动推断；`valid` 或 `invalid` 都必须带至少一个 `qc_evidence` reference，只有 `pending` 可以没有。Measurement 保留 run/spec/device/material/QC lineage 与原始 device result。virtual run 也可以被摄取用于控制链分析，但其 `evidence_class=none`。
 
 ### 10. 从有效物理 Measurement 建立 Phenotype v1
 
