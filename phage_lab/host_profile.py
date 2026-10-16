@@ -174,8 +174,21 @@ class HostProfile:
             )
         if any(not isinstance(group, FeatureGroup) for group in self.features.values()):
             raise ValueError("features values must be FeatureGroup objects.")
+        if (
+            not isinstance(self.genome.sha256, str)
+            or not SHA256_PATTERN.match(self.genome.sha256)
+            or type(self.genome.bases) is not int
+            or self.genome.bases < 1
+            or type(self.genome.contigs) is not int
+            or self.genome.contigs < 1
+        ):
+            raise ValueError("genome summary is invalid.")
         if any(not isinstance(run, AnalysisRun) for run in self.analysis_runs):
             raise ValueError("analysis_runs must contain AnalysisRun objects.")
+        if any(group.status == "assessed" for group in self.features.values()) and not self.analysis_runs:
+            raise ValueError(
+                "assessed feature groups require at least one analysis run."
+            )
         for run in self.analysis_runs:
             if run.input_sha256 != self.genome.sha256:
                 raise ValueError(
