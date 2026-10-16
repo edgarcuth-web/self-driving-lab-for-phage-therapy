@@ -15,7 +15,7 @@ from .workflow import (
 )
 
 MAX_INPUT_BYTES = 4_000_000
-COMMANDS = ("run", "fetch-snapshot", "candidates", "version")
+COMMANDS = ("run", "fetch-snapshot", "candidates", "rank", "version")
 
 
 def _load_json(path: Path, label: str):
@@ -81,6 +81,18 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--quiet", action="store_true",
                         help="Do not echo the event stream; it is still written to events.jsonl.")
 
+    parser.add_argument("--sequences", type=Path,
+                        help="Genome FASTA snapshot directory, for tools that need sequences.")
+    parser.add_argument("--host-genome", type=Path,
+                        help="Host bacterial FASTA to rank candidates against.")
+    parser.add_argument("--ranker", choices=["phist"], default="phist")
+    parser.add_argument("--phist", type=Path,
+                        help="Path to phist.py. Falls back to PHIST_PATH, then PATH.")
+    parser.add_argument("--k", type=int, default=25, help="k-mer length for PHIST.")
+    parser.add_argument("--threads", type=int, default=2)
+    parser.add_argument("--only-ranked", action="store_true",
+                        help="Drop candidates the tool did not report.")
+
     parser.add_argument("--source", default="inphared", help="Snapshot source name.")
     parser.add_argument("--version", dest="snapshot_version",
                         help="Upstream release identifier, e.g. 1Oct2026.")
@@ -137,6 +149,45 @@ def _retrieve_candidates(args, parser) -> int:
     else:
         print(payload, end="")
     print("提示：host 字段是 depositor 的注释，不是实验测定的 host range。", file=sys.stderr)
+    return 0
+
+
+def _rank(args, parser) -> int:
+    from .ranking import RankingError, phist_from_environment
+    from .sequences import SequenceError, SequenceStore
+    from .snapshots import SnapshotError, load_snapshot
+
+    missing = [name for name, value in (("--candidates", args.candidates),
+                                        ("--sequences", args.sequences),
+                                        ("--host-genome", args.host_genome)) if not value]
+    if missing:
+        parser.error("rank requires " + ", ".join(missing))
+    try:
+        candidates = _load_candidates(args.candidates)
+        store = SequenceStore(load_snapshot(args.sequences, verify=not args.skip_verify))
+        ranker = phist_from_environment(args.phist, k=args.k, threads=args.threads)
+        print(f"{ranker.describe()['tool']} {ranker.describe()['tool_version']}："
+              f"{len(candidates)} 个候选 vs {args.host_genome.name}", flush=True)
+        ranked = ranker.rank(args.host_genome, candidates, store)
+    except (RankingError, SequenceError, SnapshotError, OSError, ValueError) as exc:
+        print(f"排序失败：{exc}", file=sys.stderr)
+        return 2
+
+    reported = [record for record in ranked if record["ranking"]["reported"]]
+    if args.only_ranked:
+        ranked = reported
+        if not ranked:
+            print("没有候选被工具报告出显著匹配；没有可用的排序结果。", file=sys.stderr)
+            return 2
+    payload = json.dumps(ranked, ensure_ascii=False, indent=2) + "\n"
+    if args.out:
+        args.out.write_text(payload, encoding="utf-8")
+        print(f"{len(ranked)} 条 → {args.out}", flush=True)
+    else:
+        print(payload, end="")
+    print(f"工具报告 {len(reported)} 条显著匹配，{len(ranked) - len(reported)} 条未报告。\n"
+          f"统计量是 phage 与 host 基因组之间的共享 k-mer，不是感染成功概率；"
+          f"未报告只代表没有这一信号，不代表不能感染。", file=sys.stderr)
     return 0
 
 
@@ -206,6 +257,8 @@ def main(argv=None) -> int:
         return _fetch_snapshot(args, parser)
     if args.command == "candidates":
         return _retrieve_candidates(args, parser)
+    if args.command == "rank":
+        return _rank(args, parser)
     return _run(args, parser)
 
 

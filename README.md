@@ -102,6 +102,56 @@ python -m phage_lab run --snapshot data/snapshots/inphared-1Oct2026 \
 
 两个 snapshot 字段要么都有要么都没有——只写一半是追不回去的。`--require-snapshot` 让它们成为该次运行的硬性要求。默认不强制，是因为实验室自己分离的株也有正当来源，但没有快照。
 
+## host-range 排序
+
+候选的顺序由**外部已发表工具**决定，或者干脆没有顺序。第一个接的是 PHIST（k-mer 精确匹配，轻量，自己编译就能跑）。
+
+排序需要基因组序列，而 metadata 快照（TSV）里没有，所以要再取一份序列快照：
+
+```bash
+# 序列快照（INPHARED 的 genomes FASTA）
+python -m phage_lab fetch-snapshot \
+  --snapshot data/snapshots/inphared-genomes-1Oct2026 \
+  --source inphared --version 1Oct2026 \
+  --url https://millardlab-inphared.s3.climb.ac.uk/1Oct2026_genomes.fa
+
+# 排序
+python -m phage_lab rank \
+  --candidates candidates.json \
+  --sequences data/snapshots/inphared-genomes-1Oct2026 \
+  --host-genome my_isolate.fasta \
+  --phist /path/to/PHIST/phist.py \
+  --out ranked.json
+
+python -m phage_lab run --candidates ranked.json --sample-id sample-001 \
+  --execution-mode virtual_hardware --require-snapshot
+```
+
+PHIST 装在哪由 `--phist`、环境变量 `PHIST_PATH` 或 `PATH` 决定。
+
+**没有工具就没有排序。** 工具找不到或跑失败时直接报错，绝不退回到启发式、字母序或数据库行序然后把结果叫做"排序"。报告里的 `candidate_ranking` 一定会说清楚这次的顺序是哪来的——有工具时记录工具名、版本、参数、宿主基因组哈希；没工具时明说是 `source_order` 且不含生物学意义。
+
+### 统计量不是感染概率
+
+每条排序记录带一个 `ranking` 块：
+
+```json
+{
+  "tool": "phist", "tool_version": "1.2.1",
+  "parameters": {"k": 25, "threads": 2},
+  "host_genome_sha256": "…", "sequence_snapshot_version": "1Oct2026",
+  "statistic": "shared_25mers", "reported": true, "rank": 1,
+  "value": 38042, "pvalue": 0.0, "adj_pvalue": 0.0,
+  "interpretation": "Shared k-mers between phage and host genomes. Correlates with host range; it is not a probability of successful infection."
+}
+```
+
+共享 k-mer 说明两者交换过序列或组成相近，这**和 host range 相关，但不是对它的测量**。代码里不存在任何把 p 值转成成功概率的路径，而且往 `ranking` 块里加名字像 probability / likelihood / success / efficacy / infectivity 的字段会被校验直接拒掉。
+
+**工具没报告某个候选，不等于它不能感染**，只代表没有这一信号。这类候选保留 `ranking` 块但 `reported: false`、`rank: null`，并带一句话说明。如果计划选中了这种候选，`report["plan_ranking"]` 会把它单独列出来。
+
+另外：不同工具或不同宿主基因组产出的 rank 不能混；一半排过一半没排的候选集会被拒绝，因为那会让没排过的看起来比工具实际说的更差。
+
 ## provider 报告什么、不报告什么
 
 provider 只转述源数据库的记录。它不打分、不排序、不预测感染。
@@ -119,6 +169,8 @@ provider 只转述源数据库的记录。它不打分、不排序、不预测�
 - `biology.py`：FASTA 校验和输入摘要，只保留哈希与统计，不保留序列或 header。
 - `snapshots.py`：外部参考数据的固定本地副本，带 checksum manifest。
 - `candidates.py`：从快照检索候选并盖 provenance 的 provider。
+- `sequences.py`：按 accession 索引序列快照，按需取单条基因组。
+- `ranking.py`：调用外部工具做 host-range 排序，自身不含任何排序逻辑。
 - `workflow.py`：候选 provenance 校验、执行模式校验、planner、调度、reconciliation。
 - `devices.py`：统一设备契约。
 - `virtual_hardware.py`：软件 device twin。
@@ -154,8 +206,9 @@ python -m phage_lab version
 
 ## 下一步
 
-1. 接已发表的 host-range 排序工具（PHIST / iPHoP / CHERRY）当 baseline，并定下评测数据集和指标。在那之前，候选的顺序不代表任何生物学判断。
-2. 再加一个 provider（PhageScope 或 RefSeq viral），顺便验证 provider 抽象是否站得住。
-3. 持久化 experiment / command / device-job / result 状态（SQLite 够用）。
-4. 如果能通过 Computer Use 控制现有软件或云端实验服务，新增独立 adapter。
-5. 真正拿到实验设备后，再把同一 DeviceDriver contract 接到物理硬件。
+1. 评测：定下 benchmark 数据集（RefSeq-VHDB / MetaHiC-VHDB）和指标（hit@k、按宿主属分层、temporal split 防泄漏），这样换工具或以后自制模型时能说清楚好坏。**现在接了 PHIST，但还没有任何东西证明它在你的场景下够用。**
+2. 再加一个 ranker（iPHoP 或 CHERRY）做对照，顺便验证 ranker 抽象是否站得住。
+3. 再加一个 provider（PhageScope 或 RefSeq viral）。
+4. 持久化 experiment / command / device-job / result 状态（SQLite 够用）。
+5. 如果能通过 Computer Use 控制现有软件或云端实验服务，新增独立 adapter。
+6. 真正拿到实验设备后，再把同一 DeviceDriver contract 接到物理硬件。

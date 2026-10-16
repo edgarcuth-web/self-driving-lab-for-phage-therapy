@@ -20,6 +20,8 @@
 | `workflow.py` | Candidate provenance, execution-mode validation, scheduling and reconciliation |
 | `snapshots.py` | Pinned local copies of upstream reference data, with checksum manifests |
 | `candidates.py` | Providers that read a snapshot and emit provenance-stamped candidates |
+| `sequences.py` | Accession-indexed genome sequences from a pinned FASTA snapshot |
+| `ranking.py` | Host-range ranking delegated to external tools |
 | `virtual_hardware.py` | Software device twins |
 | `agents.py` | Bounded structured planning/recovery proposals |
 | `records.py` | Append-only events, reports and execution-mode disclosure |
@@ -70,6 +72,22 @@ A provider turns a host description into candidate records and stamps each with 
 `InpharedProvider` reads an INPHARED metadata export. INPHARED's column spellings have shifted between releases, so columns resolve by alias against normalized headers, and a missing required column raises with the headers that were actually present rather than silently yielding nothing.
 
 Its host field is the depositor's annotation. Records expose it as `recorded_host` with `host_annotation_source: depositor_metadata`, because an annotation of where a phage was found is not a measurement of what it can infect. Ranking by predicted host range is a separate piece of work against independently validated tools.
+
+## Ranking
+
+Candidate order comes from a named external tool or it does not exist.
+
+`PhistRanker` shells out to PHIST, which counts exact k-mer matches between each candidate phage genome and the host genome. Ranking therefore needs sequences, which metadata snapshots do not carry, so it reads a second snapshot: an upstream multi-FASTA, pinned the same way, indexed by accession into byte offsets cached beside it.
+
+If the tool is missing or fails, ranking raises. There is no heuristic fallback, because an ordering presented as a ranking while nothing ranked it is worse than no ordering at all. `report["candidate_ranking"]` states which case a run was in, naming the tool, version, parameters and host genome digest, or saying `source_order` with an explicit note that the order carries no biological meaning.
+
+### What a ranking block may and may not say
+
+A statistic is not a probability. Shared k-mers correlate with host range without measuring it, so every block carries that caveat in `interpretation`, and validation rejects any field in the block whose name reads as a probability, likelihood, success, efficacy or infectivity. Nothing converts a p-value into a success probability.
+
+A tool that reports no match for a candidate has found no signal, which is not evidence that infection cannot occur. Such candidates keep a block with `reported: false` and no rank. `report["plan_ranking"]` lists any selected candidate the tool did not support, so a reader can tell a top-ranked pick from one that merely sat near the top.
+
+Ranks from different tools or different host genomes are refused together, and so is a partly ranked set: ordering some candidates and not others makes the unranked ones look worse than the tool actually said.
 
 ## Selection size
 
