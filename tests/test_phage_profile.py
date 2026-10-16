@@ -200,5 +200,31 @@ class SerializationTests(unittest.TestCase):
             SequenceRef()
 
 
+class CliTests(unittest.TestCase):
+    def test_candidate_file_converts_to_retrieved_profiles(self):
+        from phage_lab.__main__ import main
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidates = root / "candidates.json"
+            output = root / "phage-profiles.json"
+            candidates.write_text(
+                json.dumps([retrieved_candidate()]),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                0,
+                main([
+                    "phage-profiles",
+                    "--candidates", str(candidates),
+                    "--out", str(output),
+                ]),
+            )
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(len(payload), 1)
+            self.assertEqual(payload[0]["provenance"]["kind"], "retrieved")
+            self.assertNotIn("ranking", json.dumps(payload).lower())
+
+
 if __name__ == "__main__":
     unittest.main()
