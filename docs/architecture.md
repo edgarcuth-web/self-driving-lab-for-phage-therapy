@@ -119,7 +119,30 @@ The first designer is deliberately named `phist-screening-baseline`, not an opti
 
 Generic CocktailDesign can represent later engineered designs, but this baseline excludes engineered provenance to preserve the natural-first escalation rule.
 
-Cocktail selection is a scientific decision, not an orchestration-agent task. The current `run` path still accepts candidate records; CocktailDesign → ExperimentSpec is the next integration boundary.
+Cocktail selection is a scientific decision, not an orchestration-agent task.
+
+## ExperimentSpec
+
+ExperimentSpec v1 is the implemented boundary between scientific design and execution. It freezes:
+
+- the exact source CocktailDesign ID and content hash;
+- target HostProfile identity;
+- the complete ordered set of member PhageProfile IDs;
+- an abstract operation/dependency workflow;
+- purpose, scientific questions and execution constraints.
+
+ExperimentSpec contains no device assignments or instrument-specific commands. Candidate records remain temporary execution inputs until MaterialBatch exists; a binding step resolves only the records whose PhageProfile IDs are locked in the spec and ignores unrelated discovery candidates.
+
+For spec-bound runs:
+
+- the runtime host genome must match the spec target;
+- runtime workflow must exactly match the locked workflow;
+- orchestration calls `assign_devices()`, never candidate-selection `plan()`;
+- assignment responses cannot contain candidate IDs;
+- the execution payload carries ExperimentSpec ID/hash, source CocktailDesign ID and locked PhageProfile IDs;
+- device recovery may change a device, but never scientific membership.
+
+The legacy candidate-based run path remains for compatibility while downstream artifacts migrate to ExperimentSpec.
 
 ## Engineering escalation
 
@@ -156,7 +179,7 @@ A completed device task does not by itself make material test-ready. Experiments
 
 ## Experiment execution
 
-The testing layer consumes:
+The testing layer is moving toward:
 
 ```text
 ExperimentSpec
@@ -164,7 +187,7 @@ ExperimentSpec
 + device capabilities
 ```
 
-and produces execution records plus `Measurement` artifacts.
+ExperimentSpec is now consumed directly. MaterialBatch and first-class Measurement ingestion are still pending; current candidate records bridge material identity temporarily. Execution produces run records and device outputs, not biological phenotype claims.
 
 The current `prepare → infect → measure` workflow is an orchestration example, not the final domain model.
 
@@ -174,7 +197,8 @@ Execution rules:
 - timeout means unknown outcome until reconciled;
 - retries require confirmed cancellation or confirmed prior completion;
 - real drivers declare and confirm safe-state;
-- workflow success is not a biological conclusion.
+- workflow success is not a biological conclusion;
+- ExperimentSpec-bound orchestration cannot change cocktail membership or workflow.
 
 Virtual hardware tests the control path only. It does not create biological evidence.
 
@@ -203,6 +227,7 @@ Feedback creates a new design/version; it does not overwrite previous experiment
 | `phage_profile.py` | PhageProfile v1 and retrieved/natural/engineered provenance |
 | `interaction_evidence.py` | InteractionEvidence v1 and PHIST adapter |
 | `cocktail_design.py` | CocktailDesign v1 and conservative PHIST screening baseline |
+| `experiment_spec.py` | ExperimentSpec v1, design freezing and member binding |
 | `snapshots.py`, `candidates.py` | Reference snapshots and retrieved candidate records |
 | `sequences.py` | Accession-indexed sequences |
 | `ranking.py` | PHIST ranking compatibility layer and evidence producer |
@@ -217,11 +242,10 @@ Current implementation status belongs in [README.md](../README.md).
 ## Build order
 
 1. host-characterization analyzers;
-2. ExperimentSpec integration;
-3. measurement / phenotype ingestion;
-4. FailureAttribution;
-5. active learning;
-6. engineering escalation;
-7. additional real-device and Synbio integrations.
+2. MaterialBatch and measurement / phenotype ingestion;
+3. FailureAttribution;
+4. active learning;
+5. engineering escalation;
+6. additional real-device and Synbio integrations.
 
 Each step should be mergeable and keep `main` runnable.
