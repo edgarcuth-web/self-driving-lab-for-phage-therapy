@@ -273,12 +273,10 @@ def phist_ranking_to_evidence(
     result = {
         "status": "reported_signal" if ranking["reported"] else "no_signal",
         "statistic": ranking["statistic"],
-        "reported": ranking["reported"],
-        "rank": ranking.get("rank"),
     }
     if ranking["reported"]:
         if ranking.get("rank") is None:
-            raise ValueError("reported PHIST evidence requires a rank.")
+            raise ValueError("reported PHIST ranking requires a rank.")
         for field in ("value", "pvalue", "adj_pvalue"):
             if field in ranking:
                 result[field] = ranking[field]
