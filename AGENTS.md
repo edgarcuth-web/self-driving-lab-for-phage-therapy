@@ -17,6 +17,7 @@ Scientific components may produce:
 - `InteractionEvidence`
 - `CocktailDesign`
 - `ExperimentSpec`
+- `ExperimentArm`
 - `FailureAttribution`
 - engineering proposals
 
@@ -41,6 +42,7 @@ Treat the following as versioned objects, not anonymous dicts:
 - `InteractionEvidence`
 - `CocktailDesign`
 - `ExperimentSpec`
+- `ExperimentArm`
 - `MaterialBatch`
 - `Measurement`
 - `Phenotype`
@@ -123,7 +125,7 @@ For an ExperimentSpec-bound run, the agent interface is limited to `assign_devic
 - `phage_profile.py`: PhageProfile v1 and provenance variants.
 - `interaction_evidence.py`: InteractionEvidence v1 and PHIST evidence adapter.
 - `cocktail_design.py`: CocktailDesign v1 and conservative PHIST screening baseline.
-- `experiment_spec.py`: ExperimentSpec v1, CocktailDesign freezing and candidate binding.
+- `experiment_spec.py`: ExperimentSpec v2, ExperimentArm, generic scientific intent and optional CocktailDesign source binding.
 - `material_batch.py`: MaterialBatch v1 and test-ready ExperimentSpec binding.
 - `measurement.py`: Measurement v1 and run-report ingestion.
 - `phenotype.py`: Phenotype v1 from admitted physical Measurements.
@@ -138,11 +140,13 @@ For an ExperimentSpec-bound run, the agent interface is limited to `assign_devic
 
 Priority order:
 
-1. host-characterization analyzers;
-2. FailureAttribution and active learning;
-3. engineering escalation.
+1. make Measurement / Phenotype arm-aware so results can be interpreted as control-vs-treatment or arm-vs-arm comparisons;
+2. introduce HostState H(t);
+3. add InteractionPrediction, then the natural-phage recommender / CandidateSet;
+4. active learning and FailureAttribution;
+5. engineering escalation.
 
-Do not expand robot simulation unless it supports one of these steps.
+Freeze provenance, MaterialBatch, device abstraction and robot/simulator detail unless a scientific-layer requirement forces a change.
 
 ## Development
 

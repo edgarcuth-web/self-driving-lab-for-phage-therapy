@@ -9,9 +9,9 @@ HostProfile
         ↓
 PhageProfile + InteractionEvidence
         ↓
-CocktailDesign
+CandidateSet / CocktailDesign / scientific intent
         ↓
-ExperimentSpec
+ExperimentSpec v2 + ExperimentArm(s)
         ↓
 Lab orchestration
         ↓
@@ -29,7 +29,7 @@ FailureAttribution / model update
 - PhageProfile v1（retrieved / natural / engineered provenance）；
 - InteractionEvidence v1；
 - CocktailDesign v1 与 conservative PHIST screening baseline；
-- ExperimentSpec v1 与 CocktailDesign → spec-bound run；
+- ExperimentSpec v2 / ExperimentArm：control / treatment、0/1/N phage、conditions、expected readouts；
 - MaterialBatch v1 与 test-ready batch binding；
 - Measurement v1 run-report ingestion；
 - Phenotype v1（仅 physical + QC-valid Measurement）；
@@ -139,7 +139,9 @@ python -m phage_lab cocktail-design \
 
 当前 baseline 只从非 engineered PhageProfile 中选择 PHIST-reported candidates，并把 cohort rank 记录为 design context。它明确保留 physical phenotype、receptor/RBP、defense/counter-defense、cross-resistance 和 phage-phage compatibility 等未解决 gap，因此不是疗效优化器，也不会用 `no_signal` 候选硬凑组合。
 
-### 6. 冻结为 ExperimentSpec v1
+### 6. 建立 ExperimentSpec v2 / ExperimentArm
+
+CocktailDesign 仍可作为一个上游 source，但不再是 ExperimentSpec 的必需父对象：
 
 ```bash
 python -m phage_lab experiment-spec \
@@ -148,7 +150,19 @@ python -m phage_lab experiment-spec \
   --out experiment-spec.json
 ```
 
-ExperimentSpec 记录 source CocktailDesign ID/hash、目标 HostProfile、锁定的 PhageProfile members、抽象 workflow、scientific questions 与 execution constraints。它不包含 device assignment；如需自定义 workflow，应在创建 ExperimentSpec 时用 `--workflow` 固定下来。
+该路径默认生成显式 `host-control` 与 `cocktail-treatment` arms，并保留 CocktailDesign ID/hash 作为 source reference。
+
+也可以直接从通用 arm JSON 创建 single-phage 或其他比较实验：
+
+```bash
+python -m phage_lab experiment-spec \
+  --arms arms.json \
+  --experiment-id experiment-single-001 \
+  --objective "Compare one phage arm with its host control." \
+  --out experiment-spec.json
+```
+
+每个 `ExperimentArm` 锁定 role、target HostProfile、0/1/N 个 PhageProfile、conditions 与 expected readouts。ExperimentSpec 仍不包含 device assignment；orchestrator 只能执行已经冻结的 arm intent。v1 序列化 spec 需要重新生成成 v2。
 
 ### 7. 注册 MaterialBatch v1
 
@@ -234,13 +248,13 @@ Phenotype 不自动从读数猜结论。所有 source Measurement 必须来自 p
 目标 lineage：
 
 ```text
-HostProfile
-  → Design
+HostProfile / scientific state
+  → source artifact(s) / scientific intent
+  → ExperimentSpec v2 + ExperimentArm(s)
   → MaterialBatch
-  → ExperimentSpec
   → Measurement / Phenotype
   → Feedback
-  → next Design
+  → next decision
 ```
 
 架构见 [docs/architecture.md](docs/architecture.md)，开发约束见 [AGENTS.md](AGENTS.md)。

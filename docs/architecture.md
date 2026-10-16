@@ -9,9 +9,9 @@ HostProfile
         ↓
 PhageProfile + InteractionEvidence
         ↓
-CocktailDesign
+CandidateSet / CocktailDesign / scientific intent
         ↓
-ExperimentSpec
+ExperimentSpec v2 + ExperimentArm(s)
         ↓
 MaterialBatch + Lab orchestration
         ↓
@@ -32,8 +32,9 @@ Scientific components choose what to test. The orchestration layer executes a va
 | `HostProfile` | Versioned host characterization |
 | `PhageProfile` | Versioned natural or designed phage characterization |
 | `InteractionEvidence` | One traceable phage-host observation or model output |
-| `CocktailDesign` | Versioned member set, objectives and supporting evidence |
-| `ExperimentSpec` | What will be tested and under which constraints |
+| `CocktailDesign` | Versioned member set, objectives and supporting evidence; one optional ExperimentSpec source |
+| `ExperimentArm` | One control/treatment arm with host, 0/1/N phages, conditions and expected readouts |
+| `ExperimentSpec` | Versioned arm-aware experimental intent independent of any one design artifact |
 | `MaterialBatch` | Physical material identity, quality and availability |
 | `Measurement` | Raw/processed measurement linked to experiment and device |
 | `Phenotype` | Biological interpretation of valid measurements |
@@ -44,9 +45,9 @@ Target lineage:
 
 ```text
 HostProfile
-  → Design
+  → scientific source(s) / intent
+  → ExperimentSpec + ExperimentArm(s)
   → MaterialBatch
-  → ExperimentSpec
   → Measurement
   → Phenotype / FailureAttribution
   → Feedback
@@ -261,10 +262,12 @@ Current implementation status belongs in [README.md](../README.md).
 
 ## Build order
 
-1. host-characterization analyzers;
-2. FailureAttribution;
-3. active learning;
-4. engineering escalation;
-5. additional real-device and Synbio integrations.
+1. make Measurement / Phenotype arm-aware and support explicit arm comparison;
+2. introduce HostState H(t) without bloating stable HostProfile identity;
+3. add InteractionPrediction above InteractionEvidence;
+4. natural-phage recommender / CandidateSet and active learning;
+5. FailureAttribution and engineering escalation.
+
+MaterialBatch, provenance, device abstraction and simulator detail are otherwise frozen unless one of these scientific-layer steps requires a change.
 
 Each step should be mergeable and keep `main` runnable.
