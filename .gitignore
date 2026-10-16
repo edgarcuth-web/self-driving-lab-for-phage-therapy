@@ -12,9 +12,11 @@ dist/
 .mypy_cache/
 .ruff_cache/
 
-# Run artifacts and user-supplied genomes
+# Run artifacts, reference snapshots and user-supplied genomes
 runs/
 local-data/
+data/snapshots/
+*.tsv
 *.fasta
 *.fa
 *.fna

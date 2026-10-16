@@ -1,4 +1,4 @@
-"""Command-line entry point for experiment orchestration."""
+"""Command-line entry point for snapshots, candidate retrieval and orchestration."""
 
 import argparse
 import asyncio
@@ -15,6 +15,7 @@ from .workflow import (
 )
 
 MAX_INPUT_BYTES = 4_000_000
+COMMANDS = ("run", "fetch-snapshot", "candidates", "version")
 
 
 def _load_json(path: Path, label: str):
@@ -27,12 +28,11 @@ def _load_json(path: Path, label: str):
 
 
 def _load_candidates(path: Path) -> list[dict]:
-    """Load externally supplied candidate records.
+    """Load candidate records someone already retrieved.
 
-    This is a stopgap entry point: it reads records someone else retrieved. It
-    does not fetch anything, so the provenance fields in the file are only as
-    honest as whoever wrote it. A CandidateProvider that queries a real
-    database and stamps provenance itself is the next piece of work.
+    Provenance in such a file is only as honest as its author. Records produced
+    by `candidates` carry snapshot fields, and `run --require-snapshot` insists
+    on them.
     """
     data = _load_json(path, "Candidate")
     if not isinstance(data, list):
@@ -49,17 +49,25 @@ def _load_workflow(path: Path | None) -> dict:
     return {key: tuple(value) if isinstance(value, list) else value for key, value in data.items()}
 
 
-def main(argv=None) -> int:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Self-driving laboratory orchestration for phage research.")
-    parser.add_argument("command", nargs="?", default="run", choices=["run", "version"])
+    parser.add_argument("command", nargs="?", default="run", choices=COMMANDS)
+
     parser.add_argument("--genome", type=Path,
                         default=Path(__file__).resolve().parent.parent / "examples" / "toy_genome.fasta",
                         help="Host bacterial FASTA; only a hash and summary are retained.")
     parser.add_argument("--candidates", type=Path,
-                        help="JSON array of externally supplied candidate records.")
+                        help="JSON array of candidate records retrieved earlier.")
+    parser.add_argument("--snapshot", type=Path,
+                        help="Snapshot directory to retrieve candidates from.")
+    parser.add_argument("--host", help="Host organism to search the snapshot for.")
+    parser.add_argument("--limit", type=int, default=20, help="Maximum candidates to retrieve.")
+    parser.add_argument("--out", type=Path, help="Write retrieved candidate records here.")
     parser.add_argument("--execution-mode", choices=EXECUTION_MODES,
                         help="Required for a run. No default: state which hardware you expect.")
+    parser.add_argument("--require-snapshot", action="store_true",
+                        help="Refuse candidates that do not name a pinned snapshot.")
     parser.add_argument("--sample-id", help="Caller-owned sample identifier.")
     parser.add_argument("--workflow", type=Path,
                         help="JSON object of operation -> dependency list. Defaults to the standard pipeline.")
@@ -70,27 +78,95 @@ def main(argv=None) -> int:
                         help="Most candidates a plan may select.")
     parser.add_argument("--timeout-seconds", type=float, default=60.0)
     parser.add_argument("--output-dir", type=Path, default=Path("runs"))
-    args = parser.parse_args(argv)
+    parser.add_argument("--quiet", action="store_true",
+                        help="Do not echo the event stream; it is still written to events.jsonl.")
 
-    if args.command == "version":
-        from .provenance import source_identity
-        print(json.dumps(source_identity(), ensure_ascii=False, indent=2))
-        return 0
+    parser.add_argument("--source", default="inphared", help="Snapshot source name.")
+    parser.add_argument("--version", dest="snapshot_version",
+                        help="Upstream release identifier, e.g. 1Oct2026.")
+    parser.add_argument("--url", help="https URL to download the snapshot from.")
+    parser.add_argument("--from-file", type=Path,
+                        help="Use a file already on disk instead of downloading.")
+    parser.add_argument("--source-uri", help="Where the data came from upstream.")
+    parser.add_argument("--skip-verify", action="store_true",
+                        help="Skip re-hashing a large snapshot on load.")
+    return parser
 
-    missing = [name for name, value in (("--candidates", args.candidates),
-                                        ("--execution-mode", args.execution_mode),
+
+def _fetch_snapshot(args, parser) -> int:
+    from .snapshots import SnapshotError, create_snapshot
+    missing = [name for name, value in (("--snapshot", args.snapshot),
+                                        ("--version", args.snapshot_version))
+               if not value]
+    if missing:
+        parser.error("fetch-snapshot requires " + ", ".join(missing))
+    if bool(args.url) == bool(args.from_file):
+        parser.error("fetch-snapshot requires exactly one of --url or --from-file")
+    source_uri = args.source_uri or args.url
+    if not source_uri:
+        parser.error("fetch-snapshot with --from-file also requires --source-uri")
+    try:
+        snapshot = create_snapshot(args.snapshot, source=args.source,
+                                   version=args.snapshot_version, source_uri=source_uri,
+                                   url=args.url, from_file=args.from_file)
+    except (SnapshotError, OSError) as exc:
+        print(f"快照获取失败：{exc}", file=sys.stderr)
+        return 2
+    print(f"快照已记录：{args.snapshot}\n  来源 {snapshot.source} {snapshot.version}"
+          f"\n  sha256 {snapshot.sha256}\n  {snapshot.bytes} bytes", flush=True)
+    return 0
+
+
+def _retrieve_candidates(args, parser) -> int:
+    from .candidates import ProviderError, load_snapshot_dir
+    from .snapshots import SnapshotError
+    missing = [name for name, value in (("--snapshot", args.snapshot), ("--host", args.host))
+               if not value]
+    if missing:
+        parser.error("candidates requires " + ", ".join(missing))
+    try:
+        provider = load_snapshot_dir(args.snapshot, verify=not args.skip_verify)
+        records = provider.search(args.host, limit=args.limit)
+    except (ProviderError, SnapshotError, OSError, ValueError) as exc:
+        print(f"候选检索失败：{exc}", file=sys.stderr)
+        return 2
+    payload = json.dumps(records, ensure_ascii=False, indent=2) + "\n"
+    if args.out:
+        args.out.write_text(payload, encoding="utf-8")
+        print(f"{len(records)} 条候选 → {args.out}", flush=True)
+    else:
+        print(payload, end="")
+    print("提示：host 字段是 depositor 的注释，不是实验测定的 host range。", file=sys.stderr)
+    return 0
+
+
+def _run(args, parser) -> int:
+    if bool(args.candidates) == bool(args.snapshot):
+        parser.error("run requires exactly one of --candidates or --snapshot")
+    missing = [name for name, value in (("--execution-mode", args.execution_mode),
                                         ("--sample-id", args.sample_id)) if not value]
+    if args.snapshot and not args.host:
+        missing.append("--host")
     if missing:
         parser.error("run requires " + ", ".join(missing))
     if not 1 <= args.select_min <= args.select_max:
         parser.error("--select-min must be at least 1 and no greater than --select-max")
 
     from .agents import AgentError, OpenRouterAgent, RuleAgent
+    from .candidates import ProviderError, load_snapshot_dir
+    from .snapshots import SnapshotError
     try:
         agent = RuleAgent() if args.agent == "rule" else OpenRouterAgent.from_environment()
-        candidates = _load_candidates(args.candidates)
+        if args.snapshot:
+            provider = load_snapshot_dir(args.snapshot, verify=not args.skip_verify)
+            manifest = provider.describe()
+            candidates = provider.search(args.host, limit=args.limit)
+            print(f"候选来自 {manifest['provider']} 快照 {manifest['snapshot_version']}："
+                  f"{len(candidates)} 条", flush=True)
+        else:
+            candidates = _load_candidates(args.candidates)
         workflow = _load_workflow(args.workflow)
-    except (AgentError, OSError, ValueError) as exc:
+    except (AgentError, ProviderError, SnapshotError, OSError, ValueError) as exc:
         print(f"无法启动：{exc}", file=sys.stderr)
         return 2
 
@@ -103,7 +179,8 @@ def main(argv=None) -> int:
             candidates=candidates, devices=None, workflow=workflow, agent=agent,
             execution_mode=args.execution_mode,
             selection_size=(args.select_min, args.select_max),
-            timeout_seconds=args.timeout_seconds))
+            require_snapshot=args.require_snapshot,
+            timeout_seconds=args.timeout_seconds, echo=not args.quiet))
     except WorkflowError as exc:
         print(f"运行被拒绝：{exc}", file=sys.stderr)
         return 2
@@ -115,6 +192,21 @@ def main(argv=None) -> int:
 
     print(f"\n流程状态：{report['status']}\n报告：{directory / 'report.md'}", flush=True)
     return 0 if report["status"] == "succeeded" else 2
+
+
+def main(argv=None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    if args.command == "version":
+        from .provenance import source_identity
+        print(json.dumps(source_identity(), ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "fetch-snapshot":
+        return _fetch_snapshot(args, parser)
+    if args.command == "candidates":
+        return _retrieve_candidates(args, parser)
+    return _run(args, parser)
 
 
 if __name__ == "__main__":

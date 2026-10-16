@@ -11,6 +11,8 @@ The scientific/data layer should become real and traceable wherever possible. Mi
 - `phage_lab/biology.py`: validate FASTA and compute privacy-preserving summaries.
 - `phage_lab/devices.py`: transport-neutral device contract.
 - `phage_lab/workflow.py`: candidate validation, execution-mode validation, scheduler and reconciliation.
+- `phage_lab/snapshots.py`: pinned local copies of external reference data, with checksum manifests.
+- `phage_lab/candidates.py`: candidate providers that read a snapshot and stamp provenance.
 - `phage_lab/virtual_hardware.py`: software device twins.
 - `phage_lab/agents.py`: bounded structured proposals; no direct hardware authority.
 - `phage_lab/records.py`: append-only events and explicit execution provenance.
@@ -31,6 +33,9 @@ Never silently switch between execution modes.
 
 - Experiment-path candidates are admitted by an allowlist, not a denylist. Every record must carry `source_db`, `accession`, `retrieved_at` (ISO 8601) and `source_uri` as nonempty strings. Rejecting by naming convention (`SIM-*` prefixes and the like) only catches fixtures that happen to be labelled honestly, so never rely on it.
 - Report provenance from the data, never from a naming convention: whether a readout is synthetic is decided by the device's own `simulated` flag, not by recognizing a unit string.
+- Candidates that came from a reference snapshot carry `snapshot_version` and `snapshot_sha256`. Both or neither: half a snapshot reference is not traceable. `require_snapshot` makes them mandatory for a run. They are not required of every candidate, because a lab's own isolate has a real source and no snapshot.
+- Reference data is pinned, not fetched per run. The orchestrator never reaches the network mid-run; downloading a snapshot is its own command, and a snapshot is re-hashed against its manifest when loaded.
+- A provider reports what a source database records. It does not score, rank or predict infection, and a depositor's host annotation is not an experimental host-range result. Never present one as the other.
 - Virtual hardware may simulate task completion and readouts for scheduler/UI/interface testing, but those outputs must remain labeled simulated and cannot support biological claims.
 - Orchestration success is not biological efficacy.
 - Preserve provenance for input summary, candidate source, execution mode, device identity, code identity and resulting artifacts.
@@ -62,10 +67,14 @@ Run:
 
 ```bash
 python -m unittest discover -s tests -v
+python -m phage_lab fetch-snapshot --snapshot data/snapshots/inphared-1Oct2026 \
+  --version 1Oct2026 --url https://.../1Oct2026_data.tsv
+python -m phage_lab candidates --snapshot data/snapshots/inphared-1Oct2026 \
+  --host "Escherichia coli" --out candidates.json
 python -m phage_lab run --candidates candidates.json --sample-id sample-001 \
-  --execution-mode virtual_hardware
+  --execution-mode virtual_hardware --require-snapshot
 ```
 
-Tests should cover: sourced candidates over virtual hardware, rejection of candidates without provenance, strict real-hardware mode matching, no implicit fallback, reconciliation and failover under injected faults, selection-size bounds, and explicit labeling of virtual outputs.
+Tests should cover: snapshot identity and checksum failure, provider column resolution and no-match handling, snapshot-provenance pairing, sourced candidates over virtual hardware, rejection of candidates without provenance, strict real-hardware mode matching, no implicit fallback, reconciliation and failover under injected faults, selection-size bounds, and explicit labeling of virtual outputs.
 
 For GitHub changes, inspect the current branch head before updating it. Preserve concurrent work and never force-push over another contributor's changes.

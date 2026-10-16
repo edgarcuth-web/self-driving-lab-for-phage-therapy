@@ -42,25 +42,73 @@ report, directory = await run_experiment(
 
 具体设备可以通过 vendor SDK、REST、serial、OPC-UA，未来也可以通过受控的 Computer Use / GUI adapter 接入。没有提供真实 adapter 时，`real_hardware` 直接拒绝运行，不会悄悄换成 twin。
 
+## 候选从哪来
+
+候选由 provider 从**固定快照**里检索。快照是下载一次、算好哈希、旁边配一份 manifest 的文件；之后每次运行都查这份固定文件，而不是上游今天恰好返回什么。两次同样的运行看到同样的候选，报告里的 provenance 指向一个能再取回来的版本。
+
+下载和运行是分开的两步：编排过程中永远不联网。
+
+```bash
+# 1. 取一份 INPHARED 快照（只做一次）
+python -m phage_lab fetch-snapshot \
+  --snapshot data/snapshots/inphared-1Oct2026 \
+  --source inphared --version 1Oct2026 \
+  --url https://millardlab-inphared.s3.climb.ac.uk/1Oct2026_data.tsv
+
+# 网络到不了上游时，先手工下好，再登记（--source-uri 仍记录真实上游地址）
+python -m phage_lab fetch-snapshot \
+  --snapshot data/snapshots/inphared-1Oct2026 \
+  --source inphared --version 1Oct2026 \
+  --from-file ~/Downloads/1Oct2026_data.tsv \
+  --source-uri https://millardlab-inphared.s3.climb.ac.uk/1Oct2026_data.tsv
+
+# 2. 按宿主检索候选
+python -m phage_lab candidates \
+  --snapshot data/snapshots/inphared-1Oct2026 \
+  --host "Escherichia coli" --limit 20 --out candidates.json
+
+# 3. 跑，并且要求每条候选都必须来自快照
+python -m phage_lab run --candidates candidates.json \
+  --sample-id sample-001 --execution-mode virtual_hardware --require-snapshot
+
+# 或者一步到位，直接从快照取候选再跑
+python -m phage_lab run --snapshot data/snapshots/inphared-1Oct2026 \
+  --host "Escherichia coli" --sample-id sample-001 \
+  --execution-mode virtual_hardware --require-snapshot
+```
+
+快照在加载时会重新算一遍哈希，和 manifest 对不上就拒绝使用——本地文件被改过、下错了、传输截断了都会在这里拦住。
+
 ## 候选记录必须带来源
 
-实验路径只接受带可追溯来源的候选。每条记录都要有 `source_db`、`accession`、`retrieved_at`（ISO 8601）和 `source_uri`，缺一项就拒绝：
+实验路径只接受带可追溯来源的候选。每条记录都要有 `source_db`、`accession`、`retrieved_at`（ISO 8601）和 `source_uri`，缺一项就拒绝。来自快照的记录再加 `snapshot_version` 和 `snapshot_sha256`：
 
 ```json
-[
-  {
-    "id": "NC_000866.4",
-    "source_db": "RefSeq",
-    "accession": "NC_000866.4",
-    "retrieved_at": "2026-10-15T00:00:00+00:00",
-    "source_uri": "https://www.ncbi.nlm.nih.gov/nuccore/NC_000866.4"
-  }
-]
+{
+  "id": "NC_000866.4",
+  "accession": "NC_000866.4",
+  "description": "Escherichia phage T4",
+  "recorded_host": "Escherichia coli",
+  "host_annotation_source": "depositor_metadata",
+  "source_db": "inphared",
+  "retrieved_at": "2026-10-15T00:00:00+00:00",
+  "source_uri": "https://millardlab-inphared.s3.climb.ac.uk/1Oct2026_data.tsv",
+  "snapshot_version": "1Oct2026",
+  "snapshot_sha256": "…"
+}
 ```
 
 这是白名单，不是黑名单。按命名规范去拒（`SIM-` 前缀之类）只能拦住那些老老实实给自己贴标签的假数据，所以不用那种做法。
 
-`--candidates` 目前只是读取别人已经取好的记录，不自己去查库，所以文件里的 provenance 只和写文件的人一样可靠。下一步是做一个自己查库、自己盖 provenance 的 CandidateProvider。
+两个 snapshot 字段要么都有要么都没有——只写一半是追不回去的。`--require-snapshot` 让它们成为该次运行的硬性要求。默认不强制，是因为实验室自己分离的株也有正当来源，但没有快照。
+
+## provider 报告什么、不报告什么
+
+provider 只转述源数据库的记录。它不打分、不排序、不预测感染。
+
+特别是 INPHARED 的 `Host` 字段是**提交者登记的宿主注释**，不是实验测定的 host range；记录里用 `recorded_host` 和 `host_annotation_source: depositor_metadata` 标明这一点。把它当成"这些噬菌体能感染这株菌"是错的。真正的排序要等接入 PHIST / iPHoP 这类经过独立验证的工具。
+
+`--candidates` 读的是别人取好的记录，所以不走 provider 时，文件里的 provenance 只和写文件的人一样可靠；加 `--require-snapshot` 至少能挡住凭空手写的那一类。
 
 ## 候选数量
 
@@ -69,6 +117,8 @@ report, directory = await run_experiment(
 ## 当前边界
 
 - `biology.py`：FASTA 校验和输入摘要，只保留哈希与统计，不保留序列或 header。
+- `snapshots.py`：外部参考数据的固定本地副本，带 checksum manifest。
+- `candidates.py`：从快照检索候选并盖 provenance 的 provider。
 - `workflow.py`：候选 provenance 校验、执行模式校验、planner、调度、reconciliation。
 - `devices.py`：统一设备契约。
 - `virtual_hardware.py`：软件 device twin。
@@ -104,8 +154,8 @@ python -m phage_lab version
 
 ## 下一步
 
-1. 做 `CandidateProvider`：从真实噬菌体基因组库检索候选，自己盖 provenance 戳。
-2. 接已发表的 host-range 排序工具（PHIST / iPHoP / CHERRY）当 baseline。
+1. 接已发表的 host-range 排序工具（PHIST / iPHoP / CHERRY）当 baseline，并定下评测数据集和指标。在那之前，候选的顺序不代表任何生物学判断。
+2. 再加一个 provider（PhageScope 或 RefSeq viral），顺便验证 provider 抽象是否站得住。
 3. 持久化 experiment / command / device-job / result 状态（SQLite 够用）。
 4. 如果能通过 Computer Use 控制现有软件或云端实验服务，新增独立 adapter。
 5. 真正拿到实验设备后，再把同一 DeviceDriver contract 接到物理硬件。

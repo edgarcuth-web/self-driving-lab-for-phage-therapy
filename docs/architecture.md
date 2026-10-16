@@ -18,6 +18,8 @@
 | `biology.py` | FASTA validation and privacy-preserving input summary |
 | `devices.py` | Generic command/device contract |
 | `workflow.py` | Candidate provenance, execution-mode validation, scheduling and reconciliation |
+| `snapshots.py` | Pinned local copies of upstream reference data, with checksum manifests |
+| `candidates.py` | Providers that read a snapshot and emit provenance-stamped candidates |
 | `virtual_hardware.py` | Software device twins |
 | `agents.py` | Bounded structured planning/recovery proposals |
 | `records.py` | Append-only events, reports and execution-mode disclosure |
@@ -51,7 +53,23 @@ Admission is an allowlist. Every candidate record must carry, as nonempty string
 
 The previous denylist rejected `SIM-` prefixes and a `synthetic_fixture` source label. That only stops fixtures that label themselves honestly — a hand-written record with an invented `source` string passed it. Positive provenance is the invariant; naming conventions are not.
 
-`--candidates` reads records someone else retrieved, so its provenance fields are only as honest as the file's author. A `CandidateProvider` that queries a database and stamps provenance itself is the next milestone.
+Records produced from a pinned snapshot additionally carry `snapshot_version` and `snapshot_sha256`. Both or neither — half a reference is not traceable — and `require_snapshot` makes the pair mandatory for a run. They are not required of every candidate: an isolate from a lab's own collection has a real source and no snapshot.
+
+`--candidates` reads records someone else retrieved, so without a provider its provenance is only as honest as the file's author; `--require-snapshot` is what rules out hand-written records.
+
+## Snapshots
+
+A snapshot is one upstream file, downloaded once, hashed, and described by a `manifest.json` beside it. Loading one re-hashes the data file and refuses it if the digest moved, so a local copy that was edited, truncated or swapped fails closed rather than quietly changing what a run sees.
+
+Downloading is a separate command from running: the orchestrator never reaches the network mid-run. `--from-file` registers a file fetched by hand, for networks that cannot reach the source; `--source-uri` still records where the data came from upstream.
+
+## Providers
+
+A provider turns a host description into candidate records and stamps each with the snapshot's provenance. It reports what the source database records and nothing more: no score, no ranking, no infection probability.
+
+`InpharedProvider` reads an INPHARED metadata export. INPHARED's column spellings have shifted between releases, so columns resolve by alias against normalized headers, and a missing required column raises with the headers that were actually present rather than silently yielding nothing.
+
+Its host field is the depositor's annotation. Records expose it as `recorded_host` with `host_annotation_source: depositor_metadata`, because an annotation of where a phage was found is not a measurement of what it can infect. Ranking by predicted host range is a separate piece of work against independently validated tools.
 
 ## Selection size
 
