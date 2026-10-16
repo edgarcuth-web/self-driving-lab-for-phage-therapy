@@ -141,6 +141,16 @@ class EngineeredProfileTests(unittest.TestCase):
                 created_at=STAMP,
             )
 
+    def test_engineered_profile_cannot_parent_itself(self):
+        with self.assertRaisesRegex(ValueError, "cannot name itself"):
+            new_engineered_phage_profile(
+                "design-001",
+                design_id="design-job-001",
+                parent_profile_ids=("design-001:v1",),
+                designed_at=STAMP,
+                created_at=STAMP,
+            )
+
     def test_engineered_parent_ids_are_unique(self):
         with self.assertRaisesRegex(ValueError, "unique"):
             new_engineered_phage_profile(
