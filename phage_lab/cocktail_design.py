@@ -407,6 +407,11 @@ def phist_screening_design(
             or ranking["rank"] < 1
         ):
             continue
+        if ranking.get("host_genome_sha256") != host_profile.genome.sha256:
+            raise ValueError(
+                f"ranked candidate {candidate_id!r} PHIST ranking targets a "
+                "different host genome than the target HostProfile."
+            )
 
         raw_evidence = candidate.get("interaction_evidence")
         if not isinstance(raw_evidence, list) or not raw_evidence:
