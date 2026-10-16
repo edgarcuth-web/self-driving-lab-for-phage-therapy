@@ -341,7 +341,7 @@ class InteractionPredictionTests(unittest.TestCase):
         self.assertEqual(rebuilt.content_sha256, item.content_sha256)
 
         tampered = json.loads(json.dumps(payload))
-        tampered["probabilities"]["adsorption"]["probability"] = 0.7
+        tampered["probabilities"]["adsorption"]["probability"] = 0.75
         with self.assertRaisesRegex(ValueError, "content_sha256"):
             interaction_prediction_from_dict(tampered)
 
