@@ -29,6 +29,7 @@ import sys
 import tempfile
 from typing import Protocol
 
+from .interaction_evidence import phist_ranking_to_evidence
 from .sequences import SequenceStore
 
 RANKING_FIELDS = ("tool", "tool_version", "ranked_at", "host_genome_sha256",
@@ -232,7 +233,11 @@ class PhistRanker:
             record["ranking"]["rank"] = position
             ranked.append(record)
         unreported.sort(key=lambda record: record["accession"])
-        return ranked + unreported
+        ordered = ranked + unreported
+        for record in ordered:
+            evidence = phist_ranking_to_evidence(record)
+            record["interaction_evidence"] = [evidence.to_dict()]
+        return ordered
 
 
 def phist_from_environment(path: str | Path | None = None, **kwargs) -> PhistRanker:
