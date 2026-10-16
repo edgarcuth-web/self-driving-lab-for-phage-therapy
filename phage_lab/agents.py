@@ -33,6 +33,13 @@ def _selection_size(context: dict) -> tuple[int, int]:
 
 
 class RuleAgent:
+    """Legacy compatibility planner for the current candidate-based run path.
+
+    Candidate choice here is not the scientific CocktailDesign layer. Once
+    ExperimentSpec integration lands, this agent should be limited to device
+    assignment/recovery or replaced by a design-bound orchestration policy.
+    """
+
     name = "rule"
     model = None
 
