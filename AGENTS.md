@@ -9,7 +9,7 @@ The scientific/data layer should become real and traceable wherever possible. Mi
 ## Architecture
 
 - `phage_lab/biology.py`: validate FASTA and compute privacy-preserving summaries.
-- `phage_lab/devices.py`: transport-neutral device contract.
+- `phage_lab/devices.py`: transport-neutral device contract, including the safe-state declaration.
 - `phage_lab/workflow.py`: candidate validation, execution-mode validation, scheduler and reconciliation.
 - `phage_lab/snapshots.py`: pinned local copies of external reference data, with checksum manifests.
 - `phage_lab/candidates.py`: candidate providers that read a snapshot and stamp provenance.
@@ -19,6 +19,7 @@ The scientific/data layer should become real and traceable wherever possible. Mi
 - `phage_lab/agents.py`: bounded structured proposals; no direct hardware authority.
 - `phage_lab/records.py`: append-only events and explicit execution provenance.
 - `phage_lab/provenance.py`: source fingerprint and optional Git metadata.
+- `examples/adapters/http_instrument.py`: a worked, runnable DeviceDriver to copy when connecting an instrument.
 - `tests/support.py`: test doubles, including fault injection. Production code never injects faults into itself.
 
 ## Execution modes
@@ -30,6 +31,17 @@ The scientific/data layer should become real and traceable wherever possible. Mi
 `virtual_hardware` requires every device to declare `simulated=True`. When explicitly selected, the workflow may create software device twins automatically if no devices were supplied.
 
 Never silently switch between execution modes.
+
+## Apparatus safety invariants
+
+Stopping the orchestrator is not the same as the apparatus being safe. An abandoned step can leave a tip full of toxic liquid, a gripper holding an open plate, or a heater on.
+
+- Every `simulated=False` driver must declare `safe_state` with `policy` (one of `park_and_release`, `contained_hold`, `operator_required`), `retains_hazard` as an explicit boolean, and a `description` written for the operator who will walk up to the bench. `real_hardware` refuses a driver without it; never infer one on a driver's behalf.
+- `contained_hold` and `operator_required` cannot claim `retains_hazard: False`. A device frozen mid-step is still holding what it held.
+- The controller requests `enter_safe_state()` on every abandoned step — unreachable device, unacknowledged cancellation, agent abort, attempt limit, and any run that did not succeed.
+- A device that does not confirm is recorded as `unknown`, never assumed safe. That includes a driver with no `enter_safe_state`, a return value without an `entered` boolean, and any raised exception including a driver bug.
+- `report["physical_state"]` takes the worst device's status: one unconfirmed device makes the whole apparatus `unknown`, because a person approaching the bench meets all of it.
+- The software's `enter_safe_state` is not an emergency stop and this repository certifies nothing. The contract forces "what happens physically on failure" to be answered and recorded; it does not replace containment, a real E-stop, or institutional approval.
 
 ## Evidence invariants
 
@@ -61,7 +73,7 @@ Never silently switch between execution modes.
 
 ## Future integrations
 
-A concrete adapter may use vendor SDK, REST, serial, OPC-UA, cloud APIs, or a controlled Computer Use / GUI layer. The adapter must still expose clear device/job state and execution provenance.
+A concrete adapter may use vendor SDK, REST, serial, OPC-UA, cloud APIs, or a controlled Computer Use / GUI layer. The adapter must still expose clear device/job state, execution provenance and a safe-state declaration. `docs/hardware.md` is the integration guide and `examples/adapters/http_instrument.py` the worked example; keep both current when the contract changes.
 
 Do not claim physical execution merely because Computer Use clicked a laboratory UI. Physical execution is true only when the connected external system actually caused and confirmed the physical action.
 
@@ -86,6 +98,6 @@ python -m phage_lab run --candidates ranked.json --sample-id sample-001 \
 
 The ranking tests use a stub `phist.py`; set `PHIST_PATH` to a real install to also run the opt-in integration test.
 
-Tests should cover: sequence indexing and duplicate/missing accessions, ranking provenance and the no-fallback rule, tool rows that report no match, snapshot identity and checksum failure, provider column resolution and no-match handling, snapshot-provenance pairing, sourced candidates over virtual hardware, rejection of candidates without provenance, strict real-hardware mode matching, no implicit fallback, reconciliation and failover under injected faults, selection-size bounds, and explicit labeling of virtual outputs.
+Tests should cover: the safe-state declaration and every stop path that requests it, the example adapter against the real-hardware validator, sequence indexing and duplicate/missing accessions, ranking provenance and the no-fallback rule, tool rows that report no match, snapshot identity and checksum failure, provider column resolution and no-match handling, snapshot-provenance pairing, sourced candidates over virtual hardware, rejection of candidates without provenance, strict real-hardware mode matching, no implicit fallback, reconciliation and failover under injected faults, selection-size bounds, and explicit labeling of virtual outputs.
 
 For GitHub changes, inspect the current branch head before updating it. Preserve concurrent work and never force-push over another contributor's changes.

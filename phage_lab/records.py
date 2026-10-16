@@ -100,6 +100,17 @@ def render_report(report: dict) -> str:
                   json.dumps(report["evaluation"], ensure_ascii=False, indent=2), "```", "",
                   "## 恢复记录", "", "```json",
                   json.dumps(report["recoveries"], ensure_ascii=False, indent=2), "```"])
+    physical = report.get("physical_state")
+    if isinstance(physical, dict):
+        # An operator reading this needs to know what they are walking up to
+        # before they read anything else about why the run stopped.
+        heading = ("## 设备物理状态 — 需要人工处理" if physical.get("operator_action_required")
+                   else "## 设备物理状态")
+        lines.extend(["", heading, "", f"- 状态：`{physical.get('status')}`",
+                      f"- {physical.get('note', '')}"])
+        if physical.get("devices"):
+            lines.extend(["", "```json",
+                          json.dumps(physical["devices"], ensure_ascii=False, indent=2), "```"])
     if report.get("error"):
         lines.extend(["", "## 未完成原因", "", "```json", json.dumps(report["error"], ensure_ascii=False), "```"])
     if report.get("source"):

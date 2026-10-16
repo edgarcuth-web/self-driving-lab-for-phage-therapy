@@ -7,7 +7,13 @@ from pathlib import Path
 import re
 
 from .biology import read_fasta
-from .devices import Command, DeviceUnavailable
+from .devices import (
+    Command,
+    DeviceError,
+    DeviceUnavailable,
+    SafeStateError,
+    validate_safe_state,
+)
 from .records import RunRecords, evaluate, utc_now
 from .provenance import source_identity
 
@@ -237,6 +243,12 @@ def validate_experiment_inputs(candidates: list[dict], devices: dict, execution_
                 f"{execution_mode} refused device {device_id!r}: driver must explicitly declare {expected}.")
         if not isinstance(manifest.get("device_id"), str) or manifest["device_id"] != device_id:
             raise WorkflowError("Device manifest must match its configured device ID.")
+        # A driver that moves real liquid must say what its apparatus does when a
+        # step is abandoned. Nobody can infer that on the driver's behalf.
+        try:
+            validate_safe_state(manifest, device_id)
+        except DeviceError as exc:
+            raise WorkflowError(str(exc)) from None
 
 
 def _validate_workflow(workflow: dict) -> tuple[str, ...]:
@@ -297,6 +309,103 @@ def _plan_ranking(selected: list[str], candidates: list[dict]) -> dict:
     return summary
 
 
+class PhysicalStateLedger:
+    """Tracks what the apparatus is believed to be holding when a run stops.
+
+    The orchestrator halting is not the same as the bench being safe. This
+    records, per device, whether it confirmed its declared safe state, so a
+    report tells an operator whether they are walking up to a parked machine, a
+    contained hazard, or a device whose state nobody knows.
+    """
+
+    def __init__(self, emit):
+        self.emit = emit
+        self.devices: dict[str, dict] = {}
+        self.touched: dict[str, object] = {}
+
+    def touched_device(self, device_id: str, device) -> None:
+        """Note that this device was given physical work in this run."""
+        self.touched.setdefault(device_id, device)
+
+    def record_unknown(self, device_id: str, reason: str) -> None:
+        """The device could not be asked, so its physical state is unknown."""
+        self.devices[device_id] = {"entered": False, "policy": None,
+                                   "retains_hazard": None, "status": "unknown",
+                                   "detail": reason}
+        self.emit("physical_state_unknown", device=device_id, reason=reason)
+
+    async def request(self, device_id: str, device, reason: str) -> None:
+        hook = getattr(device, "enter_safe_state", None)
+        if not callable(hook):
+            self.devices[device_id] = {
+                "entered": False, "policy": None, "retains_hazard": None,
+                "status": "unknown",
+                "detail": ("Driver implements no enter_safe_state; the controller could not "
+                           "ask it to make itself safe.")}
+            self.emit("safe_state_unsupported", device=device_id, reason=reason)
+            return
+        try:
+            outcome = await hook(reason)
+        except (SafeStateError, DeviceUnavailable) as exc:
+            self.record_unknown(device_id,
+                                f"Device did not confirm its safe state: {exc}")
+            return
+        except Exception as exc:  # a driver bug must not hide the hazard
+            self.record_unknown(device_id,
+                                f"Safe-state request raised {type(exc).__name__}: {exc}")
+            return
+        if not isinstance(outcome, dict) or not isinstance(outcome.get("entered"), bool):
+            self.record_unknown(device_id,
+                                "Driver returned no usable safe-state confirmation.")
+            return
+        entered = outcome["entered"]
+        retains = outcome.get("retains_hazard")
+        status = ("safe" if entered and retains is False
+                  else "hazard_retained" if entered else "unknown")
+        self.devices[device_id] = {"entered": entered, "policy": outcome.get("policy"),
+                                   "retains_hazard": retains, "status": status,
+                                   "detail": outcome.get("detail", "")}
+        self.emit("safe_state_requested", device=device_id, reason=reason,
+                  entered=entered, status=status, policy=outcome.get("policy"))
+
+    async def settle(self, reason: str) -> None:
+        """Ask every device that did physical work, unless already recorded."""
+        for device_id, device in self.touched.items():
+            if device_id not in self.devices:
+                await self.request(device_id, device, reason)
+
+    def summary(self, *, physical_execution: bool) -> dict:
+        """The block a report carries so an operator knows what to approach.
+
+        The worst device decides the overall status: one unconfirmed device
+        makes the whole apparatus unknown, because a person walking up to the
+        bench meets all of it, not the average of it.
+        """
+        if not self.devices:
+            summary = {"status": "not_requested", "operator_action_required": False,
+                       "devices": {},
+                       "note": ("No step was abandoned on a device, so no safe-state request "
+                                "was made.")}
+        else:
+            statuses = {entry["status"] for entry in self.devices.values()}
+            status = ("unknown" if "unknown" in statuses
+                      else "hazard_retained" if "hazard_retained" in statuses else "safe")
+            notes = {
+                "unknown": ("At least one device did not confirm its safe state. Treat the "
+                            "apparatus as potentially holding hazardous material and follow "
+                            "the reagent's handling procedure before approaching it."),
+                "hazard_retained": ("Devices reached their declared safe state, but that state "
+                                    "still holds hazardous material. Approach only per the "
+                                    "reagent's handling procedure."),
+                "safe": "Every device confirmed a safe state that retains no hazard."}
+            summary = {"status": status, "operator_action_required": status != "safe",
+                       "devices": dict(self.devices), "note": notes[status]}
+        if not physical_execution:
+            summary["note"] = ("Virtual hardware: no physical apparatus was involved. "
+                               + summary["note"])
+        return summary
+
+
 def _quarantine(device) -> None:
     """Advisory: take a driver out of service when it supports being stopped."""
     hook = getattr(device, "quarantine", None)
@@ -306,11 +415,13 @@ def _quarantine(device) -> None:
 
 class Scheduler:
     def __init__(self, devices: dict, agent, records: RunRecords, report: dict,
-                 time_scale: float | None = None, *, timeout_seconds: float | None = None):
+                 time_scale: float | None = None, *, timeout_seconds: float | None = None,
+                 ledger: PhysicalStateLedger | None = None):
         self.devices = devices
         self.agent = agent
         self.records = records
         self.report = report
+        self.ledger = ledger if ledger is not None else PhysicalStateLedger(records.emit)
         if timeout_seconds is None:
             if time_scale is None or not math.isfinite(time_scale) or time_scale <= 0:
                 raise ValueError("A positive time scale or timeout must be provided.")
@@ -323,6 +434,7 @@ class Scheduler:
         command_id = f"{self.records.run_id}:{operation}"
         for attempt in (1, 2):
             device = self.devices[device_id]
+            self.ledger.touched_device(device_id, device)
             job_id = await device.write(Command(command_id, operation, payload, attempt))
             try:
                 return await asyncio.wait_for(device.wait(job_id), self.timeout)
@@ -335,6 +447,12 @@ class Scheduler:
                 self.report["recoveries"].append({"step": operation, "outcome": "unknown_state_stop"})
                 self.records.emit("reconciliation_failed", step=operation, device=device_id,
                                   reason="No authoritative job state; duplicate work refused.")
+                # The device is unreachable, so it cannot be asked to make itself
+                # safe either. Say so rather than leaving the report silent.
+                self.ledger.record_unknown(
+                    device_id,
+                    f"Device became unreachable during {operation!r}; neither the job outcome "
+                    "nor the physical state could be confirmed.")
                 raise WorkflowError("Unreachable device: cannot confirm completion or cancellation; stopped.") from None
             self.records.emit("job_reconciled", step=operation, device=device_id, state=observed["state"])
             if observed["state"] == "succeeded":
@@ -366,6 +484,10 @@ class Scheduler:
                 if observed["state"] == "succeeded":
                     self.report["recoveries"].append({"step": operation, "outcome": "completed_during_recovery"})
                     return observed["result"]
+                self.ledger.record_unknown(
+                    device_id,
+                    f"Cancellation of {operation!r} was not acknowledged; the device may still "
+                    "be executing the original job.")
                 raise WorkflowError("Cancellation was not acknowledged; retry refused.")
             self.report["recoveries"].append({"step": operation, "outcome": decision["action"],
                                               "from_device": device_id, **decision})
@@ -421,6 +543,7 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
     if not physical_execution:
         report["limitations"].append(
             "Instrument actions and resulting device outputs are virtual; no wet-lab experiment occurred.")
+    ledger = PhysicalStateLedger(records.emit)
     try:
         records.emit("run_started", agent=report["agent"], execution_mode=execution_mode,
                      physical_execution=physical_execution, sample_id=sample_id)
@@ -455,7 +578,8 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
                          note=("Selected candidates the host-range tool did not report. "
                                "Absence of the tool's signal is not evidence against them, "
                                "but nothing supports them either."))
-        scheduler = Scheduler(devices, agent, records, report, timeout_seconds=timeout_seconds)
+        scheduler = Scheduler(devices, agent, records, report,
+                              timeout_seconds=timeout_seconds, ledger=ledger)
         payload = {"sample_id": sample_id, "candidate_ids": list(plan["candidate_ids"])}
         for operation in operations:
             result = await scheduler.execute(operation, plan["device_assignments"][operation], payload)
@@ -469,6 +593,19 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
         report["status"] = "failed"
         report["error"] = f"{type(exc).__name__}: {exc}"
     finally:
+        # A run that did not finish may have left an instrument mid-step. Ask
+        # every device that did physical work to reach its declared safe state,
+        # before releasing the drivers, and record what each one confirmed.
+        if report["status"] != "succeeded":
+            try:
+                await ledger.settle(f"run {report['status']}: {report['error'] or 'stopped'}")
+            except Exception as exc:  # never let this mask the original failure
+                records.emit("safe_state_settle_failed", error=f"{type(exc).__name__}: {exc}")
+        report["physical_state"] = ledger.summary(physical_execution=physical_execution)
+        if report["physical_state"]["operator_action_required"]:
+            report["limitations"].append(
+                "A device did not confirm a hazard-free safe state; see physical_state "
+                "before approaching the apparatus.")
         for device in devices.values():
             close = getattr(device, "close", None)
             if close is not None:
