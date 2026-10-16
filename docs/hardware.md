@@ -57,11 +57,12 @@ ExperimentSpec-bound run 会额外携带一整组 lineage metadata：
   "experiment_spec_id": "experiment-001:v1",
   "experiment_spec_sha256": "...",
   "cocktail_design_id": "cocktail-001:v1",
-  "phage_profile_ids": ["..."]
+  "phage_profile_ids": ["..."],
+  "material_batch_ids": ["host-batch:v1", "phage-batch:v1"]
 }
 ```
 
-这组 lineage 字段必须全有或全无；未知字段被拒绝。driver 应把它们当成审计/幂等上下文，不得据此自行改写 scientific membership。
+ExperimentSpec lineage 必须完整；`material_batch_ids` 只有在完整 spec lineage 下才允许出现。formal real-hardware spec-run 会在 dispatch 前验证 host 与所有 phage 都有唯一 test-ready MaterialBatch。driver 应把这些字段当成审计/幂等上下文，不得据此自行改写 scientific membership、QC 状态或库存状态。virtual run 可以携带 batch IDs，但不代表物理物料被消耗。
 
 ### Idempotent write
 
