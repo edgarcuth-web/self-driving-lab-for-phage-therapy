@@ -27,8 +27,9 @@ FailureAttribution / model update
 
 - HostProfile v1；
 - PhageProfile v1（retrieved / natural / engineered provenance）；
+- InteractionEvidence v1；
 - 固定参考快照、候选检索、序列索引；
-- PHIST 排序及 provenance；
+- PHIST 排序及结构化 interaction evidence；
 - 调度、恢复、事件日志；
 - real/virtual device boundary 与 safe-state；
 - HTTP instrument adapter 示例。
@@ -36,7 +37,6 @@ FailureAttribution / model update
 待实现：
 
 - host characterization analyzers；
-- 通用 InteractionEvidence；
 - CocktailDesign；
 - 实测 phenotype ingestion；
 - failure attribution / active learning；
@@ -115,6 +115,8 @@ python -m phage_lab rank \
 ```
 
 PHIST 的 shared k-mer statistic 不是感染成功概率；no-match 也不是 negative phenotype。
+
+`ranked.json` 继续保留 legacy `ranking` block 以兼容现有 workflow，同时每个候选新增 `interaction_evidence`。PHIST evidence 明确记录 Host genome identity、PhageProfile ID、tool/version/parameters、sequence snapshot provenance、原始统计量与解释。未来 scientific decision layer 应优先消费 `InteractionEvidence`，而不是直接依赖 legacy ranking。
 
 ### 5. 验证 orchestration
 
