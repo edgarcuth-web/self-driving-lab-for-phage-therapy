@@ -14,7 +14,6 @@ from pathlib import Path
 
 from .host_profile import HostProfile
 from .interaction_evidence import (
-    EvidenceProducer,
     HostReference,
     InteractionEvidence,
     interaction_evidence_from_dict,
@@ -61,6 +60,27 @@ def _validate_text_tuple(values: tuple[str, ...], field_name: str) -> None:
         _require_text(value, field_name)
     if len(set(values)) != len(values):
         raise ValueError(f"{field_name} values must be unique.")
+
+
+@dataclass(frozen=True)
+class DesignProducer:
+    """Identity of the policy/model that produced a CocktailDesign."""
+
+    name: str
+    version: str
+    parameters: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        _require_text(self.name, "designer name")
+        _require_text(self.version, "designer version")
+        _validate_scalar_mapping(self.parameters, "designer parameters")
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "version": self.version,
+            "parameters": dict(self.parameters),
+        }
 
 
 @dataclass(frozen=True)
@@ -114,7 +134,7 @@ class CocktailDesign:
     assumptions: tuple[str, ...]
     unresolved_gaps: tuple[str, ...]
     rationale: str
-    designer: EvidenceProducer
+    designer: DesignProducer
     created_at: str
     schema_version: int = SCHEMA_VERSION
 
@@ -130,8 +150,8 @@ class CocktailDesign:
             raise ValueError("target_host must be a HostReference.")
         if self.target_host.profile_id is None:
             raise ValueError("CocktailDesign requires a target HostProfile ID.")
-        if not self.members:
-            raise ValueError("CocktailDesign requires at least one member.")
+        if len(self.members) < 2:
+            raise ValueError("CocktailDesign requires at least two members.")
         if any(not isinstance(member, CocktailMember) for member in self.members):
             raise ValueError("members must contain CocktailMember objects.")
         member_ids = [member.phage_profile_id for member in self.members]
@@ -159,12 +179,9 @@ class CocktailDesign:
                 raise ValueError(
                     "supporting evidence names a different host genome."
                 )
-            if (
-                evidence.host.profile_id is not None
-                and evidence.host.profile_id != self.target_host.profile_id
-            ):
+            if evidence.host.profile_id != self.target_host.profile_id:
                 raise ValueError(
-                    "supporting evidence names a different HostProfile."
+                    "supporting evidence must bind the target HostProfile."
                 )
             if evidence.phage_profile_id not in member_ids:
                 raise ValueError(
@@ -200,8 +217,8 @@ class CocktailDesign:
         _validate_text_tuple(self.assumptions, "assumption")
         _validate_text_tuple(self.unresolved_gaps, "unresolved gap")
         _require_text(self.rationale, "rationale")
-        if not isinstance(self.designer, EvidenceProducer):
-            raise ValueError("designer must be an EvidenceProducer.")
+        if not isinstance(self.designer, DesignProducer):
+            raise ValueError("designer must be a DesignProducer.")
         _validate_timestamp(self.created_at, "created_at")
 
     @property
@@ -275,14 +292,14 @@ def _objective_from_dict(data: dict) -> DesignObjective:
     return DesignObjective(name=data["name"], rationale=data["rationale"])
 
 
-def _producer_from_dict(data: dict) -> EvidenceProducer:
+def _producer_from_dict(data: dict) -> DesignProducer:
     if not isinstance(data, dict) or set(data) != {
         "name",
         "version",
         "parameters",
     }:
         raise ValueError("designer has missing or unknown fields.")
-    return EvidenceProducer(
+    return DesignProducer(
         name=data["name"],
         version=data["version"],
         parameters=data["parameters"],
@@ -506,7 +523,7 @@ def phist_screening_design(
             "from PHIST-reported candidates in cohort rank order; the design "
             "does not claim mechanistic complementarity or therapeutic efficacy."
         ),
-        designer=EvidenceProducer(
+        designer=DesignProducer(
             name="phist-screening-baseline",
             version="1.0",
             parameters={
