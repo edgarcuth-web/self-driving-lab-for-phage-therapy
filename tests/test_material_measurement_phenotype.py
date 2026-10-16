@@ -138,9 +138,8 @@ def material_batches(*, quality_status="released", availability="available"):
 
 def physical_measurement(*, qc_status="valid", spec=None, batch_ids=None):
     spec = spec or experiment_spec()
-    batch_ids = batch_ids or tuple(
-        batch.record_id for batch in material_batches()
-    )
+    if batch_ids is None:
+        batch_ids = tuple(batch.record_id for batch in material_batches())
     return Measurement(
         measurement_id="measurement-001",
         revision=1,
