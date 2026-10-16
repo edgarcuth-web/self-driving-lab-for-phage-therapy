@@ -19,6 +19,7 @@ COMMANDS = (
     "run",
     "host-profile",
     "host-state",
+    "interaction-prediction",
     "phage-profiles",
     "cocktail-design",
     "experiment-spec",
@@ -129,6 +130,22 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Optional JSON object with components/evidence/limitations.")
     parser.add_argument("--previous-host-state", type=Path,
                         help="Optional previous HostState snapshot for temporal lineage.")
+    parser.add_argument("--host-state", type=Path,
+                        help="Exact HostState H(t) JSON used for InteractionPrediction.")
+    parser.add_argument("--phage-profile", type=Path,
+                        help="Exact PhageProfile JSON used for InteractionPrediction.")
+    parser.add_argument("--interaction-evidence", action="append", type=Path, default=[],
+                        help="Supporting InteractionEvidence JSON; repeat as needed.")
+    parser.add_argument("--prediction-id",
+                        help="Caller-owned InteractionPrediction identifier.")
+    parser.add_argument("--prediction-revision", type=int, default=1,
+                        help="Positive InteractionPrediction revision; defaults to 1.")
+    parser.add_argument("--prediction-input", type=Path,
+                        help="Model-output JSON with probabilities, explanation, limitations and producer.")
+    parser.add_argument("--evidence-only-unresolved", action="store_true",
+                        help="Emit an explicit not_estimated prediction without inventing probabilities.")
+    parser.add_argument("--predicted-at",
+                        help="Optional ISO-8601 prediction time; defaults to now.")
     parser.add_argument("--phage-profiles", type=Path,
                         help="JSON array of PhageProfile records.")
     parser.add_argument("--cocktail-id",
@@ -337,6 +354,126 @@ def _host_state(args, parser) -> int:
     print(
         "HostState 只包含显式提交的动态状态；未出现的 component 仍是 unknown，"
         "不会从旧快照自动继承。",
+        file=sys.stderr,
+    )
+    return 0
+
+
+
+def _interaction_prediction(args, parser) -> int:
+    """Create one exact HostState-phage InteractionPrediction."""
+
+    required = (
+        ("--host-state", args.host_state),
+        ("--phage-profile", args.phage_profile),
+        ("--prediction-id", args.prediction_id),
+        ("--out", args.out),
+    )
+    missing = [name for name, value in required if not value]
+    if missing:
+        parser.error("interaction-prediction requires " + ", ".join(missing))
+    if args.prediction_revision < 1:
+        parser.error("--prediction-revision must be a positive integer")
+    if bool(args.prediction_input) == bool(args.evidence_only_unresolved):
+        parser.error(
+            "interaction-prediction requires exactly one of "
+            "--prediction-input or --evidence-only-unresolved"
+        )
+
+    from .host_state import load_host_state
+    from .interaction_evidence import load_interaction_evidence
+    from .interaction_prediction import (
+        evidence_only_unresolved_prediction,
+        new_interaction_prediction,
+        prediction_producer_from_dict,
+        probability_estimate_from_dict,
+        write_interaction_prediction,
+    )
+    from .phage_profile import load_phage_profile
+
+    try:
+        state = load_host_state(args.host_state)
+        profile = load_phage_profile(args.phage_profile)
+        evidence = [
+            load_interaction_evidence(path)
+            for path in args.interaction_evidence
+        ]
+
+        if args.evidence_only_unresolved:
+            prediction = evidence_only_unresolved_prediction(
+                state,
+                profile,
+                evidence,
+                prediction_id=args.prediction_id,
+                revision=args.prediction_revision,
+                predicted_at=args.predicted_at,
+            )
+        else:
+            payload = _load_json(args.prediction_input, "Prediction input")
+            if not isinstance(payload, dict) or set(payload) != {
+                "probabilities",
+                "mechanistic_explanation",
+                "limitations",
+                "producer",
+            }:
+                raise ValueError(
+                    "Prediction input must contain exactly probabilities, "
+                    "mechanistic_explanation, limitations and producer."
+                )
+            probabilities = payload["probabilities"]
+            if not isinstance(probabilities, dict) or set(probabilities) != {
+                "adsorption",
+                "productive_infection",
+                "resistance_emergence",
+            }:
+                raise ValueError(
+                    "Prediction input probabilities must contain exactly "
+                    "adsorption, productive_infection and resistance_emergence."
+                )
+            if not isinstance(payload["limitations"], list):
+                raise ValueError("Prediction input limitations must be an array.")
+            prediction = new_interaction_prediction(
+                state,
+                profile,
+                evidence,
+                prediction_id=args.prediction_id,
+                revision=args.prediction_revision,
+                adsorption=probability_estimate_from_dict(
+                    probabilities["adsorption"]
+                ),
+                productive_infection=probability_estimate_from_dict(
+                    probabilities["productive_infection"]
+                ),
+                resistance_emergence=probability_estimate_from_dict(
+                    probabilities["resistance_emergence"]
+                ),
+                mechanistic_explanation=payload["mechanistic_explanation"],
+                limitations=tuple(payload["limitations"]),
+                producer=prediction_producer_from_dict(payload["producer"]),
+                predicted_at=args.predicted_at,
+            )
+        write_interaction_prediction(prediction, args.out)
+    except (OSError, ValueError) as exc:
+        print(f"InteractionPrediction 创建失败：{exc}", file=sys.stderr)
+        return 2
+
+    estimated = [
+        name
+        for name, estimate in (
+            ("adsorption", prediction.adsorption),
+            ("productive_infection", prediction.productive_infection),
+            ("resistance_emergence", prediction.resistance_emergence),
+        )
+        if estimate.status == "estimated"
+    ]
+    print(
+        f"InteractionPrediction {prediction.record_id}："
+        f"{prediction.host_state.record_id} × {prediction.phage_profile_id} → {args.out}",
+        flush=True,
+    )
+    print(
+        "estimated targets: "
+        + (", ".join(estimated) if estimated else "none"),
         file=sys.stderr,
     )
     return 0
@@ -932,6 +1069,8 @@ def main(argv=None) -> int:
         return _host_profile(args, parser)
     if args.command == "host-state":
         return _host_state(args, parser)
+    if args.command == "interaction-prediction":
+        return _interaction_prediction(args, parser)
     if args.command == "phage-profiles":
         return _phage_profiles(args, parser)
     if args.command == "cocktail-design":

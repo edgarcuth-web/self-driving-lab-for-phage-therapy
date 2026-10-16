@@ -5,7 +5,11 @@ import unittest
 
 from phage_lab.biology import GenomeSummary
 from phage_lab.host_profile import new_host_profile
-from phage_lab.host_state import new_host_state
+from phage_lab.host_state import (
+    host_state_reference,
+    new_host_state,
+    write_host_state,
+)
 from phage_lab.interaction_evidence import (
     EvidenceProducer,
     HostReference,
@@ -22,9 +26,11 @@ from phage_lab.interaction_prediction import (
     phage_profile_sha256,
     write_interaction_prediction,
 )
+from phage_lab.interaction_evidence import write_interaction_evidence
 from phage_lab.phage_profile import (
     SequenceRef,
     new_natural_phage_profile,
+    write_phage_profile,
 )
 
 
@@ -315,8 +321,7 @@ class InteractionPredictionTests(unittest.TestCase):
             InteractionPrediction(
                 prediction_id="bad",
                 revision=1,
-                host_state=host_state().to_dict() and
-                    __import__("phage_lab.host_state", fromlist=["host_state_reference"]).host_state_reference(host_state()),
+                host_state=host_state_reference(host_state()),
                 phage_profile_id=phage().profile_id,
                 phage_profile_sha256=phage_profile_sha256(phage()),
                 supporting_evidence_ids=(),
@@ -347,6 +352,153 @@ class InteractionPredictionTests(unittest.TestCase):
             write_interaction_prediction(item, path)
             loaded = load_interaction_prediction(path)
         self.assertEqual(loaded.to_dict(), item.to_dict())
+
+
+class InteractionPredictionCliTests(unittest.TestCase):
+    def test_cli_creates_evidence_only_unresolved_prediction(self):
+        from phage_lab.__main__ import main
+
+        state = host_state()
+        profile = phage()
+        pair_evidence = evidence()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state_path = root / "host-state.json"
+            phage_path = root / "phage.json"
+            evidence_path = root / "evidence.json"
+            out = root / "prediction.json"
+            write_host_state(state, state_path)
+            write_phage_profile(profile, phage_path)
+            write_interaction_evidence(pair_evidence, evidence_path)
+
+            self.assertEqual(
+                0,
+                main([
+                    "interaction-prediction",
+                    "--host-state", str(state_path),
+                    "--phage-profile", str(phage_path),
+                    "--interaction-evidence", str(evidence_path),
+                    "--prediction-id", "prediction-cli",
+                    "--evidence-only-unresolved",
+                    "--predicted-at", T3,
+                    "--out", str(out),
+                ]),
+            )
+            loaded = load_interaction_prediction(out)
+            self.assertEqual(loaded.adsorption.status, "not_estimated")
+            self.assertEqual(
+                loaded.supporting_evidence_ids,
+                (pair_evidence.evidence_id,),
+            )
+
+    def test_cli_ingests_explicit_model_output_with_uncertainty(self):
+        from phage_lab.__main__ import main
+
+        state = host_state()
+        profile = phage()
+        pair_evidence = evidence()
+        model_output = {
+            "probabilities": {
+                "adsorption": estimate(0.8).to_dict(),
+                "productive_infection": estimate(0.6).to_dict(),
+                "resistance_emergence": estimate(0.3).to_dict(),
+            },
+            "mechanistic_explanation": "Explicit fixture model output.",
+            "limitations": ["Fixture only."],
+            "producer": PredictionProducer(
+                name="fixture-model",
+                version="1.0",
+                parameters={"feature_set": "test"},
+                artifact_sha256="c" * 64,
+            ).to_dict(),
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state_path = root / "host-state.json"
+            phage_path = root / "phage.json"
+            evidence_path = root / "evidence.json"
+            model_path = root / "model-output.json"
+            out = root / "prediction.json"
+            write_host_state(state, state_path)
+            write_phage_profile(profile, phage_path)
+            write_interaction_evidence(pair_evidence, evidence_path)
+            model_path.write_text(json.dumps(model_output), encoding="utf-8")
+
+            self.assertEqual(
+                0,
+                main([
+                    "interaction-prediction",
+                    "--host-state", str(state_path),
+                    "--phage-profile", str(phage_path),
+                    "--interaction-evidence", str(evidence_path),
+                    "--prediction-id", "prediction-cli",
+                    "--prediction-input", str(model_path),
+                    "--predicted-at", T3,
+                    "--out", str(out),
+                ]),
+            )
+            loaded = load_interaction_prediction(out)
+            self.assertEqual(loaded.adsorption.probability, 0.8)
+            self.assertEqual(
+                loaded.productive_infection.uncertainty_method,
+                "example_interval",
+            )
+            self.assertEqual(
+                loaded.producer.artifact_sha256,
+                "c" * 64,
+            )
+
+    def test_cli_refuses_probability_without_uncertainty(self):
+        from phage_lab.__main__ import main
+
+        state = host_state()
+        profile = phage()
+        model_output = {
+            "probabilities": {
+                "adsorption": {
+                    "status": "estimated",
+                    "probability": 0.8,
+                    "uncertainty_lower": None,
+                    "uncertainty_upper": None,
+                    "uncertainty_method": None,
+                },
+                "productive_infection": ProbabilityEstimate(
+                    status="not_estimated"
+                ).to_dict(),
+                "resistance_emergence": ProbabilityEstimate(
+                    status="not_estimated"
+                ).to_dict(),
+            },
+            "mechanistic_explanation": "Invalid model output.",
+            "limitations": ["Invalid fixture."],
+            "producer": PredictionProducer(
+                name="fixture-model",
+                version="1.0",
+            ).to_dict(),
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state_path = root / "host-state.json"
+            phage_path = root / "phage.json"
+            model_path = root / "model-output.json"
+            out = root / "prediction.json"
+            write_host_state(state, state_path)
+            write_phage_profile(profile, phage_path)
+            model_path.write_text(json.dumps(model_output), encoding="utf-8")
+
+            self.assertEqual(
+                2,
+                main([
+                    "interaction-prediction",
+                    "--host-state", str(state_path),
+                    "--phage-profile", str(phage_path),
+                    "--prediction-id", "bad-cli",
+                    "--prediction-input", str(model_path),
+                    "--predicted-at", T3,
+                    "--out", str(out),
+                ]),
+            )
+            self.assertFalse(out.exists())
 
 
 if __name__ == "__main__":
