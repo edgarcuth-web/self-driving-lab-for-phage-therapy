@@ -1,9 +1,9 @@
-"""Biological phenotype records derived only from admitted physical measurements.
+"""Arm-aware phenotype interpretation and explicit phenotype comparison.
 
-Phenotype is an interpretation layer, not an automatic threshold over device
-numbers. A caller must state the phenotype type, outcome and interpretation,
-and the source Measurements must be physical, QC-valid and bound to the same
-ExperimentSpec and material set.
+Phenotype v2 is scoped to one ExperimentArm and can represent both host-only
+controls and phage-containing treatment arms. PhenotypeComparison links two
+already-admitted arm phenotypes and records an assessor-stated comparison. No
+threshold or biological conclusion is inferred automatically.
 """
 
 from dataclasses import dataclass, field
@@ -16,7 +16,8 @@ from pathlib import Path
 from .experiment_spec import ExperimentSpec
 from .measurement import Measurement
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+COMPARISON_SCHEMA_VERSION = 1
 OUTCOMES = ("positive", "negative", "graded")
 
 
@@ -100,6 +101,7 @@ class Phenotype:
     revision: int
     experiment_spec_id: str
     experiment_spec_sha256: str
+    experiment_arm_id: str
     target_host_profile_id: str
     phage_profile_ids: tuple[str, ...]
     material_batch_ids: tuple[str, ...]
@@ -126,10 +128,9 @@ class Phenotype:
             self.experiment_spec_sha256,
             "experiment_spec_sha256",
         )
+        _require_text(self.experiment_arm_id, "experiment_arm_id")
         _require_text(self.target_host_profile_id, "target_host_profile_id")
         _validate_text_tuple(self.phage_profile_ids, "phage_profile_id")
-        if not self.phage_profile_ids:
-            raise ValueError("phage_profile_ids must not be empty.")
         _validate_text_tuple(self.material_batch_ids, "material_batch_id")
         if not self.material_batch_ids:
             raise ValueError(
@@ -163,6 +164,7 @@ class Phenotype:
             "revision": self.revision,
             "experiment_spec_id": self.experiment_spec_id,
             "experiment_spec_sha256": self.experiment_spec_sha256,
+            "experiment_arm_id": self.experiment_arm_id,
             "target_host_profile_id": self.target_host_profile_id,
             "phage_profile_ids": list(self.phage_profile_ids),
             "material_batch_ids": list(self.material_batch_ids),
@@ -190,10 +192,116 @@ class Phenotype:
         return {"content_sha256": self.content_sha256, **self._content_dict()}
 
 
+@dataclass(frozen=True)
+class PhenotypeComparison:
+    comparison_id: str
+    revision: int
+    experiment_spec_id: str
+    experiment_spec_sha256: str
+    baseline_arm_id: str
+    comparator_arm_id: str
+    baseline_phenotype_id: str
+    baseline_phenotype_sha256: str
+    comparator_phenotype_id: str
+    comparator_phenotype_sha256: str
+    comparison_type: str
+    outcome: str
+    value: str | int | float | None
+    unit: str | None
+    interpretation: str
+    assessor: PhenotypeAssessor
+    assessed_at: str
+    schema_version: int = COMPARISON_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        _require_text(self.comparison_id, "comparison_id")
+        if type(self.revision) is not int or self.revision < 1:
+            raise ValueError("revision must be a positive integer.")
+        if self.schema_version != COMPARISON_SCHEMA_VERSION:
+            raise ValueError(
+                "PhenotypeComparison schema_version must be "
+                f"{COMPARISON_SCHEMA_VERSION}."
+            )
+        _require_text(self.experiment_spec_id, "experiment_spec_id")
+        _validate_digest(self.experiment_spec_sha256, "experiment_spec_sha256")
+        _require_text(self.baseline_arm_id, "baseline_arm_id")
+        _require_text(self.comparator_arm_id, "comparator_arm_id")
+        if self.baseline_arm_id == self.comparator_arm_id:
+            raise ValueError("PhenotypeComparison requires two distinct arms.")
+        _require_text(self.baseline_phenotype_id, "baseline_phenotype_id")
+        _validate_digest(
+            self.baseline_phenotype_sha256,
+            "baseline_phenotype_sha256",
+        )
+        _require_text(self.comparator_phenotype_id, "comparator_phenotype_id")
+        _validate_digest(
+            self.comparator_phenotype_sha256,
+            "comparator_phenotype_sha256",
+        )
+        _require_text(self.comparison_type, "comparison_type")
+        _require_text(self.outcome, "comparison outcome")
+        _validate_scalar(self.value, "value")
+        if self.unit is not None:
+            _require_text(self.unit, "unit")
+        _require_text(self.interpretation, "interpretation")
+        if not isinstance(self.assessor, PhenotypeAssessor):
+            raise ValueError("assessor must be a PhenotypeAssessor.")
+        _validate_timestamp(self.assessed_at, "assessed_at")
+
+    @property
+    def record_id(self) -> str:
+        return f"{self.comparison_id}:v{self.revision}"
+
+    def _content_dict(self) -> dict:
+        return {
+            "schema_version": self.schema_version,
+            "record_id": self.record_id,
+            "comparison_id": self.comparison_id,
+            "revision": self.revision,
+            "experiment_spec_id": self.experiment_spec_id,
+            "experiment_spec_sha256": self.experiment_spec_sha256,
+            "baseline_arm_id": self.baseline_arm_id,
+            "comparator_arm_id": self.comparator_arm_id,
+            "baseline_phenotype_id": self.baseline_phenotype_id,
+            "baseline_phenotype_sha256": self.baseline_phenotype_sha256,
+            "comparator_phenotype_id": self.comparator_phenotype_id,
+            "comparator_phenotype_sha256": self.comparator_phenotype_sha256,
+            "comparison_type": self.comparison_type,
+            "outcome": self.outcome,
+            "value": self.value,
+            "unit": self.unit,
+            "interpretation": self.interpretation,
+            "assessor": self.assessor.to_dict(),
+            "assessed_at": self.assessed_at,
+        }
+
+    @property
+    def content_sha256(self) -> str:
+        canonical = json.dumps(
+            self._content_dict(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return sha256(canonical).hexdigest()
+
+    def to_dict(self) -> dict:
+        return {"content_sha256": self.content_sha256, **self._content_dict()}
+
+
+def _arm_by_id(spec: ExperimentSpec, arm_id: str):
+    arm_id = _require_text(arm_id, "arm_id")
+    matches = [arm for arm in spec.arms if arm.arm_id == arm_id]
+    if not matches:
+        raise ValueError(f"ExperimentSpec has no arm {arm_id!r}.")
+    return matches[0]
+
+
 def phenotype_from_measurements(
     spec: ExperimentSpec,
     measurements: list[Measurement],
     *,
+    arm_id: str,
     phenotype_id: str,
     phenotype_type: str,
     outcome: str,
@@ -206,7 +314,7 @@ def phenotype_from_measurements(
     revision: int = 1,
     assessed_at: str | None = None,
 ) -> Phenotype:
-    """Create an explicit phenotype interpretation from valid physical evidence."""
+    """Create one arm-scoped phenotype from admitted physical evidence."""
 
     if not isinstance(spec, ExperimentSpec):
         raise ValueError("spec must be an ExperimentSpec.")
@@ -215,12 +323,16 @@ def phenotype_from_measurements(
     if any(not isinstance(item, Measurement) for item in measurements):
         raise ValueError("measurements must contain Measurement objects.")
 
+    arm = _arm_by_id(spec, arm_id)
     expected_spec_id = spec.spec_id
     expected_spec_sha = spec.content_sha256
     material_sets = set()
     measurement_ids = []
     for measurement in measurements:
-        if not measurement.physical_execution or measurement.evidence_class != "physical_measurement":
+        if (
+            not measurement.physical_execution
+            or measurement.evidence_class != "physical_measurement"
+        ):
             raise ValueError(
                 "Phenotype cannot be derived from non-physical Measurement."
             )
@@ -235,6 +347,18 @@ def phenotype_from_measurements(
             raise ValueError(
                 "Measurement does not match the target ExperimentSpec."
             )
+        if measurement.experiment_arm_id != arm.arm_id:
+            raise ValueError(
+                "Phenotype source Measurement does not match the target ExperimentArm."
+            )
+        if measurement.target_host_profile_id != arm.target_host.profile_id:
+            raise ValueError(
+                "Measurement host lineage does not match the target ExperimentArm."
+            )
+        if measurement.phage_profile_ids != arm.phage_profile_ids:
+            raise ValueError(
+                "Measurement phage lineage does not match the target ExperimentArm."
+            )
         if not measurement.material_batch_ids:
             raise ValueError(
                 "Phenotype requires physical Measurement with MaterialBatch lineage."
@@ -243,23 +367,88 @@ def phenotype_from_measurements(
         measurement_ids.append(measurement.record_id)
     if len(material_sets) != 1:
         raise ValueError(
-            "Phenotype source Measurements must name the same material batch set."
+            "Phenotype source Measurements must name the same arm-specific material batch set."
         )
 
-    host_profile_id = spec.target_host.profile_id
+    host_profile_id = arm.target_host.profile_id
     if host_profile_id is None:
-        raise ValueError("ExperimentSpec target has no HostProfile ID.")
+        raise ValueError("ExperimentArm target has no HostProfile ID.")
 
     return Phenotype(
         phenotype_id=phenotype_id,
         revision=revision,
         experiment_spec_id=spec.spec_id,
         experiment_spec_sha256=spec.content_sha256,
+        experiment_arm_id=arm.arm_id,
         target_host_profile_id=host_profile_id,
-        phage_profile_ids=spec.member_phage_profile_ids,
+        phage_profile_ids=arm.phage_profile_ids,
         material_batch_ids=next(iter(material_sets)),
         measurement_ids=tuple(measurement_ids),
         phenotype_type=phenotype_type,
+        outcome=outcome,
+        value=value,
+        unit=unit,
+        interpretation=interpretation,
+        assessor=PhenotypeAssessor(
+            name=assessor_name,
+            version=assessor_version,
+            parameters=assessor_parameters or {},
+        ),
+        assessed_at=assessed_at or utc_now(),
+    )
+
+
+def phenotype_comparison_from_phenotypes(
+    spec: ExperimentSpec,
+    baseline: Phenotype,
+    comparator: Phenotype,
+    *,
+    comparison_id: str,
+    comparison_type: str,
+    outcome: str,
+    interpretation: str,
+    assessor_name: str,
+    assessor_version: str,
+    assessor_parameters: dict | None = None,
+    value: str | int | float | None = None,
+    unit: str | None = None,
+    revision: int = 1,
+    assessed_at: str | None = None,
+) -> PhenotypeComparison:
+    """Record an explicit comparison between two admitted arm phenotypes."""
+
+    if not isinstance(spec, ExperimentSpec):
+        raise ValueError("spec must be an ExperimentSpec.")
+    if not isinstance(baseline, Phenotype) or not isinstance(comparator, Phenotype):
+        raise ValueError("baseline and comparator must be Phenotype objects.")
+    for phenotype in (baseline, comparator):
+        if (
+            phenotype.experiment_spec_id != spec.spec_id
+            or phenotype.experiment_spec_sha256 != spec.content_sha256
+        ):
+            raise ValueError(
+                "PhenotypeComparison source phenotype does not match ExperimentSpec."
+            )
+        _arm_by_id(spec, phenotype.experiment_arm_id)
+    if baseline.experiment_arm_id == comparator.experiment_arm_id:
+        raise ValueError("PhenotypeComparison requires phenotypes from distinct arms.")
+    if baseline.phenotype_type != comparator.phenotype_type:
+        raise ValueError(
+            "PhenotypeComparison requires matching phenotype_type values."
+        )
+
+    return PhenotypeComparison(
+        comparison_id=comparison_id,
+        revision=revision,
+        experiment_spec_id=spec.spec_id,
+        experiment_spec_sha256=spec.content_sha256,
+        baseline_arm_id=baseline.experiment_arm_id,
+        comparator_arm_id=comparator.experiment_arm_id,
+        baseline_phenotype_id=baseline.record_id,
+        baseline_phenotype_sha256=baseline.content_sha256,
+        comparator_phenotype_id=comparator.record_id,
+        comparator_phenotype_sha256=comparator.content_sha256,
+        comparison_type=comparison_type,
         outcome=outcome,
         value=value,
         unit=unit,
@@ -290,6 +479,10 @@ def _assessor_from_dict(data: dict) -> PhenotypeAssessor:
 def phenotype_from_dict(data: dict) -> Phenotype:
     if not isinstance(data, dict):
         raise ValueError("Phenotype must be an object.")
+    if data.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError(
+            "Phenotype schema_version is not supported; rebuild v1 records as arm-scoped v2."
+        )
     required = {
         "content_sha256",
         "schema_version",
@@ -298,6 +491,7 @@ def phenotype_from_dict(data: dict) -> Phenotype:
         "revision",
         "experiment_spec_id",
         "experiment_spec_sha256",
+        "experiment_arm_id",
         "target_host_profile_id",
         "phage_profile_ids",
         "material_batch_ids",
@@ -326,6 +520,7 @@ def phenotype_from_dict(data: dict) -> Phenotype:
         revision=data["revision"],
         experiment_spec_id=data["experiment_spec_id"],
         experiment_spec_sha256=data["experiment_spec_sha256"],
+        experiment_arm_id=data["experiment_arm_id"],
         target_host_profile_id=data["target_host_profile_id"],
         phage_profile_ids=tuple(data["phage_profile_ids"]),
         material_batch_ids=tuple(data["material_batch_ids"]),
@@ -349,6 +544,62 @@ def phenotype_from_dict(data: dict) -> Phenotype:
     return phenotype
 
 
+def phenotype_comparison_from_dict(data: dict) -> PhenotypeComparison:
+    if not isinstance(data, dict):
+        raise ValueError("PhenotypeComparison must be an object.")
+    required = {
+        "content_sha256",
+        "schema_version",
+        "record_id",
+        "comparison_id",
+        "revision",
+        "experiment_spec_id",
+        "experiment_spec_sha256",
+        "baseline_arm_id",
+        "comparator_arm_id",
+        "baseline_phenotype_id",
+        "baseline_phenotype_sha256",
+        "comparator_phenotype_id",
+        "comparator_phenotype_sha256",
+        "comparison_type",
+        "outcome",
+        "value",
+        "unit",
+        "interpretation",
+        "assessor",
+        "assessed_at",
+    }
+    if set(data) != required:
+        raise ValueError("PhenotypeComparison has missing or unknown fields.")
+    comparison = PhenotypeComparison(
+        schema_version=data["schema_version"],
+        comparison_id=data["comparison_id"],
+        revision=data["revision"],
+        experiment_spec_id=data["experiment_spec_id"],
+        experiment_spec_sha256=data["experiment_spec_sha256"],
+        baseline_arm_id=data["baseline_arm_id"],
+        comparator_arm_id=data["comparator_arm_id"],
+        baseline_phenotype_id=data["baseline_phenotype_id"],
+        baseline_phenotype_sha256=data["baseline_phenotype_sha256"],
+        comparator_phenotype_id=data["comparator_phenotype_id"],
+        comparator_phenotype_sha256=data["comparator_phenotype_sha256"],
+        comparison_type=data["comparison_type"],
+        outcome=data["outcome"],
+        value=data["value"],
+        unit=data["unit"],
+        interpretation=data["interpretation"],
+        assessor=_assessor_from_dict(data["assessor"]),
+        assessed_at=data["assessed_at"],
+    )
+    if data["record_id"] != comparison.record_id:
+        raise ValueError("record_id does not match comparison_id and revision.")
+    if data["content_sha256"] != comparison.content_sha256:
+        raise ValueError(
+            "content_sha256 does not match the PhenotypeComparison content."
+        )
+    return comparison
+
+
 def write_phenotype(phenotype: Phenotype, path: Path) -> None:
     if not isinstance(phenotype, Phenotype):
         raise ValueError("phenotype must be a Phenotype.")
@@ -367,3 +618,28 @@ def load_phenotype(path: Path) -> Phenotype:
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise ValueError(f"Phenotype could not be loaded: {exc}") from None
     return phenotype_from_dict(data)
+
+
+def write_phenotype_comparison(
+    comparison: PhenotypeComparison,
+    path: Path,
+) -> None:
+    if not isinstance(comparison, PhenotypeComparison):
+        raise ValueError("comparison must be a PhenotypeComparison.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(
+        json.dumps(comparison.to_dict(), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def load_phenotype_comparison(path: Path) -> PhenotypeComparison:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise ValueError(
+            f"PhenotypeComparison could not be loaded: {exc}"
+        ) from None
+    return phenotype_comparison_from_dict(data)

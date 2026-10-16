@@ -1,8 +1,9 @@
-"""First-class measurement ingestion from completed run reports.
+"""Arm-scoped measurement ingestion from completed run reports.
 
-A Measurement preserves device output and run lineage without turning workflow
-success into a biological conclusion. Virtual outputs may be stored for control
-path testing, but they carry evidence_class='none' and cannot support Phenotype.
+Measurement v2 preserves device/run/spec lineage and binds each spec-backed
+measurement to exactly one ExperimentArm. A spec-bound device result must expose
+an arms mapping so ingestion never invents arm membership after execution.
+Virtual outputs remain non-evidence.
 """
 
 from dataclasses import dataclass
@@ -12,7 +13,9 @@ import json
 import math
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+from .experiment_spec import ExperimentArm, experiment_spec_from_dict
+
+SCHEMA_VERSION = 2
 ORIGINS = ("physical_run", "virtual_run")
 QC_STATUSES = ("pending", "valid", "invalid")
 
@@ -80,6 +83,9 @@ class Measurement:
     run_id: str
     experiment_spec_id: str | None
     experiment_spec_sha256: str | None
+    experiment_arm_id: str | None
+    target_host_profile_id: str | None
+    phage_profile_ids: tuple[str, ...]
     source_step: str
     device_id: str
     material_batch_ids: tuple[str, ...]
@@ -108,12 +114,27 @@ class Measurement:
             raise ValueError(
                 "experiment_spec_id and experiment_spec_sha256 must both be set or both be null."
             )
-        if self.experiment_spec_id is not None:
+        spec_bound = self.experiment_spec_id is not None
+        if spec_bound:
             _require_text(self.experiment_spec_id, "experiment_spec_id")
             _validate_digest(
                 self.experiment_spec_sha256,
                 "experiment_spec_sha256",
             )
+            _require_text(self.experiment_arm_id, "experiment_arm_id")
+            _require_text(
+                self.target_host_profile_id,
+                "target_host_profile_id",
+            )
+        elif (
+            self.experiment_arm_id is not None
+            or self.target_host_profile_id is not None
+            or self.phage_profile_ids
+        ):
+            raise ValueError(
+                "arm/host/phage lineage requires ExperimentSpec lineage."
+            )
+        _validate_text_tuple(self.phage_profile_ids, "phage_profile_id")
         _require_text(self.source_step, "source_step")
         _require_text(self.device_id, "device_id")
         _validate_text_tuple(self.material_batch_ids, "material_batch_id")
@@ -160,6 +181,9 @@ class Measurement:
             "run_id": self.run_id,
             "experiment_spec_id": self.experiment_spec_id,
             "experiment_spec_sha256": self.experiment_spec_sha256,
+            "experiment_arm_id": self.experiment_arm_id,
+            "target_host_profile_id": self.target_host_profile_id,
+            "phage_profile_ids": list(self.phage_profile_ids),
             "source_step": self.source_step,
             "device_id": self.device_id,
             "material_batch_ids": list(self.material_batch_ids),
@@ -188,10 +212,59 @@ class Measurement:
         return {"content_sha256": self.content_sha256, **self._content_dict()}
 
 
+def _arm_by_id(spec, arm_id: str) -> ExperimentArm:
+    arm_id = _require_text(arm_id, "arm_id")
+    matches = [arm for arm in spec.arms if arm.arm_id == arm_id]
+    if not matches:
+        raise ValueError(f"ExperimentSpec has no arm {arm_id!r}.")
+    return matches[0]
+
+
+def _arm_material_batch_ids(report: dict, arm: ExperimentArm) -> tuple[str, ...]:
+    material = report.get("material_batches")
+    if material is None:
+        return ()
+    if not isinstance(material, dict):
+        raise ValueError("run report material_batches must be an object.")
+
+    host = material.get("host_batch")
+    phages = material.get("phage_batches")
+    if not isinstance(host, dict) or not isinstance(phages, list):
+        raise ValueError(
+            "run report material_batches lacks host/phage batch detail."
+        )
+    if host.get("profile_id") != arm.target_host.profile_id:
+        raise ValueError(
+            "run report host MaterialBatch does not match the ExperimentArm host."
+        )
+    host_record_id = _require_text(host.get("record_id"), "host batch record_id")
+
+    by_profile: dict[str, list[dict]] = {}
+    for batch in phages:
+        if not isinstance(batch, dict):
+            raise ValueError("run report phage batch entry must be an object.")
+        profile_id = _require_text(batch.get("profile_id"), "phage batch profile_id")
+        by_profile.setdefault(profile_id, []).append(batch)
+
+    selected = [host_record_id]
+    for profile_id in arm.phage_profile_ids:
+        matches = by_profile.get(profile_id, [])
+        if len(matches) != 1:
+            raise ValueError(
+                f"ExperimentArm phage {profile_id!r} does not map to exactly one "
+                "run-report MaterialBatch."
+            )
+        selected.append(
+            _require_text(matches[0].get("record_id"), "phage batch record_id")
+        )
+    return tuple(selected)
+
+
 def measurement_from_run_report(
     report: dict,
     *,
     measurement_id: str,
+    arm_id: str | None = None,
     source_step: str = "measure",
     measurement_type: str = "device_result",
     qc_status: str = "pending",
@@ -199,7 +272,7 @@ def measurement_from_run_report(
     revision: int = 1,
     created_at: str | None = None,
 ) -> Measurement:
-    """Ingest one completed device result without inferring phenotype."""
+    """Ingest one arm-scoped completed device result without inferring phenotype."""
 
     if not isinstance(report, dict):
         raise ValueError("run report must be an object.")
@@ -235,40 +308,74 @@ def measurement_from_run_report(
             raise ValueError(
                 "run report execution_mode/simulated contradicts physical_execution=True."
             )
-        if (
-            result.get("simulated") is True
-            or result.get("physical_execution") is False
-        ):
-            raise ValueError(
-                "physical run result contradicts its physical_execution provenance."
-            )
     else:
         if mode != "virtual_hardware" or simulated is not True:
             raise ValueError(
                 "run report execution_mode/simulated contradicts physical_execution=False."
             )
+    origin = "physical_run" if physical else "virtual_run"
+
+    raw_spec = report.get("experiment_spec")
+    spec_id = None
+    spec_sha = None
+    experiment_arm_id = None
+    host_profile_id = None
+    phage_profile_ids: tuple[str, ...] = ()
+    batch_ids: tuple[str, ...]
+    data: dict
+
+    if raw_spec is not None:
+        if not isinstance(raw_spec, dict):
+            raise ValueError("run report experiment_spec must be an object.")
+        spec = experiment_spec_from_dict(raw_spec)
+        if arm_id is None:
+            raise ValueError(
+                "spec-bound Measurement ingestion requires arm_id."
+            )
+        arm = _arm_by_id(spec, arm_id)
+        arm_results = result.get("arms")
+        if not isinstance(arm_results, dict):
+            raise ValueError(
+                "spec-bound run result must contain an arm-scoped 'arms' mapping."
+            )
+        arm_result = arm_results.get(arm.arm_id)
+        if not isinstance(arm_result, dict):
+            raise ValueError(
+                f"run result has no completed arm result for {arm.arm_id!r}."
+            )
+        spec_id = spec.spec_id
+        spec_sha = spec.content_sha256
+        experiment_arm_id = arm.arm_id
+        host_profile_id = arm.target_host.profile_id
+        phage_profile_ids = arm.phage_profile_ids
+        batch_ids = _arm_material_batch_ids(report, arm)
+        data = dict(arm_result)
+    else:
+        if arm_id is not None:
+            raise ValueError("arm_id is allowed only for ExperimentSpec-bound runs.")
+        raw_batch_ids = report.get("material_batch_ids", [])
+        if not isinstance(raw_batch_ids, list):
+            raise ValueError("run report material_batch_ids must be an array.")
+        batch_ids = tuple(raw_batch_ids)
+        data = dict(result)
+
+    if physical:
         if (
-            result.get("simulated") is False
-            or result.get("physical_execution") is True
+            data.get("simulated") is True
+            or data.get("physical_execution") is False
+        ):
+            raise ValueError(
+                "physical run result contradicts its physical_execution provenance."
+            )
+    else:
+        if (
+            data.get("simulated") is False
+            or data.get("physical_execution") is True
         ):
             raise ValueError(
                 "virtual run result contradicts its non-physical provenance."
             )
-    origin = "physical_run" if physical else "virtual_run"
 
-    spec = report.get("experiment_spec")
-    spec_id = None
-    spec_sha = None
-    if spec is not None:
-        if not isinstance(spec, dict):
-            raise ValueError("run report experiment_spec must be an object.")
-        spec_id = _require_text(spec.get("spec_id"), "experiment_spec spec_id")
-        spec_sha = spec.get("content_sha256")
-        _validate_digest(spec_sha, "experiment_spec content_sha256")
-
-    batch_ids = report.get("material_batch_ids", [])
-    if not isinstance(batch_ids, list):
-        raise ValueError("run report material_batch_ids must be an array.")
     recorded_at = report.get("finished_at") or report.get("started_at")
     _validate_timestamp(recorded_at, "run report timestamp")
 
@@ -278,15 +385,18 @@ def measurement_from_run_report(
         run_id=run_id,
         experiment_spec_id=spec_id,
         experiment_spec_sha256=spec_sha,
+        experiment_arm_id=experiment_arm_id,
+        target_host_profile_id=host_profile_id,
+        phage_profile_ids=phage_profile_ids,
         source_step=source_step,
         device_id=device_id,
-        material_batch_ids=tuple(batch_ids),
+        material_batch_ids=batch_ids,
         origin=origin,
         physical_execution=physical,
         qc_status=qc_status,
         qc_evidence=qc_evidence,
         measurement_type=measurement_type,
-        data=dict(result),
+        data=data,
         recorded_at=recorded_at,
         created_at=created_at or utc_now(),
     )
@@ -295,6 +405,10 @@ def measurement_from_run_report(
 def measurement_from_dict(data: dict) -> Measurement:
     if not isinstance(data, dict):
         raise ValueError("Measurement must be an object.")
+    if data.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError(
+            "Measurement schema_version is not supported; re-ingest v1 records as v2."
+        )
     required = {
         "content_sha256",
         "schema_version",
@@ -304,6 +418,9 @@ def measurement_from_dict(data: dict) -> Measurement:
         "run_id",
         "experiment_spec_id",
         "experiment_spec_sha256",
+        "experiment_arm_id",
+        "target_host_profile_id",
+        "phage_profile_ids",
         "source_step",
         "device_id",
         "material_batch_ids",
@@ -319,10 +436,9 @@ def measurement_from_dict(data: dict) -> Measurement:
     }
     if set(data) != required:
         raise ValueError("Measurement has missing or unknown fields.")
-    if not isinstance(data["material_batch_ids"], list):
-        raise ValueError("material_batch_ids must be an array.")
-    if not isinstance(data["qc_evidence"], list):
-        raise ValueError("qc_evidence must be an array.")
+    for field in ("phage_profile_ids", "material_batch_ids", "qc_evidence"):
+        if not isinstance(data[field], list):
+            raise ValueError(f"{field} must be an array.")
 
     measurement = Measurement(
         schema_version=data["schema_version"],
@@ -331,6 +447,9 @@ def measurement_from_dict(data: dict) -> Measurement:
         run_id=data["run_id"],
         experiment_spec_id=data["experiment_spec_id"],
         experiment_spec_sha256=data["experiment_spec_sha256"],
+        experiment_arm_id=data["experiment_arm_id"],
+        target_host_profile_id=data["target_host_profile_id"],
+        phage_profile_ids=tuple(data["phage_profile_ids"]),
         source_step=data["source_step"],
         device_id=data["device_id"],
         material_batch_ids=tuple(data["material_batch_ids"]),
