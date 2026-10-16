@@ -158,6 +158,7 @@ class PhistAdapterTests(unittest.TestCase):
                     else "no_signal"
                 )
                 self.assertEqual(evidence["result"]["status"], expected)
+                self.assertNotIn("rank", evidence["result"])
 
     def test_host_identity_matches_host_profile_semantics(self):
         with tempfile.TemporaryDirectory() as temporary:
