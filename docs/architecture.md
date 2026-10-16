@@ -13,7 +13,7 @@ PhageProfile + InteractionEvidence
         ↓
 InteractionPrediction
         ↓
-[next: CandidateSet / natural-phage recommender]
+CandidateSet / natural-phage recommender
         ↓
 CocktailDesign / scientific intent
         ↓
@@ -40,6 +40,7 @@ Scientific components choose what to test. The orchestration layer executes a va
 | `PhageProfile` | Versioned natural or designed phage characterization |
 | `InteractionEvidence` | One traceable phage-host source signal; never a calibrated infection probability |
 | `InteractionPrediction` | Content-addressed probability prediction for one exact HostState-phage pair with uncertainty and model provenance |
+| `CandidateSet` | Versioned screening selection, full input-pool decisions, exact prediction snapshots and explicit exploration |
 | `CocktailDesign` | Versioned member set, objectives and supporting evidence; one optional ExperimentSpec source |
 | `ExperimentArm` | One control/treatment arm with host, 0/1/N phages, conditions and expected readouts |
 | `ExperimentSpec` | Versioned arm-aware experimental intent independent of any one design artifact |
@@ -57,6 +58,7 @@ HostProfile
   → HostState H(t)
   → PhageProfile + InteractionEvidence
   → InteractionPrediction
+  → CandidateSet
   → scientific source(s) / intent
   → ExperimentSpec + ExperimentArm(s)
   → MaterialBatch
@@ -165,6 +167,28 @@ The repository includes an `evidence_only_unresolved_prediction` adapter. It pre
 
 A calibrated biological predictor is not yet implemented. External or future model output can be ingested only when it supplies all probability/uncertainty fields plus mechanistic explanation, limitations and producer identity/version/parameters. Optional model artifact SHA-256 can pin exact weights/artifacts.
 
+## Natural-phage recommender / CandidateSet
+
+`recommend_natural_phages` consumes one exact HostState, a pool of PhageProfiles and explicitly chosen InteractionPredictions. It never reads PHIST rank or manufactures probabilities. CandidateSet v1 records the full pool, including deferred and excluded entries, not only the selected subset.
+
+Each evaluation pins the profile ID/content fingerprint and provenance kind, embeds the complete prediction snapshot (including its ID/hash, model, uncertainty and limitations), and records disposition, selection basis and reasons. The set pins HostState ID/hash, policy name/version, candidate budget, exploration reservation and decision time. Loading checks the hash and recomputes the policy decision. Input order does not affect the result.
+
+The `natural-phage-screening` v1 policy:
+
+1. admits natural and retrieved profile records while explicitly retaining the retrieved-origin caveat; excludes engineered records;
+2. excludes profiles with no prediction, rather than silently inventing an unresolved record;
+3. sorts eligible productive-infection estimates by descending uncertainty lower bound; identical bounds use profile ID as a non-biological tie-break;
+4. reserves `exploration_slots` for productive-infection `not_estimated` candidates, ordered by profile ID without an efficacy rank;
+5. fills unused capacity from the other queue up to `max_candidates` and records every unselected eligible entry as deferred.
+
+All-unresolved pools therefore support exploratory screening. `exploration_slots=0` removes the reservation but still permits exploration to fill unused capacity. A probability of zero is an estimate, not missing information; no efficacy threshold is inferred. Empty pools or entirely excluded pools yield an explicit empty decision, not a negative phenotype.
+
+Estimated candidates must share exact producer/version/parameters/model artifact and uncertainty method. Different model cohorts are rejected instead of ranked together. This is a necessary comparability check, not proof of calibration or equivalent assay context. Callers must establish those scientific preconditions. Adsorption and resistance estimates remain available in the embedded predictions but are not combined into a synthetic score. Material readiness, safety, receptor diversity, compatibility and expected information gain are outside this baseline.
+
+Exact HostState and profile fingerprints must match. Ambiguous duplicate profiles, competing predictions per phage, duplicate prediction IDs, predictions outside the pool and predictions later than the decision time are rejected. Missing pairwise evidence remains explicit in the prediction and evaluation reasons.
+
+`experiment_spec_from_candidate_set` creates a host-only control plus an independent single-phage treatment arm for every selected profile, using caller-declared objective, readouts and common conditions. The spec pins CandidateSet ID/hash; the set transitively pins H(t) and predictions. Empty decisions cannot produce a screening spec. This adapter does not synthesize a cocktail or dispatch hardware and requires no orchestration/device/MaterialBatch changes.
+
 ## CocktailDesign
 
 CocktailDesign v1 is implemented as an immutable, content-hashed scientific design artifact. It records:
@@ -185,7 +209,7 @@ Cocktail selection is a scientific decision, not an orchestration-agent task.
 
 ## ExperimentSpec
 
-ExperimentSpec v2 is the implemented boundary between scientific design and execution. It freezes explicit ExperimentArms, each with role, target HostProfile, 0/1/N phages, conditions and expected readouts. CocktailDesign is one optional source artifact rather than a required parent. It also freezes the abstract operation/dependency workflow, scientific objective/questions and execution constraints.
+ExperimentSpec v2 is the implemented boundary between scientific design and execution. It freezes explicit ExperimentArms, each with role, target HostProfile, 0/1/N phages, conditions and expected readouts. CocktailDesign and CandidateSet are optional source artifact types rather than required parents. It also freezes the abstract operation/dependency workflow, scientific objective/questions and execution constraints.
 
 ExperimentSpec contains no device assignments or instrument-specific commands. Candidate records still bridge discovery/source identity for compatibility, but physical execution lineage is now represented separately by MaterialBatch. A candidate binding step resolves only records whose PhageProfile IDs are locked in the spec and ignores unrelated discovery candidates.
 
@@ -301,6 +325,7 @@ Feedback creates a new design/version; it does not overwrite previous experiment
 | `phage_profile.py` | PhageProfile v1 and retrieved/natural/engineered provenance |
 | `interaction_evidence.py` | InteractionEvidence v1 and PHIST adapter |
 | `interaction_prediction.py` | InteractionPrediction v1, calibrated probability contract, uncertainty and exact input lineage |
+| `natural_phage_recommender.py` | CandidateSet v1, prediction-aware screening with unresolved exploration, and single-phage ExperimentSpec adapter |
 | `cocktail_design.py` | CocktailDesign v1 and conservative PHIST screening baseline |
 | `experiment_spec.py` | ExperimentSpec v2, ExperimentArm, generic scientific intent and optional source binding |
 | `material_batch.py` | MaterialBatch v1 and test-ready material binding |
@@ -319,9 +344,9 @@ Current implementation status belongs in [README.md](../README.md).
 
 ## Build order
 
-1. build the natural-phage recommender / CandidateSet on InteractionPrediction;
-2. active learning and FailureAttribution;
-3. replace evidence-only unresolved records with calibrated predictors as training/evaluation data becomes available;
+1. connect admitted results to explicit FailureAttribution and active-learning decisions;
+2. replace evidence-only unresolved records with calibrated predictors as training/evaluation data becomes available;
+3. introduce prediction-driven cocktail optimization when its evidence requirements are met;
 4. engineering escalation.
 
 MaterialBatch, provenance, device abstraction and simulator detail are otherwise frozen unless one of these scientific-layer steps requires a change.

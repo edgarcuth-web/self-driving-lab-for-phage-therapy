@@ -17,6 +17,7 @@ Scientific components may produce:
 - `PhageProfile`
 - `InteractionEvidence`
 - `InteractionPrediction`
+- `CandidateSet`
 - `CocktailDesign`
 - `ExperimentSpec`
 - `ExperimentArm`
@@ -44,6 +45,7 @@ Treat the following as versioned objects, not anonymous dicts:
 - `PhageProfile`
 - `InteractionEvidence`
 - `InteractionPrediction`
+- `CandidateSet`
 - `CocktailDesign`
 - `ExperimentSpec`
 - `ExperimentArm`
@@ -84,7 +86,9 @@ Every model/tool output needs tool/model identity, version, inputs and parameter
 
 `CocktailDesign` is a scientific design artifact, not an execution plan. Every member must reference supporting InteractionEvidence; objectives, assumptions and unresolved gaps must be explicit. A baseline may prioritize weak computational evidence, but must not relabel it as mechanistic complementarity, cross-resistance protection or efficacy.
 
-`ExperimentSpec` is the scientific-to-orchestration boundary. It locks the exact CocktailDesign reference, target HostProfile, member PhageProfiles and abstract workflow before device assignment. In spec-bound execution, orchestration may assign/recover devices but must never add, drop or replace scientific members or alter the workflow.
+`CandidateSet` is a screening decision, not a cocktail or a susceptibility verdict. Consume exact HostState-bound InteractionPredictions rather than raw PHIST rank. Preserve all inputs, exclusions, deferred candidates, source prediction snapshots, policy/version/budget and reasons. Never turn not_estimated into a numeric score. The v1 policy ranks comparable productive-infection lower bounds and reserves unresolved exploration; profile-ID ordering is not biological ranking or active learning. Engineered profiles are excluded; retrieved origin remains unverified. Do not rank different model/configuration/uncertainty cohorts together or claim that matching provenance proves calibration.
+
+`ExperimentSpec` is the scientific-to-orchestration boundary. It locks optional exact scientific source references (including CocktailDesign or CandidateSet), arm definitions, target HostProfile, member PhageProfiles and abstract workflow before device assignment. CandidateSet conversion creates independent single-phage arms plus a host control, with caller-declared readouts. In spec-bound execution, orchestration may assign/recover devices but must never add, drop or replace scientific members or alter the workflow.
 
 `MaterialBatch` represents tracked physical material, not a database candidate or accession. A batch may exist while QC is pending; test-ready binding requires `quality_status=released`, usable availability, and explicit quality evidence. ExperimentSpec-bound real-hardware execution requires one unambiguous host batch and one unambiguous phage batch per member.
 
@@ -134,6 +138,7 @@ For an ExperimentSpec-bound run, the agent interface is limited to `assign_devic
 - `phage_profile.py`: PhageProfile v1 and provenance variants.
 - `interaction_evidence.py`: InteractionEvidence v1 and PHIST evidence adapter.
 - `interaction_prediction.py`: InteractionPrediction v1, exact H(t)/phage/evidence/model lineage and calibrated probability/uncertainty contract.
+- `natural_phage_recommender.py`: CandidateSet v1, prediction-aware screening/exploration and independent single-phage ExperimentSpec conversion.
 - `cocktail_design.py`: CocktailDesign v1 and conservative PHIST screening baseline.
 - `experiment_spec.py`: ExperimentSpec v2, ExperimentArm, generic scientific intent and optional CocktailDesign source binding.
 - `material_batch.py`: MaterialBatch v1 and test-ready ExperimentSpec binding.
@@ -150,9 +155,9 @@ For an ExperimentSpec-bound run, the agent interface is limited to `assign_devic
 
 Priority order:
 
-1. build the natural-phage recommender / CandidateSet consuming InteractionPrediction rather than raw PHIST rank;
-2. active learning and FailureAttribution;
-3. add calibrated prediction models when suitable training/evaluation data are available;
+1. connect admitted results to explicit FailureAttribution and active-learning decisions;
+2. add calibrated prediction models when suitable training/evaluation data are available;
+3. introduce prediction-driven cocktail optimization when evidence supports it;
 4. engineering escalation.
 
 Freeze provenance, MaterialBatch, device abstraction and robot/simulator detail unless a scientific-layer requirement forces a change.

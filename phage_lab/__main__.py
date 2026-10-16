@@ -20,6 +20,7 @@ COMMANDS = (
     "host-profile",
     "host-state",
     "interaction-prediction",
+    "recommend-phages",
     "phage-profiles",
     "cocktail-design",
     "experiment-spec",
@@ -148,6 +149,22 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Optional ISO-8601 prediction time; defaults to now.")
     parser.add_argument("--phage-profiles", type=Path,
                         help="JSON array of PhageProfile records.")
+    parser.add_argument("--interaction-prediction", action="append", type=Path, default=[],
+                        help="Exact InteractionPrediction JSON for recommend-phages; repeat per phage.")
+    parser.add_argument("--candidate-set-id", help="Caller-owned CandidateSet identifier.")
+    parser.add_argument("--candidate-set-revision", type=int, default=1)
+    parser.add_argument("--max-candidates", type=int, default=3,
+                        help="Screening budget for recommend-phages; defaults to 3.")
+    parser.add_argument("--exploration-slots", type=int, default=1,
+                        help="Slots reserved for unresolved predictions; defaults to 1.")
+    parser.add_argument("--recommended-at",
+                        help="Optional ISO-8601 CandidateSet creation time; defaults to now.")
+    parser.add_argument("--candidate-set", type=Path,
+                        help="CandidateSet source for independent single-phage experimental arms.")
+    parser.add_argument("--expected-readout", action="append", default=[],
+                        help="Declared readout for CandidateSet-derived arms; repeat as needed.")
+    parser.add_argument("--conditions", type=Path,
+                        help="Optional JSON object of common conditions for CandidateSet-derived arms.")
     parser.add_argument("--cocktail-id",
                         help="Caller-owned identifier for a CocktailDesign.")
     parser.add_argument("--cocktail-design", type=Path,
@@ -479,6 +496,52 @@ def _interaction_prediction(args, parser) -> int:
     return 0
 
 
+def _recommend_phages(args, parser) -> int:
+    """Select screening candidates from exact HostState-bound predictions."""
+    required = (
+        ("--host-state", args.host_state),
+        ("--phage-profiles", args.phage_profiles),
+        ("--candidate-set-id", args.candidate_set_id),
+        ("--out", args.out),
+    )
+    missing = [name for name, value in required if not value]
+    if missing:
+        parser.error("recommend-phages requires " + ", ".join(missing))
+    from .host_state import load_host_state
+    from .interaction_prediction import load_interaction_prediction
+    from .natural_phage_recommender import (
+        RecommendationPolicy, recommend_natural_phages, write_candidate_set,
+    )
+    from .phage_profile import phage_profile_from_dict
+
+    try:
+        payload = _load_json(args.phage_profiles, "PhageProfile")
+        if not isinstance(payload, list):
+            raise ValueError("PhageProfile file must contain a JSON array.")
+        candidate_set = recommend_natural_phages(
+            load_host_state(args.host_state),
+            [phage_profile_from_dict(item) for item in payload],
+            [load_interaction_prediction(path) for path in args.interaction_prediction],
+            candidate_set_id=args.candidate_set_id,
+            policy=RecommendationPolicy(args.max_candidates, args.exploration_slots),
+            revision=args.candidate_set_revision,
+            created_at=args.recommended_at,
+        )
+        write_candidate_set(candidate_set, args.out)
+    except (OSError, ValueError) as exc:
+        print(f"CandidateSet 创建失败：{exc}", file=sys.stderr)
+        return 2
+    selected = [e for e in candidate_set.evaluations if e.disposition == "selected"]
+    exploration = sum(e.basis == "exploration" for e in selected)
+    print(
+        f"CandidateSet {candidate_set.record_id}：{len(selected)} 个入选 "
+        f"({exploration} 个 exploration) / {len(candidate_set.evaluations)} 个输入 → {args.out}",
+        flush=True,
+    )
+    print("这是待测试候选集合；选择原因与未解决限制保留在 artifact 中。", file=sys.stderr)
+    return 0
+
+
 def _phage_profiles(args, parser) -> int:
     """Convert sourced candidate records into retrieved PhageProfile records."""
 
@@ -574,12 +637,14 @@ def _experiment_spec(args, parser) -> int:
     ]
     if missing:
         parser.error("experiment-spec requires " + ", ".join(missing))
-    if bool(args.cocktail_design) == bool(args.arms):
+    if sum(bool(source) for source in (args.cocktail_design, args.arms, args.candidate_set)) != 1:
         parser.error(
-            "experiment-spec requires exactly one of --cocktail-design or --arms"
+            "experiment-spec requires exactly one of --cocktail-design, --arms or --candidate-set"
         )
-    if args.arms and not args.objective:
-        parser.error("generic experiment-spec with --arms requires --objective")
+    if (args.arms or args.candidate_set) and not args.objective:
+        parser.error("experiment-spec with --arms or --candidate-set requires --objective")
+    if args.candidate_set and not args.expected_readout:
+        parser.error("experiment-spec with --candidate-set requires --expected-readout")
 
     from .experiment_spec import (
         experiment_arm_from_dict,
@@ -599,6 +664,19 @@ def _experiment_spec(args, parser) -> int:
                 experiment_id=args.experiment_id,
                 workflow=workflow,
                 purpose=args.objective,
+            )
+        elif args.candidate_set:
+            from .natural_phage_recommender import (
+                experiment_spec_from_candidate_set, load_candidate_set,
+            )
+
+            spec = experiment_spec_from_candidate_set(
+                load_candidate_set(args.candidate_set),
+                experiment_id=args.experiment_id,
+                workflow=workflow,
+                objective=args.objective,
+                expected_readouts=tuple(args.expected_readout),
+                conditions=_load_json(args.conditions, "Conditions") if args.conditions else None,
             )
         else:
             arm_payload = _load_json(args.arms, "ExperimentArm")
@@ -1071,6 +1149,8 @@ def main(argv=None) -> int:
         return _host_state(args, parser)
     if args.command == "interaction-prediction":
         return _interaction_prediction(args, parser)
+    if args.command == "recommend-phages":
+        return _recommend_phages(args, parser)
     if args.command == "phage-profiles":
         return _phage_profiles(args, parser)
     if args.command == "cocktail-design":

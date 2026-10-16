@@ -13,7 +13,7 @@ PhageProfile + InteractionEvidence
         ↓
 InteractionPrediction v1
         ↓
-[next: CandidateSet / natural-phage recommender]
+CandidateSet v1 / natural-phage recommender
         ↓
 CocktailDesign / scientific intent
         ↓
@@ -38,6 +38,7 @@ FailureAttribution / model update
 - PhageProfile v1（retrieved / natural / engineered provenance）；
 - InteractionEvidence v1；
 - InteractionPrediction v1：exact HostState/PhageProfile/evidence/model lineage，P(adsorption) / P(productive infection) / P(resistance emergence) + uncertainty；
+- CandidateSet v1：按预测区间下界选择、保留 unresolved exploration、记录完整候选池与理由，并转换为独立 single-phage arms；
 - CocktailDesign v1 与 conservative PHIST screening baseline；
 - ExperimentSpec v2 / ExperimentArm：control / treatment、0/1/N phage、conditions、expected readouts；
 - MaterialBatch v1 与 test-ready batch binding；
@@ -52,6 +53,7 @@ FailureAttribution / model update
 待实现：
 
 - host characterization analyzers；
+- calibrated biological predictors 与 prediction-driven cocktail optimizer；
 - failure attribution / active learning；
 - host-range engineering；
 - 仪器专用驱动与真实物理运行。
@@ -66,6 +68,7 @@ FailureAttribution / model update
 - PHIST 是 interaction evidence 的一个来源，不等于 host-range probability。
 - 只有 InteractionPrediction 层可以输出 probability-shaped biological predictions；每个 estimated probability 必须同时给 uncertainty interval 与 uncertainty method。
 - 当前仓库没有把 PHIST 硬映射为概率的“假模型”；evidence-only baseline 会显式输出 not_estimated。
+- CandidateSet 消费 InteractionPrediction；未估计的候选进入 exploration，不被填成零概率或按 PHIST rank 排序。
 - database candidate / accession 不是 MaterialBatch；物理实验要引用明确的 batch identity 与 QC 状态。
 - workflow success 不会自动把 Measurement 标成 QC-valid；virtual Measurement 永远不能支持 Phenotype。
 
@@ -137,6 +140,49 @@ python -m phage_lab interaction-prediction \
 
 真正模型的输出可以通过 `--prediction-input model-output.json` 摄取；输入必须同时给三类 target、mechanistic explanation、limitations 和 producer provenance。模型可以预测没有 pair-specific InteractionEvidence 的 unseen pair，但这种 evidence absence 必须保持显式，不能伪造 pair evidence。
 
+### NaturalPhageRecommender / CandidateSet v1
+
+在准备好 PhageProfiles 和各自的 InteractionPrediction 后，生成下一轮筛选集合：
+
+```bash
+python -m phage_lab recommend-phages \
+  --host-state host-state.json \
+  --phage-profiles phage-profiles.json \
+  --interaction-prediction prediction-a.json \
+  --interaction-prediction prediction-b.json \
+  --candidate-set-id screen-001 \
+  --max-candidates 3 \
+  --exploration-slots 1 \
+  --out candidate-set.json
+```
+
+每个 profile 最多提供一个明确选择的 prediction；可重复 `--interaction-prediction`。`--candidate-set-revision` 记录新版本，`--recommended-at` 可显式指定决策时间。决策拒绝使用该时间之后的预测。
+
+v1 的策略是一个可复现的 screening baseline：
+
+- `natural` 和 `retrieved` 可以进入候选池，`engineered` 明确排除；`retrieved` 仍不代表已证实天然来源。
+- 对 `productive_infection=estimated` 的候选，按 uncertainty lower bound 从高到低选择；同值按 profile ID 排列，不赋予这个次序生物学意义。
+- 为 `productive_infection=not_estimated` 的候选预留 exploration 名额；该队列只按 profile ID 排列。任一队列不足时，另一个队列补足预算。因此全部 unresolved 时也能形成探索性筛选集合，但不产生 efficacy score/rank。
+- 缺少整个 InteractionPrediction 的候选记录为 `excluded`；要参与探索，应先显式生成 evidence-only unresolved prediction。预算之外的合格候选记录为 `deferred`，不代表负表型。
+- 可排序预测必须来自相同 producer/version/parameters/artifact 和 uncertainty method；不同模型需分成不同候选池。相同 provenance 并不证明校准或 assay context 可比，调用方仍须核实。
+
+CandidateSet 绑定 exact H(t) ID/hash，记录整个输入池的 PhageProfile ID/fingerprint、provenance、完整 prediction snapshot（含 ID/hash、三个概率、解释与限制）、policy/version/budget，以及每项的选择理由。不同 H(t)、profile 内容不符、重复预测或未来预测都会被拒绝。空候选集合合法，但不能生成筛选实验。
+
+将入选项变为 **host control + 每个 phage 独立一个 treatment arm**：
+
+```bash
+python -m phage_lab experiment-spec \
+  --candidate-set candidate-set.json \
+  --experiment-id screen-experiment-001 \
+  --objective "Compare each selected single-phage arm with the host control." \
+  --expected-readout biological_phenotype \
+  --out experiment-spec.json
+```
+
+`--expected-readout` 必须由调用方声明，可重复；可用 `--conditions conditions.json` 提供所有 arms 的共同条件，未提供时为空。ExperimentSpec 锁定 CandidateSet ID/hash 与精确入选 membership；该命令不把候选混成 cocktail，也不执行设备。
+
+推荐器目前不评估 material readiness、safety、receptor diversity、phage-phage compatibility 或 information gain；adsorption/resistance estimates 原样保留，不参与这个单目标 baseline 的排序。当前只有 unresolved predictions 时，实际能力是**可追溯的探索性实验选择**。下一阶段转向结果反馈、FailureAttribution 与 active learning。
+
 ### 2. 获取参考快照并检索候选
 
 ```bash
@@ -191,7 +237,7 @@ PHIST 的 shared k-mer statistic 不是感染成功概率；no-match 也不是 n
 
 `ranked.json` 继续保留 legacy `ranking` block 以兼容现有 workflow，同时每个候选新增 `interaction_evidence`。提供 `--host-profile` 时，CLI 会先确认 profile 与 host FASTA 的规范化 genome identity 一致，再把 HostProfile ID 写入 evidence。PHIST evidence 记录 pairwise signal、tool/version/parameters、sequence snapshot provenance 与原始统计量；候选池中的相对 `rank` 只保留在 legacy ranking，不进入 pairwise evidence。未来 scientific decision layer 应优先消费 `InteractionEvidence`。
 
-### 5. 生成 CocktailDesign v1
+### 5. 兼容路径：生成 CocktailDesign v1
 
 ```bash
 python -m phage_lab cocktail-design \
@@ -341,6 +387,7 @@ HostProfile
   → HostState H(t)
   → PhageProfile + InteractionEvidence
   → InteractionPrediction
+  → CandidateSet
   → source artifact(s) / scientific intent
   → ExperimentSpec v2 + ExperimentArm(s)
   → MaterialBatch
