@@ -103,8 +103,22 @@ class RealDeviceDouble:
 
     async def write(self, command):
         job_id = f"{self.device_id}:{command.command_id}"
-        self.jobs[job_id] = {"sample_id": command.payload["sample_id"],
-                             "operation": command.operation, "source": "test-double"}
+        result = {"sample_id": command.payload["sample_id"],
+                  "operation": command.operation, "source": "test-double"}
+        arms = command.payload.get("experiment_arms")
+        if arms:
+            result["arms"] = {}
+            for index, arm in enumerate(arms, start=1):
+                arm_result = {
+                    "arm_id": arm["arm_id"],
+                    "operation": command.operation,
+                    "source": "test-double",
+                }
+                if command.operation == "measure":
+                    arm_result["signal"] = [float(index), float(index) + 0.5]
+                    arm_result["unit"] = "instrument_units"
+                result["arms"][arm["arm_id"]] = arm_result
+        self.jobs[job_id] = result
         return job_id
 
     async def wait(self, job_id):

@@ -130,13 +130,41 @@ class VirtualDevice:
         result = {"simulated": True, "physical_execution": False, "evidence": "none",
                   "sample_id": job.command.payload["sample_id"],
                   "operation": self.operation}
-        if self.operation == "synthesize":
-            result["virtual_order_id"] = "VIRTUAL-ORDER-" + job.fingerprint[:10]
-        if self.operation == "measure":
-            key = json.dumps(sorted(job.command.payload["candidate_ids"]))
-            rng = random.Random(f"virtual-readout:{self.seed}:{key}")
-            result["readings"] = [round(rng.uniform(0.05, 0.95), 4) for _ in range(3)]
-            result["unit"] = "arbitrary_virtual_units"
+        arms = job.command.payload.get("experiment_arms")
+        if arms:
+            arm_results = {}
+            for arm in arms:
+                arm_result = {
+                    "simulated": True,
+                    "physical_execution": False,
+                    "evidence": "none",
+                    "arm_id": arm["arm_id"],
+                    "operation": self.operation,
+                }
+                if self.operation == "measure":
+                    key = json.dumps([
+                        arm["arm_id"],
+                        sorted(arm["phage_profile_ids"]),
+                    ])
+                    rng = random.Random(f"virtual-readout:{self.seed}:{key}")
+                    arm_result["readings"] = [
+                        round(rng.uniform(0.05, 0.95), 4)
+                        for _ in range(3)
+                    ]
+                    arm_result["unit"] = "arbitrary_virtual_units"
+                arm_results[arm["arm_id"]] = arm_result
+            result["arms"] = arm_results
+        else:
+            if self.operation == "synthesize":
+                result["virtual_order_id"] = "VIRTUAL-ORDER-" + job.fingerprint[:10]
+            if self.operation == "measure":
+                key = json.dumps(sorted(job.command.payload["candidate_ids"]))
+                rng = random.Random(f"virtual-readout:{self.seed}:{key}")
+                result["readings"] = [
+                    round(rng.uniform(0.05, 0.95), 4)
+                    for _ in range(3)
+                ]
+                result["unit"] = "arbitrary_virtual_units"
         self.effect_count += 1
         job.result = result
         job.state = "succeeded"

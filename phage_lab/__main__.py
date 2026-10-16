@@ -24,6 +24,7 @@ COMMANDS = (
     "material-batch",
     "measurement",
     "phenotype",
+    "phenotype-comparison",
     "fetch-snapshot",
     "candidates",
     "rank",
@@ -155,6 +156,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-report", type=Path,
                         help="Completed report.json to ingest as Measurement.")
     parser.add_argument("--measurement-id", help="Caller-owned Measurement identifier.")
+    parser.add_argument("--arm-id",
+                        help="ExperimentArm ID for arm-scoped Measurement/Phenotype.")
     parser.add_argument("--step", default="measure",
                         help="Completed run step to ingest; defaults to measure.")
     parser.add_argument("--measurement-type", default="device_result",
@@ -179,6 +182,18 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--assessor", help="Assessor/model identity for Phenotype.")
     parser.add_argument("--assessor-version", default="1",
                         help="Assessor/model version.")
+    parser.add_argument("--baseline-phenotype", type=Path,
+                        help="Baseline arm Phenotype JSON for explicit comparison.")
+    parser.add_argument("--comparator-phenotype", type=Path,
+                        help="Comparator arm Phenotype JSON for explicit comparison.")
+    parser.add_argument("--comparison-id",
+                        help="Caller-owned PhenotypeComparison identifier.")
+    parser.add_argument("--comparison-type",
+                        help="Semantic type of an explicit arm comparison.")
+    parser.add_argument("--comparison-outcome",
+                        help="Assessor-stated comparison outcome; not inferred.")
+    parser.add_argument("--comparison-value",
+                        help="Optional scalar effect/comparison value.")
 
     parser.add_argument("--cocktail-min", type=int, default=2,
                         help="Minimum PHIST-supported members for cocktail-design.")
@@ -381,6 +396,71 @@ def _experiment_spec(args, parser) -> int:
     return 0
 
 
+def _phenotype_comparison(args, parser) -> int:
+    """Record an explicit comparison between two arm-scoped Phenotypes."""
+
+    required = (
+        ("--experiment-spec", args.experiment_spec),
+        ("--baseline-phenotype", args.baseline_phenotype),
+        ("--comparator-phenotype", args.comparator_phenotype),
+        ("--comparison-id", args.comparison_id),
+        ("--comparison-type", args.comparison_type),
+        ("--comparison-outcome", args.comparison_outcome),
+        ("--interpretation", args.interpretation),
+        ("--assessor", args.assessor),
+        ("--out", args.out),
+    )
+    missing = [name for name, value in required if not value]
+    if missing:
+        parser.error("phenotype-comparison requires " + ", ".join(missing))
+
+    from .experiment_spec import load_experiment_spec
+    from .phenotype import (
+        load_phenotype,
+        phenotype_comparison_from_phenotypes,
+        write_phenotype_comparison,
+    )
+
+    value = args.comparison_value
+    if value is not None:
+        try:
+            parsed = json.loads(value)
+        except ValueError:
+            parsed = value
+        if isinstance(parsed, (dict, list, bool)):
+            parser.error("--comparison-value must be a scalar JSON value or string")
+        value = parsed
+
+    try:
+        spec = load_experiment_spec(args.experiment_spec)
+        baseline = load_phenotype(args.baseline_phenotype)
+        comparator = load_phenotype(args.comparator_phenotype)
+        comparison = phenotype_comparison_from_phenotypes(
+            spec,
+            baseline,
+            comparator,
+            comparison_id=args.comparison_id,
+            comparison_type=args.comparison_type,
+            outcome=args.comparison_outcome,
+            value=value,
+            unit=args.unit,
+            interpretation=args.interpretation,
+            assessor_name=args.assessor,
+            assessor_version=args.assessor_version,
+        )
+        write_phenotype_comparison(comparison, args.out)
+    except (OSError, ValueError) as exc:
+        print(f"PhenotypeComparison 创建失败：{exc}", file=sys.stderr)
+        return 2
+
+    print(
+        f"PhenotypeComparison {comparison.record_id}："
+        f"{comparison.baseline_arm_id} → {comparison.comparator_arm_id} → {args.out}",
+        flush=True,
+    )
+    return 0
+
+
 def _material_batch(args, parser) -> int:
     """Register one versioned physical MaterialBatch."""
 
@@ -447,6 +527,7 @@ def _measurement(args, parser) -> int:
         measurement = measurement_from_run_report(
             report,
             measurement_id=args.measurement_id,
+            arm_id=args.arm_id,
             source_step=args.step,
             measurement_type=args.measurement_type,
             qc_status=args.qc_status,
@@ -509,6 +590,7 @@ def _phenotype(args, parser) -> int:
         phenotype = phenotype_from_measurements(
             spec,
             measurements,
+            arm_id=args.arm_id,
             phenotype_id=args.phenotype_id,
             phenotype_type=args.phenotype_type,
             outcome=args.phenotype_outcome,
@@ -760,6 +842,8 @@ def main(argv=None) -> int:
         return _measurement(args, parser)
     if args.command == "phenotype":
         return _phenotype(args, parser)
+    if args.command == "phenotype-comparison":
+        return _phenotype_comparison(args, parser)
     if args.command == "fetch-snapshot":
         return _fetch_snapshot(args, parser)
     if args.command == "candidates":

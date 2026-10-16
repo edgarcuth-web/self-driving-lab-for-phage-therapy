@@ -46,31 +46,52 @@ class RunRecords:
         self._events.close()
 
 
-def evaluate(results: dict) -> dict:
-    """Summarize a run's readout without ever inferring a biological result.
-
-    Whether a readout is synthetic is decided by the device's own ``simulated``
-    flag, not by recognizing a unit string: provenance is reported by the
-    driver, never guessed from a naming convention.
-    """
-    measurement = results.get("measure", {})
+def _evaluate_readout(measurement: dict) -> dict:
     readout = measurement.get("readings")
+    if readout is None:
+        readout = measurement.get("signal")
     if readout is None:
         return {"quality": "incomplete", "biological_conclusion": "not_assessed"}
     unit = measurement.get("unit")
     if measurement.get("simulated") is True or measurement.get("physical_execution") is False:
-        return {"quality": "virtual_readout_complete", "reading_count": len(readout),
-                "mean_virtual_signal": round(mean(readout), 4),
-                "unit": unit, "evidence": "none", "biological_conclusion": "not_assessed"}
-    result = {"quality": "measurement_complete", "reading_count": len(readout),
-              "biological_conclusion": "not_assessed"}
-    if readout and all(isinstance(value, (int, float)) for value in readout):
-        result["mean_signal"] = round(mean(readout), 4)
+        result = {"quality": "virtual_readout_complete", "reading_count": len(readout),
+                  "evidence": "none", "biological_conclusion": "not_assessed"}
+        if readout and all(isinstance(value, (int, float)) for value in readout):
+            result["mean_virtual_signal"] = round(mean(readout), 4)
+    else:
+        result = {"quality": "measurement_complete", "reading_count": len(readout),
+                  "biological_conclusion": "not_assessed"}
+        if readout and all(isinstance(value, (int, float)) for value in readout):
+            result["mean_signal"] = round(mean(readout), 4)
     if unit is not None:
         result["unit"] = unit
     return result
 
 
+def evaluate(results: dict) -> dict:
+    """Summarize run readouts without inferring a biological conclusion."""
+
+    measurement = results.get("measure", {})
+    arms = measurement.get("arms")
+    if isinstance(arms, dict) and arms:
+        arm_summaries = {
+            arm_id: _evaluate_readout(result)
+            for arm_id, result in arms.items()
+            if isinstance(result, dict)
+        }
+        qualities = {item.get("quality") for item in arm_summaries.values()}
+        if qualities == {"virtual_readout_complete"}:
+            quality = "virtual_arm_readouts_complete"
+        elif qualities == {"measurement_complete"}:
+            quality = "arm_measurements_complete"
+        else:
+            quality = "arm_readouts_incomplete"
+        return {
+            "quality": quality,
+            "arms": arm_summaries,
+            "biological_conclusion": "not_assessed",
+        }
+    return _evaluate_readout(measurement)
 def render_report(report: dict) -> str:
     mode = report.get("execution_mode")
     physical = report.get("physical_execution") is True
