@@ -21,6 +21,13 @@ CANDIDATE_PROVENANCE_FIELDS = ("source_db", "accession", "retrieved_at", "source
 # has a legitimate source and no snapshot — but a record carrying one of them
 # must carry both, and `require_snapshot` makes them mandatory for a run.
 SNAPSHOT_PROVENANCE_FIELDS = ("snapshot_version", "snapshot_sha256")
+
+# A candidate ordered by an external host-range tool carries a `ranking` block.
+# It records which tool produced the order and against which host genome, so a
+# plan's ordering can be reproduced or disputed. An ordering with no tool behind
+# it is not a ranking, so these fields are all required once the block exists.
+RANKING_REQUIRED_FIELDS = ("tool", "tool_version", "ranked_at", "host_genome_sha256",
+                           "statistic", "interpretation", "reported")
 SHA256_PATTERN = re.compile(r"\A[0-9a-f]{64}\Z")
 
 # Inclusive (minimum, maximum) candidates a plan may select when the caller
@@ -121,6 +128,44 @@ def _validate_snapshot_provenance(candidate: dict, identifier: str, *,
             f"Candidate {identifier!r} has a snapshot_sha256 that is not a SHA-256 digest.")
 
 
+def _validate_ranking(candidate: dict, identifier: str) -> tuple[str, str] | None:
+    """Check a ranking block, and report the (tool, host genome) it came from."""
+    block = candidate.get("ranking")
+    if block is None:
+        return None
+    if not isinstance(block, dict):
+        raise WorkflowError(f"Candidate {identifier!r} has a non-object ranking block.")
+    missing = [field for field in RANKING_REQUIRED_FIELDS if field not in block]
+    if missing:
+        raise WorkflowError(
+            f"Candidate {identifier!r} has a ranking block missing {', '.join(missing)}. "
+            "An ordering without a named tool behind it is not a ranking.")
+    for field in ("tool", "tool_version", "ranked_at", "host_genome_sha256",
+                  "statistic", "interpretation"):
+        if not isinstance(block[field], str) or not block[field].strip():
+            raise WorkflowError(f"Candidate {identifier!r} has an empty ranking {field}.")
+    if not isinstance(block["reported"], bool):
+        raise WorkflowError(f"Candidate {identifier!r} has a non-boolean ranking.reported.")
+    if not SHA256_PATTERN.match(block["host_genome_sha256"]):
+        raise WorkflowError(
+            f"Candidate {identifier!r} ranking names a host genome digest that is not SHA-256.")
+    rank = block.get("rank")
+    if block["reported"]:
+        if not isinstance(rank, int) or isinstance(rank, bool) or rank < 1:
+            raise WorkflowError(
+                f"Candidate {identifier!r} is marked reported but has no positive rank.")
+    elif rank is not None:
+        raise WorkflowError(
+            f"Candidate {identifier!r} was not reported by the tool but carries a rank.")
+    offenders = [key for key in block
+                 if re.search(r"(probab|likelihood|success|efficacy|infectivity)", key, re.I)]
+    if offenders:
+        raise WorkflowError(
+            f"Candidate {identifier!r} ranking contains {', '.join(offenders)}; a tool "
+            "statistic must not be presented as a probability of infection.")
+    return block["tool"], block["host_genome_sha256"]
+
+
 def _validate_candidates(candidates: list[dict], *,
                          min_candidates: int = 1, max_candidates: int | None = None,
                          require_snapshot: bool = False) -> None:
@@ -139,6 +184,7 @@ def _validate_candidates(candidates: list[dict], *,
     if max_candidates is not None and len(candidates) > max_candidates:
         raise WorkflowError(f"An experiment run accepts at most {max_candidates} candidate records.")
     seen: set[str] = set()
+    rankings: set[tuple[str, str]] = set()
     for candidate in candidates:
         if not isinstance(candidate, dict):
             raise WorkflowError("Each candidate must be a record object.")
@@ -162,6 +208,17 @@ def _validate_candidates(candidates: list[dict], *,
             raise WorkflowError(
                 f"Candidate {identifier!r} has a non-ISO-8601 retrieved_at timestamp.") from None
         _validate_snapshot_provenance(candidate, identifier, require_snapshot=require_snapshot)
+        origin = _validate_ranking(candidate, identifier)
+        if origin is not None:
+            rankings.add(origin)
+    if len(rankings) > 1:
+        raise WorkflowError(
+            "Candidates carry rankings from different tools or host genomes; "
+            "ranks from separate comparisons cannot be ordered against each other.")
+    if rankings and len(rankings) == 1 and any("ranking" not in candidate for candidate in candidates):
+        raise WorkflowError(
+            "Some candidates are ranked and some are not; a partial ordering would make "
+            "the unranked ones look worse than the tool actually said.")
 
 
 def validate_experiment_inputs(candidates: list[dict], devices: dict, execution_mode: str, *,
@@ -196,6 +253,48 @@ def _validate_workflow(workflow: dict) -> tuple[str, ...]:
         if any(operations.index(dep) >= operations.index(operation) for dep in dependencies):
             raise WorkflowError("Workflow dependencies must appear before dependent operations.")
     return operations
+
+
+def _ranking_summary(candidates: list[dict]) -> dict | None:
+    """Describe where a plan's candidate ordering came from, or say there is none."""
+    blocks = [candidate["ranking"] for candidate in candidates if candidate.get("ranking")]
+    if not blocks:
+        return {"ordered_by": "source_order",
+                "note": ("Candidates are in the order the source database returned them. "
+                         "No host-range tool was run; the order carries no biological meaning.")}
+    first = blocks[0]
+    return {"ordered_by": first["tool"], "tool_version": first["tool_version"],
+            "statistic": first["statistic"], "ranked_at": first["ranked_at"],
+            "host_genome_sha256": first["host_genome_sha256"],
+            "parameters": first.get("parameters"),
+            "reported_count": sum(1 for block in blocks if block["reported"]),
+            "unreported_count": sum(1 for block in blocks if not block["reported"]),
+            "interpretation": first["interpretation"]}
+
+
+def _plan_ranking(selected: list[str], candidates: list[dict]) -> dict:
+    """Say, per selected candidate, whether a tool actually reported it.
+
+    Without this a reader cannot tell a top-ranked pick from one that merely sat
+    near the top of an unordered list.
+    """
+    by_id = {candidate["id"]: candidate for candidate in candidates}
+    ranks, unsupported = {}, []
+    for identifier in selected:
+        block = by_id.get(identifier, {}).get("ranking")
+        if not block:
+            return {"ordered_by": "source_order",
+                    "note": "No host-range tool was run; selection order carries no biological meaning."}
+        if block["reported"]:
+            ranks[identifier] = block["rank"]
+        else:
+            unsupported.append(identifier)
+    summary = {"ordered_by": by_id[selected[0]]["ranking"]["tool"], "ranks": ranks}
+    if unsupported:
+        summary["selected_without_tool_support"] = unsupported
+        summary["note"] = ("These candidates were selected although the tool reported no "
+                           "match. That is an absence of signal, not evidence against them.")
+    return summary
 
 
 def _quarantine(device) -> None:
@@ -332,6 +431,7 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
         records.emit("input_validated", **report["genome"])
         report["candidates"] = candidates
         report["candidate_sources"] = sorted({candidate["source_db"] for candidate in candidates})
+        report["candidate_ranking"] = _ranking_summary(candidates)
         report["candidate_snapshots"] = sorted(
             {f"{candidate['source_db']} {candidate['snapshot_version']} "
              f"({candidate['snapshot_sha256'][:12]})"
@@ -347,7 +447,14 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
         validate_plan(plan, candidates, devices, operations=operations,
                       selection_size=selection_size)
         report["plan"] = plan
+        report["plan_ranking"] = _plan_ranking(plan["candidate_ids"], candidates)
         records.emit("plan_accepted", agent=report["agent"], **plan)
+        if report["plan_ranking"].get("selected_without_tool_support"):
+            records.emit("plan_includes_unreported_candidates",
+                         candidates=report["plan_ranking"]["selected_without_tool_support"],
+                         note=("Selected candidates the host-range tool did not report. "
+                               "Absence of the tool's signal is not evidence against them, "
+                               "but nothing supports them either."))
         scheduler = Scheduler(devices, agent, records, report, timeout_seconds=timeout_seconds)
         payload = {"sample_id": sample_id, "candidate_ids": list(plan["candidate_ids"])}
         for operation in operations:
