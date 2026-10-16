@@ -71,6 +71,8 @@ Keep source annotation, prediction and physical measurement distinct.
 
 Every model/tool output needs tool/model identity, version, inputs and parameters.
 
+`InteractionEvidence` is an evidence record, not a susceptibility verdict. It links a host identity and a versioned PhageProfile to one source signal. Evidence objects must remain content-addressed and reject probability-shaped fields that are not actually emitted by the source. Cohort-relative ordering such as rank belongs to ranking/design context, not pairwise InteractionEvidence.
+
 ### Virtual hardware
 
 Virtual hardware may simulate job lifecycle, timeout, cancellation, failover, safe-state and artifact handoff.
@@ -106,8 +108,9 @@ Never execute model-generated code directly on devices.
 - `biology.py`: FASTA validation and sequence summary.
 - `host_profile.py`: HostProfile v1.
 - `phage_profile.py`: PhageProfile v1 and provenance variants.
+- `interaction_evidence.py`: InteractionEvidence v1 and PHIST evidence adapter.
 - `snapshots.py`, `candidates.py`, `sequences.py`: reference data and retrieved candidates.
-- `ranking.py`: PHIST integration.
+- `ranking.py`: PHIST integration; emits legacy ranking plus InteractionEvidence.
 - `agents.py`: bounded orchestration decisions.
 - `workflow.py`: validation, scheduling and recovery.
 - `devices.py`, `virtual_hardware.py`: device interface and twins.
@@ -118,12 +121,11 @@ Never execute model-generated code directly on devices.
 Priority order:
 
 1. host-characterization analyzers;
-2. InteractionEvidence;
-3. CocktailDesign;
-4. ExperimentSpec integration;
-5. real measurement / phenotype ingestion;
-6. FailureAttribution and active learning;
-7. engineering escalation.
+2. CocktailDesign;
+3. ExperimentSpec integration;
+4. real measurement / phenotype ingestion;
+5. FailureAttribution and active learning;
+6. engineering escalation.
 
 Do not expand robot simulation unless it supports one of these steps.
 

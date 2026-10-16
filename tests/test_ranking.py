@@ -6,6 +6,8 @@ import textwrap
 import unittest
 import unittest.mock
 
+from phage_lab.biology import read_fasta
+from phage_lab.interaction_evidence import phist_ranking_to_evidence
 from phage_lab.ranking import (
     PhistRanker,
     RankingError,
@@ -140,6 +142,53 @@ class PhistAdapterTests(unittest.TestCase):
                 self.assertEqual(record["ranking"]["tool"], "phist")
                 self.assertEqual(len(record["ranking"]["host_genome_sha256"]), 64)
                 self.assertEqual(record["ranking"]["sequence_snapshot_version"], "1Oct2026")
+                self.assertEqual(len(record["interaction_evidence"]), 1)
+                evidence = record["interaction_evidence"][0]
+                self.assertEqual(evidence["producer"]["name"], "phist")
+                self.assertEqual(
+                    evidence["host"]["genome_sha256"],
+                    record["ranking"]["host_genome_sha256"],
+                )
+                self.assertEqual(
+                    evidence["phage_profile_id"], f"{record['id']}:v1"
+                )
+                expected = (
+                    "reported_signal"
+                    if record["ranking"]["reported"]
+                    else "no_signal"
+                )
+                self.assertEqual(evidence["result"]["status"], expected)
+                self.assertNotIn("rank", evidence["result"])
+
+    def test_host_identity_matches_host_profile_semantics(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = sequence_store(root)
+            host = root / "host.fna"
+            host.write_text(">original-header\nacgt\nacgt\n")
+            expected = read_fasta(host).sha256
+
+            ranked = PhistRanker(
+                fake_phist(root, WORKING_PHIST)
+            ).rank(
+                host,
+                CANDIDATES,
+                store,
+                host_profile_id="isolate-001:v1",
+            )
+            first = ranked[0]
+            self.assertEqual(first["ranking"]["host_genome_sha256"], expected)
+            self.assertEqual(
+                first["interaction_evidence"][0]["host"]["genome_sha256"],
+                expected,
+            )
+            self.assertEqual(
+                first["interaction_evidence"][0]["host"]["profile_id"],
+                "isolate-001:v1",
+            )
+
+            host.write_text(">different-header\nACGTACGT\n")
+            self.assertEqual(read_fasta(host).sha256, expected)
 
     def test_a_value_less_row_is_no_match_rather_than_a_parse_error(self):
         # Real PHIST writes the phage name alone when nothing matched; that is an
@@ -223,6 +272,7 @@ class RankingProvenanceTests(unittest.TestCase):
     def setUp(self):
         self.devices = {"prepare-1": RealDeviceDouble("prepare-1", "prepare")}
         self.block = {"tool": "phist", "tool_version": "1.2.1",
+                      "parameters": {"k": 25, "threads": 2},
                       "ranked_at": "2026-10-15T00:00:00+00:00",
                       "host_genome_sha256": "c" * 64, "statistic": "shared_25mers",
                       "interpretation": "not a probability of infection",
@@ -261,10 +311,70 @@ class RankingProvenanceTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkflowError, "separate comparisons"):
             self.check(mixed)
 
+    def test_tampered_interaction_evidence_is_refused(self):
+        candidate = self.ranked()[0]
+        evidence = phist_ranking_to_evidence(candidate).to_dict()
+        evidence["result"]["status"] = "tampered"
+        candidate["interaction_evidence"] = [evidence]
+        with self.assertRaisesRegex(WorkflowError, "evidence_id"):
+            self.check([candidate])
+
+    def test_interaction_evidence_must_target_candidate_profile(self):
+        candidate = self.ranked()[0]
+        other = {**candidate, "id": "PH-OTHER"}
+        candidate["interaction_evidence"] = [
+            phist_ranking_to_evidence(other).to_dict()
+        ]
+        with self.assertRaisesRegex(WorkflowError, "not 'PH-001:v1'"):
+            self.check([candidate])
+
     def test_a_partly_ranked_set_is_refused(self):
         partial = [{**CANDIDATES[0], "ranking": dict(self.block)}, CANDIDATES[1]]
         with self.assertRaisesRegex(WorkflowError, "partial ordering"):
             self.check(partial)
+
+
+class RankingCliTests(unittest.TestCase):
+    def test_rank_can_bind_evidence_to_host_profile(self):
+        from phage_lab.__main__ import main
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = sequence_store(root)
+            candidates_path = root / "candidates.json"
+            candidates_path.write_text(json.dumps(CANDIDATES), encoding="utf-8")
+            host = root / "host.fna"
+            host.write_text(">host\nACGTACGT\n")
+            profile_path = root / "host-profile.json"
+            self.assertEqual(
+                0,
+                main([
+                    "host-profile",
+                    "--genome", str(host),
+                    "--sample-id", "isolate-001",
+                    "--out", str(profile_path),
+                ]),
+            )
+            output = root / "ranked.json"
+            self.assertEqual(
+                0,
+                main([
+                    "rank",
+                    "--candidates", str(candidates_path),
+                    "--sequences", str(store.snapshot.directory),
+                    "--host-genome", str(host),
+                    "--host-profile", str(profile_path),
+                    "--phist", str(fake_phist(root, WORKING_PHIST)),
+                    "--out", str(output),
+                ]),
+            )
+            ranked = json.loads(output.read_text(encoding="utf-8"))
+            self.assertTrue(ranked)
+            for record in ranked:
+                self.assertEqual(
+                    record["interaction_evidence"][0]["host"]["profile_id"],
+                    "isolate-001:v1",
+                )
 
 
 @unittest.skipUnless(os.environ.get("PHIST_PATH"),

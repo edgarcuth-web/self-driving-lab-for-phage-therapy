@@ -19,7 +19,6 @@ into a success probability.
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from hashlib import sha256
 from pathlib import Path
 import csv
 import re
@@ -29,6 +28,8 @@ import sys
 import tempfile
 from typing import Protocol
 
+from .biology import read_fasta
+from .interaction_evidence import phist_ranking_to_evidence
 from .sequences import SequenceStore
 
 RANKING_FIELDS = ("tool", "tool_version", "ranked_at", "host_genome_sha256",
@@ -51,15 +52,13 @@ class HostRangeRanker(Protocol):
     def describe(self) -> dict: ...
 
     def rank(self, host_fasta: Path, candidates: list[dict],
-             sequences: SequenceStore) -> list[dict]: ...
+             sequences: SequenceStore, *,
+             host_profile_id: str | None = None) -> list[dict]: ...
 
 
 def _host_digest(path: Path) -> str:
-    digest = sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(1 << 20):
-            digest.update(chunk)
-    return digest.hexdigest()
+    """Use the same normalized genome identity as HostProfile."""
+    return read_fasta(path).sha256
 
 
 @dataclass(frozen=True)
@@ -172,7 +171,8 @@ class PhistRanker:
         return hits
 
     def rank(self, host_fasta: Path, candidates: list[dict],
-             sequences: SequenceStore) -> list[dict]:
+             sequences: SequenceStore, *,
+             host_profile_id: str | None = None) -> list[dict]:
         if not candidates:
             raise RankingError("Ranking needs at least one candidate.")
         if len(candidates) > MAX_CANDIDATES:
@@ -232,7 +232,13 @@ class PhistRanker:
             record["ranking"]["rank"] = position
             ranked.append(record)
         unreported.sort(key=lambda record: record["accession"])
-        return ranked + unreported
+        ordered = ranked + unreported
+        for record in ordered:
+            evidence = phist_ranking_to_evidence(
+                record, host_profile_id=host_profile_id
+            )
+            record["interaction_evidence"] = [evidence.to_dict()]
+        return ordered
 
 
 def phist_from_environment(path: str | Path | None = None, **kwargs) -> PhistRanker:

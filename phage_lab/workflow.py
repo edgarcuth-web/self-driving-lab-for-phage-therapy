@@ -14,6 +14,7 @@ from .devices import (
     SafeStateError,
     validate_safe_state,
 )
+from .interaction_evidence import interaction_evidence_from_dict
 from .records import RunRecords, evaluate, utc_now
 from .provenance import source_identity
 
@@ -172,6 +173,44 @@ def _validate_ranking(candidate: dict, identifier: str) -> tuple[str, str] | Non
     return block["tool"], block["host_genome_sha256"]
 
 
+def _validate_interaction_evidence(candidate: dict, identifier: str) -> None:
+    records = candidate.get("interaction_evidence")
+    if records is None:
+        return
+    if not isinstance(records, list) or not records:
+        raise WorkflowError(
+            f"Candidate {identifier!r} interaction_evidence must be a nonempty array."
+        )
+    expected_profile_id = candidate.get("phage_profile_id") or f"{identifier}:v1"
+    seen: set[str] = set()
+    for raw in records:
+        try:
+            evidence = interaction_evidence_from_dict(raw)
+        except ValueError as exc:
+            raise WorkflowError(
+                f"Candidate {identifier!r} carries invalid InteractionEvidence: {exc}"
+            ) from None
+        if evidence.evidence_id in seen:
+            raise WorkflowError(
+                f"Candidate {identifier!r} repeats InteractionEvidence {evidence.evidence_id}."
+            )
+        seen.add(evidence.evidence_id)
+        if evidence.phage_profile_id != expected_profile_id:
+            raise WorkflowError(
+                f"Candidate {identifier!r} evidence targets {evidence.phage_profile_id!r}, "
+                f"not {expected_profile_id!r}."
+            )
+        ranking = candidate.get("ranking")
+        if (
+            isinstance(ranking, dict)
+            and evidence.producer.name == "phist"
+            and evidence.host.genome_sha256 != ranking.get("host_genome_sha256")
+        ):
+            raise WorkflowError(
+                f"Candidate {identifier!r} PHIST evidence and ranking name different host genomes."
+            )
+
+
 def _validate_candidates(candidates: list[dict], *,
                          min_candidates: int = 1, max_candidates: int | None = None,
                          require_snapshot: bool = False) -> None:
@@ -215,6 +254,7 @@ def _validate_candidates(candidates: list[dict], *,
                 f"Candidate {identifier!r} has a non-ISO-8601 retrieved_at timestamp.") from None
         _validate_snapshot_provenance(candidate, identifier, require_snapshot=require_snapshot)
         origin = _validate_ranking(candidate, identifier)
+        _validate_interaction_evidence(candidate, identifier)
         if origin is not None:
             rankings.add(origin)
     if len(rankings) > 1:

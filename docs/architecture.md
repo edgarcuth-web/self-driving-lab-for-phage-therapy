@@ -89,16 +89,19 @@ A profile may carry sequence accession/hash/length and scalar source annotations
 
 Future PhageProfile characterization may add RBP/tail, receptor and counter-defense annotations through separately versioned analyzers.
 
-`InteractionEvidence` separates evidence from design decisions. Sources may include:
+InteractionEvidence v1 is now implemented as a content-addressed record linking one host identity and one versioned PhageProfile to a source signal. It stores evidence kind, signal, raw result fields, interpretation, producer identity/version/parameters, observation time and input provenance.
 
-- database annotation;
-- PHIST or other genome-based tools;
-- sequence/embedding models;
-- RBP-receptor models;
-- defense/counter-defense models;
-- physical experiments.
+Current evidence kinds are `source_annotation` and `computational`. Physical measurements will enter through the later Measurement/Phenotype slice rather than being mislabeled as generic computational evidence.
 
-PHIST is one evidence producer. Its shared-k-mer statistic is not an infection probability.
+PHIST is the first implemented evidence producer. For compatibility it still emits the legacy `ranking` block, but it also emits `interaction_evidence` for every candidate:
+
+- reported PHIST match → `status=reported_signal`;
+- no significant PHIST match → `status=no_signal`;
+- neither status is converted into susceptible/resistant or infection probability.
+
+The PHIST host digest now uses the same normalized genome identity as HostProfile. When a matching HostProfile is supplied, its profile ID is bound into the evidence. Cohort-relative rank remains outside the pairwise evidence object.
+
+Evidence IDs are hashes of the evidence content, so modified evidence fails validation.
 
 ## CocktailDesign
 
@@ -193,9 +196,10 @@ Feedback creates a new design/version; it does not overwrite previous experiment
 | `biology.py` | FASTA validation and genome summary |
 | `host_profile.py` | HostProfile v1 |
 | `phage_profile.py` | PhageProfile v1 and retrieved/natural/engineered provenance |
+| `interaction_evidence.py` | InteractionEvidence v1 and PHIST adapter |
 | `snapshots.py`, `candidates.py` | Reference snapshots and retrieved candidate records |
 | `sequences.py` | Accession-indexed sequences |
-| `ranking.py` | PHIST evidence source |
+| `ranking.py` | PHIST ranking compatibility layer and evidence producer |
 | `agents.py` | Bounded orchestration decisions |
 | `workflow.py` | Validation, scheduling and recovery |
 | `devices.py` | Device contract |
@@ -207,13 +211,12 @@ Current implementation status belongs in [README.md](../README.md).
 ## Build order
 
 1. host-characterization analyzers;
-2. InteractionEvidence;
-3. CocktailDesign;
-4. ExperimentSpec integration;
-5. measurement / phenotype ingestion;
-6. FailureAttribution;
-7. active learning;
-8. engineering escalation;
-9. additional real-device and Synbio integrations.
+2. CocktailDesign;
+3. ExperimentSpec integration;
+4. measurement / phenotype ingestion;
+5. FailureAttribution;
+6. active learning;
+7. engineering escalation;
+8. additional real-device and Synbio integrations.
 
 Each step should be mergeable and keep `main` runnable.

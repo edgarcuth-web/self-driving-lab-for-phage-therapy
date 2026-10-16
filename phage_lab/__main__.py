@@ -85,6 +85,8 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Genome FASTA snapshot directory, for tools that need sequences.")
     parser.add_argument("--host-genome", type=Path,
                         help="Host bacterial FASTA to rank candidates against.")
+    parser.add_argument("--host-profile", type=Path,
+                        help="Optional HostProfile JSON to bind InteractionEvidence to a profile ID.")
     parser.add_argument("--ranker", choices=["phist"], default="phist")
     parser.add_argument("--phist", type=Path,
                         help="Path to phist.py. Falls back to PHIST_PATH, then PATH.")
@@ -205,6 +207,8 @@ def _retrieve_candidates(args, parser) -> int:
 
 
 def _rank(args, parser) -> int:
+    from .biology import read_fasta
+    from .host_profile import load_host_profile
     from .ranking import RankingError, phist_from_environment
     from .sequences import SequenceError, SequenceStore
     from .snapshots import SnapshotError, load_snapshot
@@ -217,10 +221,24 @@ def _rank(args, parser) -> int:
     try:
         candidates = _load_candidates(args.candidates)
         store = SequenceStore(load_snapshot(args.sequences, verify=not args.skip_verify))
+        host_profile_id = None
+        if args.host_profile:
+            profile = load_host_profile(args.host_profile)
+            genome = read_fasta(args.host_genome)
+            if profile.genome.sha256 != genome.sha256:
+                raise ValueError(
+                    "HostProfile genome identity does not match --host-genome."
+                )
+            host_profile_id = profile.profile_id
         ranker = phist_from_environment(args.phist, k=args.k, threads=args.threads)
         print(f"{ranker.describe()['tool']} {ranker.describe()['tool_version']}："
               f"{len(candidates)} 个候选 vs {args.host_genome.name}", flush=True)
-        ranked = ranker.rank(args.host_genome, candidates, store)
+        ranked = ranker.rank(
+            args.host_genome,
+            candidates,
+            store,
+            host_profile_id=host_profile_id,
+        )
     except (RankingError, SequenceError, SnapshotError, OSError, ValueError) as exc:
         print(f"排序失败：{exc}", file=sys.stderr)
         return 2
