@@ -2,8 +2,9 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import unittest.mock
 
-from phage_lab.agents import RuleAgent
+from phage_lab.agents import OpenRouterAgent, RuleAgent
 from phage_lab.biology import read_fasta
 from phage_lab.cocktail_design import (
     CocktailDesign,
@@ -282,6 +283,45 @@ class SpecBoundRunTests(unittest.IsolatedAsyncioTestCase):
                 echo=False,
                 experiment_spec=locked,
             )
+
+
+class DeviceAssignmentContractTests(unittest.IsolatedAsyncioTestCase):
+    async def test_openrouter_assignment_schema_has_no_candidate_selection(self):
+        agent = OpenRouterAgent("not-a-real-key", "test-model")
+        captured = {}
+
+        def fake_request(tool_name, schema, context):
+            captured["tool_name"] = tool_name
+            captured["schema"] = schema
+            captured["context"] = context
+            return {
+                "device_assignments": {
+                    operation: f"virtual-{operation}-1"
+                    for operation in WORKFLOW
+                },
+                "reason": "Assign compatible devices to the locked workflow.",
+            }
+
+        context = {
+            "experiment_spec": spec().to_dict(),
+            "devices": [
+                {
+                    "device_id": f"virtual-{operation}-1",
+                    "operations": [operation],
+                }
+                for operation in WORKFLOW
+            ],
+            "workflow": WORKFLOW,
+            "execution_mode": "virtual_hardware",
+            "physical_execution": False,
+        }
+        with unittest.mock.patch.object(agent, "_request", side_effect=fake_request):
+            decision = await agent.assign_devices(context)
+
+        self.assertEqual(captured["tool_name"], "assign_devices")
+        self.assertNotIn("candidate_ids", captured["schema"]["properties"])
+        self.assertNotIn("candidates", captured["context"])
+        self.assertEqual(set(decision), {"device_assignments", "reason"})
 
 
 class ExperimentSpecCliTests(unittest.TestCase):
