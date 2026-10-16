@@ -1,45 +1,39 @@
 # Working agreements
 
-## Goal and scope
+## Goal
 
-Build a real autonomous phage R&D platform. A human supplies a target bacterial isolate/genome and research objective; the system characterizes the host, evaluates phage-host evidence, proposes natural-phage or cocktail designs, escalates to engineering only when justified, executes validated experiments, and feeds measured outcomes into the next design cycle.
+Build a traceable Design–Build/Acquire–Test–Learn loop for phage R&D.
 
-The deliverable is a traceable Design–Build/Acquire–Test–Learn loop. The self-driving lab is the execution subsystem of that loop, not the whole source of scientific intelligence.
+Scientific components decide what to test and why. The lab layer executes validated experiments and records what happened.
 
-Software twins and test doubles are development tools. They are never evidence of biological efficacy or physical execution.
+## Hard boundaries
 
-## Architecture invariants
+### Scientific decisions vs orchestration
 
-Keep these boundaries explicit.
+Scientific components may produce:
 
-### Scientific intelligence != lab orchestration
+- `HostProfile`
+- `PhageProfile`
+- `InteractionEvidence`
+- `CocktailDesign`
+- `FailureAttribution`
+- engineering proposals
 
-Scientific components decide what should be tested and why. They may produce:
-
-- host characterization;
-- phage characterization;
-- interaction evidence and predictions;
-- cocktail designs;
-- uncertainty or coverage gaps;
-- failure-attribution hypotheses;
-- engineering escalation proposals.
-
-The orchestration layer decides how an already validated experiment is executed:
+The orchestrator handles:
 
 - task dependencies;
 - device assignment;
 - dispatch;
 - timeout reconciliation;
-- cancellation;
-- recovery;
-- safe-state handling;
+- cancellation/recovery;
+- safe-state;
 - execution records.
 
-Do not make the lab-orchestration agent responsible for biological truth. Do not let a scientific model bypass the validated ExperimentSpec/device boundary.
+Do not let the orchestration agent invent biological conclusions or bypass `ExperimentSpec`.
 
-### First-class domain objects
+### Domain objects and lineage
 
-Treat these as durable, versioned concepts rather than anonymous dictionaries as the system evolves:
+Treat the following as versioned objects, not anonymous dicts:
 
 - `HostProfile`
 - `PhageProfile`
@@ -50,189 +44,96 @@ Treat these as durable, versioned concepts rather than anonymous dictionaries as
 - `Measurement`
 - `Phenotype`
 - `FailureAttribution`
-- model/analysis versions and feedback decisions
 
-Preserve lineage between them. A design used in a build or experiment is immutable; a change creates a new version.
+Preserve lineage. If a design has been built or tested, later changes create a new version.
 
 ### Natural-first escalation
 
-Prefer the least invasive path that addresses the research objective:
+Default path:
 
-1. retrieve/evaluate natural phages;
+1. evaluate natural phages;
 2. optimize cocktail composition;
-3. identify remaining coverage or resistance gaps;
-4. consider host-range engineering when a mechanistic gap is supported;
-5. consider deeper defense/counter-defense or genome-level design only after lower-level paths are inadequate.
+3. identify unresolved coverage/resistance gaps;
+4. escalate to host-range engineering only when supported by evidence;
+5. use deeper defense/counter-defense or genome-level design only when needed.
 
-Engineering is an escalation path, not a default parallel route.
+Do not treat engineering as the default entry point.
 
-### Virtual hardware simulates devices, not biology
+### Evidence semantics
 
-Virtual devices may model:
+Keep source annotation, prediction and physical measurement distinct.
 
-- submission;
-- running/completion;
-- timeout;
-- unreachable state;
-- cancellation;
-- recovery;
-- safe-state;
-- artifact handoff.
+- `unknown` is not an assessed negative.
+- workflow success is not biological success.
+- build/device failure is not a negative phenotype.
+- PHIST shared-k-mer statistics are not infection probabilities.
+- no PHIST match is not evidence that infection is impossible.
 
-Do not use synthetic device output as biological evidence. Prefer replay of historical real measurements or explicit test fixtures when a measurement-shaped payload is needed for development.
+Every model/tool output needs tool/model identity, version, inputs and parameters.
 
-### PHIST is one evidence source
+### Virtual hardware
 
-PHIST is a current external analysis component. Its shared-k-mer statistics are not infection probabilities and must not become the permanent definition of host-range prediction.
+Virtual hardware may simulate job lifecycle, timeout, cancellation, failover, safe-state and artifact handoff.
 
-Future interaction models may combine host features, phage features, receptor/RBP evidence, surface structures, defense/counter-defense context and measured phenotypes. Every tool/model has its own provenance, evaluation and output semantics.
+It must not create biological evidence. Measurement-shaped test data should come from explicit fixtures or historical-data replay.
 
-## Subsystem responsibilities
+### Sequence and external models
 
-### Host characterization
+Raw FASTA and headers are not sent to external models by default. Local bioinformatics tools may consume sequence; external reasoning components receive structured data unless explicitly required otherwise.
 
-Turn a target genome/isolate into a versioned `HostProfile`.
-
-The profile may eventually include taxonomy, strain identity, receptors, capsule/LPS or other surface structures, anti-phage defense systems, AMR, virulence context and prior susceptibility observations.
-
-Unknown means unknown. Do not fill missing fields with guessed biology. An empty or negative result is allowed only when an identified analysis actually assessed that feature class.
-
-Raw FASTA should not be sent to external LLMs by default. Local analyzers may consume sequence; external reasoning components should receive structured, policy-approved representations.
-
-### Phage characterization
-
-Turn natural or engineered phage candidates into versioned `PhageProfile` records with sequence/design identity, provenance and characterized features.
-
-Retrieved natural phages and generated/engineered designs are different provenance classes. Never fabricate database accessions for generated designs.
-
-### Interaction evidence and design
-
-Keep evidence, prediction and decision separate.
-
-An interaction predictor may estimate compatibility or rank candidates. A `CocktailDesign` should record which evidence/model versions support each member and what design objective it addresses.
-
-LLMs may explain or coordinate bounded scientific decisions, but validated optimizers/models should own numerical or mechanistic claims when such models exist.
-
-### Synbio and material delivery
-
-Manage design handoff, acquisition/build planning, external services, internal device tasks, inventory, quality confirmation and material delivery.
-
-Designs, synthesis products, build batches, inventory materials and final tested materials are distinct objects.
-
-Device-task completion alone does not release material for testing. Material must have identity, quality evidence and sufficient availability for the intended experiment, or an explicit incomplete outcome.
-
-### Automated testing
-
-Consume identified physical material plus a versioned `ExperimentSpec`.
-
-Link actual device execution and measurements to the exact input material batches and specification version.
-
-A successful workflow run is a control-plane result. It is not itself a successful biological result.
-
-### Analysis and learning
-
-Convert valid measurements into explicit phenotype/analysis records and use them to inform the next design cycle.
-
-Build failures, device failures, invalid measurements and biological negative results are separate classes. Missing material or failed measurement must never become an automatic biological negative.
-
-## Current implementation and direction
-
-Implemented:
-
-- HostProfile v1 schema, unknown/assessed semantics and local serialization;
-- pinned reference snapshots and candidate retrieval;
-- sequence indexing;
-- PHIST ranking with provenance;
-- structured planning;
-- scheduling, reconciliation and recovery;
-- execution records;
-- device contracts;
-- explicit real/virtual execution modes;
-- safe-state handling;
-- runnable HTTP adapter example.
-
-Near-term direction:
-
-1. add real host-characterization analyzers that contribute versioned evidence to `HostProfile`;
-2. establish `PhageProfile`;
-3. add an `InteractionEvidence` interface;
-4. add `CocktailDesign`;
-5. connect `ExperimentSpec` to the existing orchestrator;
-6. ingest real measurements/phenotypes;
-7. add failure attribution and active learning;
-8. add engineering escalation.
-
-Do not spend major effort expanding robot simulators while these scientific interfaces are missing.
-
-## Code map
-
-- `biology.py`: FASTA validation and sequence summaries.
-- `host_profile.py`: host-domain schema and local profile serialization.
-- `snapshots.py`, `candidates.py`, `sequences.py`: pinned reference data, sourced candidates and accession-indexed sequences.
-- `ranking.py`: external-tool ranking and provenance.
-- `agents.py`: bounded orchestration decisions; it is not the scientific design layer.
-- `workflow.py`: validation, scheduling and reconciliation.
-- `devices.py`, `virtual_hardware.py`: device contract and development twins.
-- `records.py`, `provenance.py`: append-only events, reports and code identity.
-- `docs/hardware.md`, `examples/adapters/http_instrument.py`: integration guide and adapter example.
-
-Module paths are relative to `phage_lab/` unless stated otherwise.
+Generated/engineered phages and retrieved natural phages use different provenance. Never invent database accessions for designed candidates.
 
 ## Hardware execution
 
-Require an explicit `execution_mode`.
+`execution_mode` is explicit:
 
-- `real_hardware` requires supplied devices with `simulated=False`.
-- `virtual_hardware` requires `simulated=True`.
-- Never silently fall back or mix modes.
+- `real_hardware`: devices declare `simulated=False`;
+- `virtual_hardware`: devices declare `simulated=True`.
 
-Agents propose structured actions. The controller validates candidate IDs, capabilities, assignments and recovery actions before dispatch through device drivers. Never execute model-generated code.
+Never mix or silently fall back between modes.
 
-Physical execution requires confirmation from the connected system, not merely a successful API call or GUI click.
+A timeout means outcome unknown. Reconcile the original job before retrying. Retry/fail over only after cancellation is confirmed.
 
-A timeout means outcome unknown. Query the original job before retrying. Retry or fail over only after cancellation is acknowledged, or reuse the confirmed completed result. Unknown device/job state stops execution.
+Real drivers declare `safe_state`. If the device cannot confirm its physical state, record it as `unknown`.
 
-Real drivers declare `safe_state`: `policy`, boolean `retains_hazard`, and an operator-readable description. Request `enter_safe_state()` on abandoned steps and unsuccessful runs. Missing/invalid confirmation is `unknown`.
+Never execute model-generated code directly on devices.
 
-## Data and evidence
+## Current code map
 
-Preserve provenance for:
+- `biology.py`: FASTA validation and sequence summary.
+- `host_profile.py`: HostProfile v1.
+- `snapshots.py`, `candidates.py`, `sequences.py`: reference data and natural candidates.
+- `ranking.py`: PHIST integration.
+- `agents.py`: bounded orchestration decisions.
+- `workflow.py`: validation, scheduling and recovery.
+- `devices.py`, `virtual_hardware.py`: device interface and twins.
+- `records.py`, `provenance.py`: run records and provenance.
 
-- genome/profile inputs;
-- candidates and designs;
-- model/tool versions and parameters;
-- experiment specifications;
-- materials;
-- execution mode and devices;
-- raw/processed measurements;
-- phenotype analyses;
-- feedback decisions;
-- code and artifacts.
+## Next work
 
-Distinguish predictions, simulated readouts and physical measurements in stored results.
+Priority order:
 
-Current sourced candidates require nonempty `source_db`, `accession`, ISO-8601 `retrieved_at` and `source_uri`.
+1. host-characterization analyzers;
+2. PhageProfile;
+3. InteractionEvidence;
+4. CocktailDesign;
+5. ExperimentSpec integration;
+6. real measurement / phenotype ingestion;
+7. FailureAttribution and active learning;
+8. engineering escalation.
 
-Snapshot candidates carry both `snapshot_version` and `snapshot_sha256`, or neither. `require_snapshot` makes both mandatory.
-
-Providers report source annotations, not experimental host-range measurements.
-
-For PHIST, shared k-mers and p-values are tool statistics, not infection probabilities. No-match means no signal from that tool, not evidence that infection is impossible.
-
-Do not commit credentials, raw user genomes or generated run directories. Do not send raw FASTA content or headers to external models by default.
+Do not expand robot simulation unless it supports one of these steps.
 
 ## Development
 
 Python 3.11+.
 
-Run:
-
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-Keep `README.md` (purpose/current status), `docs/architecture.md` (target architecture/contracts) and this file (development rules) consistent.
+Keep README for user-facing scope/status, `docs/architecture.md` for domain architecture, and this file for implementation constraints.
 
-Tests should cover provenance, schema validation, versioning, execution-mode boundaries, adapter contracts, reconciliation, cancellation and safe-state behavior. As scientific domain objects arrive, add lineage and unknown-vs-assessed semantics tests.
+Do not commit credentials, raw user genomes or generated run directories.
 
-For GitHub changes, inspect the current branch head and diff before updating it. Preserve concurrent work and never force-push over another contributor's changes.
+Before GitHub writes, inspect the current branch head and diff. Preserve concurrent work and never force-push over another contributor's changes.
