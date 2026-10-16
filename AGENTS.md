@@ -2,102 +2,63 @@
 
 ## Goal and scope
 
-Build an auditable self-driving-lab orchestration system for phage research under current resource constraints.
+Build a real AI-driven laboratory for phage research: AI proposes phage designs and experiments, connected instruments perform physical tests, and measured results feed the next design cycle.
 
-The scientific/data layer should become real and traceable wherever possible. Missing robotics or lab instruments may be represented by explicit software device twins. Never represent virtual hardware output as physical experimental evidence.
+The deliverable is a traceable design–build–test–learn loop on real hardware. Candidate retrieval and ranking support that loop; they are not the full design capability. Software twins and test doubles are development tools, not the project endpoint or evidence of physical execution.
 
-## Architecture
+## Current implementation and direction
 
-- `phage_lab/biology.py`: validate FASTA and compute privacy-preserving summaries.
-- `phage_lab/devices.py`: transport-neutral device contract, including the safe-state declaration.
-- `phage_lab/workflow.py`: candidate validation, execution-mode validation, scheduler and reconciliation.
-- `phage_lab/snapshots.py`: pinned local copies of external reference data, with checksum manifests.
-- `phage_lab/candidates.py`: candidate providers that read a snapshot and stamp provenance.
-- `phage_lab/sequences.py`: accession-indexed genome sequences from a pinned FASTA snapshot.
-- `phage_lab/ranking.py`: host-range ranking by external tools; no built-in ordering.
-- `phage_lab/virtual_hardware.py`: software device twins.
-- `phage_lab/agents.py`: bounded structured proposals; no direct hardware authority.
-- `phage_lab/records.py`: append-only events and explicit execution provenance.
-- `phage_lab/provenance.py`: source fingerprint and optional Git metadata.
-- `examples/adapters/http_instrument.py`: a worked, runnable DeviceDriver to copy when connecting an instrument.
-- `tests/support.py`: test doubles, including fault injection. Production code never injects faults into itself.
+- Implemented: reference snapshots, candidate retrieval, PHIST ranking, structured planning, scheduling, reconciliation, execution records and device contracts.
+- Hardware integration currently has a runnable HTTP adapter example; instrument-specific drivers and confirmed physical runs remain work to deliver.
+- Autonomous phage design, experimental result feedback and model evaluation are development goals, not existing capabilities. Describe their implementation status accurately.
+- Prioritize real device integration, durable experiment state and measured-result ingestion. Connect design and learning components through explicit, versioned interfaces.
+- The existing external-ranker implementation is a starting point, not a permanent restriction on future models. New models need their own provenance, evaluation and documented output semantics.
 
-## Execution modes
+## Code map
 
-`execution_mode` is a required argument with no default. A caller that did not state which kind of hardware it expects does not get either.
+- `biology.py`: FASTA validation and privacy-preserving input summaries.
+- `snapshots.py`, `candidates.py`, `sequences.py`: pinned reference data, sourced candidates and accession-indexed sequences.
+- `ranking.py`: external-tool ranking and tool provenance.
+- `agents.py`: structured proposals; `workflow.py`: validation, scheduling and reconciliation.
+- `devices.py`, `virtual_hardware.py`: device contract and development twins.
+- `records.py`, `provenance.py`: append-only events, artifacts and code identity.
+- `docs/hardware.md`, `examples/adapters/http_instrument.py`: integration guide and adapter example; keep them current with contract changes.
+- `tests/support.py`: test doubles and fault injection; production code does not inject faults into itself.
 
-`real_hardware` requires every device to declare `simulated=False`. With no devices supplied it refuses to run; it never falls back to twins.
+Module paths above are relative to `phage_lab/` unless stated otherwise.
 
-`virtual_hardware` requires every device to declare `simulated=True`. When explicitly selected, the workflow may create software device twins automatically if no devices were supplied.
+## Hardware execution
 
-Never silently switch between execution modes.
+- Require an explicit `execution_mode`. `real_hardware` requires supplied devices with `simulated=False`; `virtual_hardware` requires `simulated=True` and may create twins. Never silently fall back or mix modes.
+- Agents propose structured actions. The controller validates candidate IDs, capabilities, assignments and recovery actions before dispatch through device drivers. Never execute model-generated code.
+- Adapters may use SDKs, REST, serial, OPC-UA or controlled GUI interfaces. Physical execution requires confirmation from the connected system, not merely a successful API call or GUI click.
+- A timeout means outcome unknown. Query the original job before retrying; retry/fail over only after cancellation is acknowledged, or reuse its confirmed completed result. Unknown device/job state stops execution.
+- Real drivers declare `safe_state`: `policy`, boolean `retains_hazard` and an operator-readable `description`. Policies are `park_and_release`, `contained_hold` or `operator_required`; the latter two cannot claim `retains_hazard=False`.
+- Request `enter_safe_state()` on abandoned steps and unsuccessful runs. Missing or invalid confirmation, including driver errors, is `unknown`. `report["physical_state"]` reflects the worst device status.
+- Exercise the same reconciliation and stop semantics with test doubles before integrating a driver.
 
-## Apparatus safety invariants
+## Data and evidence
 
-Stopping the orchestrator is not the same as the apparatus being safe. An abandoned step can leave a tip full of toxic liquid, a gripper holding an open plate, or a heater on.
-
-- Every `simulated=False` driver must declare `safe_state` with `policy` (one of `park_and_release`, `contained_hold`, `operator_required`), `retains_hazard` as an explicit boolean, and a `description` written for the operator who will walk up to the bench. `real_hardware` refuses a driver without it; never infer one on a driver's behalf.
-- `contained_hold` and `operator_required` cannot claim `retains_hazard: False`. A device frozen mid-step is still holding what it held.
-- The controller requests `enter_safe_state()` on every abandoned step — unreachable device, unacknowledged cancellation, agent abort, attempt limit, and any run that did not succeed.
-- A device that does not confirm is recorded as `unknown`, never assumed safe. That includes a driver with no `enter_safe_state`, a return value without an `entered` boolean, and any raised exception including a driver bug.
-- `report["physical_state"]` takes the worst device's status: one unconfirmed device makes the whole apparatus `unknown`, because a person approaching the bench meets all of it.
-- The software's `enter_safe_state` is not an emergency stop and this repository certifies nothing. The contract forces "what happens physically on failure" to be answered and recorded; it does not replace containment, a real E-stop, or institutional approval.
-
-## Evidence invariants
-
-- Experiment-path candidates are admitted by an allowlist, not a denylist. Every record must carry `source_db`, `accession`, `retrieved_at` (ISO 8601) and `source_uri` as nonempty strings. Rejecting by naming convention (`SIM-*` prefixes and the like) only catches fixtures that happen to be labelled honestly, so never rely on it.
-- Report provenance from the data, never from a naming convention: whether a readout is synthetic is decided by the device's own `simulated` flag, not by recognizing a unit string.
-- Candidates that came from a reference snapshot carry `snapshot_version` and `snapshot_sha256`. Both or neither: half a snapshot reference is not traceable. `require_snapshot` makes them mandatory for a run. They are not required of every candidate, because a lab's own isolate has a real source and no snapshot.
-- Reference data is pinned, not fetched per run. The orchestrator never reaches the network mid-run; downloading a snapshot is its own command, and a snapshot is re-hashed against its manifest when loaded.
-- A provider reports what a source database records. It does not score, rank or predict infection, and a depositor's host annotation is not an experimental host-range result. Never present one as the other.
-- Ordering comes from a named external tool or it does not exist. If the configured ranker is missing or fails, ranking raises; never fall back to a heuristic, alphabetical or source order and call the result a ranking. `report["candidate_ranking"]` always says which it was.
-- A tool statistic is not a probability of infection. Shared k-mers correlate with host range; they do not measure it. Never add a field to a `ranking` block whose name reads as a probability, likelihood, success, efficacy or infectivity — validation rejects those.
-- A tool reporting no match is an absence of that signal, not evidence that infection cannot occur. Unreported candidates keep a `ranking` block with `reported: false` and no rank, and `report["plan_ranking"]` names any selected candidate the tool did not support.
-- Ranks from different tools or different host genomes cannot be mixed, and a partly ranked candidate set is refused: it would make the unranked ones look worse than the tool actually said.
-- Virtual hardware may simulate task completion and readouts for scheduler/UI/interface testing, but those outputs must remain labeled simulated and cannot support biological claims.
-- Orchestration success is not biological efficacy.
-- Preserve provenance for input summary, candidate source, execution mode, device identity, code identity and resulting artifacts.
-- Candidate selection size belongs to the experiment spec (`selection_size`), not to hardcoded bounds. One phage and a six-member cocktail are both legitimate.
-- Do not commit credentials, raw user genomes or generated run directories.
-- Do not send raw FASTA content or headers to external models by default.
-
-## Control invariants
-
-- Agent/model output is untrusted structured data.
-- Validate candidate IDs, device capabilities, workflow assignments and recovery actions before execution.
-- Never execute model-generated code.
-- A timeout means outcome unknown. Query the original job before retry.
-- Do not retry/fail over until cancellation is acknowledged, unless the original job is observed completed and its result is reused.
-- Unknown physical device/job state stops execution.
-- For virtual hardware, preserve the same reconciliation semantics so the control plane is exercised before real hardware exists.
-
-## Future integrations
-
-A concrete adapter may use vendor SDK, REST, serial, OPC-UA, cloud APIs, or a controlled Computer Use / GUI layer. The adapter must still expose clear device/job state, execution provenance and a safe-state declaration. `docs/hardware.md` is the integration guide and `examples/adapters/http_instrument.py` the worked example; keep both current when the contract changes.
-
-Do not claim physical execution merely because Computer Use clicked a laboratory UI. Physical execution is true only when the connected external system actually caused and confirmed the physical action.
+- Preserve provenance for inputs, candidates or designs, model/tool versions and parameters, execution mode, devices, code and artifacts. Link physical results to the actual experiment and tested material.
+- Existing sourced candidates require nonempty `source_db`, `accession`, ISO 8601 `retrieved_at` and `source_uri`. Validate provenance explicitly, not through ID naming conventions.
+- Before admitting generated designs, add an explicit design-provenance schema and validation path. Do not fabricate database accessions or pass designs off as retrieved reference records.
+- Snapshot candidates carry both `snapshot_version` and `snapshot_sha256`, or neither; `require_snapshot` makes both mandatory. Re-hash pinned files on load. Reference acquisition is separate from experiment execution.
+- Providers report database annotations, not experimental host-range measurements. Ranking records identify their tool/model and input; missing or failed ranking never silently becomes a heuristic or source-order ranking.
+- For the current PHIST integration, shared k-mers and p-values are tool statistics, not infection probabilities. Preserve the existing validation of `ranking` fields. No-match rows remain `reported: false`; do not mix tools, host genomes or partially ranked sets.
+- Distinguish predictions, simulated readouts and physical measurements in stored results. Workflow completion is a control-plane result; biological outcomes come from measured data.
+- Selection size belongs to the experiment specification (`selection_size`), not hardcoded cocktail bounds.
+- Do not commit credentials, raw user genomes or generated run directories. Do not send raw FASTA content or headers to external models by default.
 
 ## Development
 
-Python 3.11+.
-
-Run:
+Python 3.11+. Run:
 
 ```bash
 python -m unittest discover -s tests -v
-python -m phage_lab fetch-snapshot --snapshot data/snapshots/inphared-1Oct2026 \
-  --version 1Oct2026 --url https://.../1Oct2026_data.tsv
-python -m phage_lab candidates --snapshot data/snapshots/inphared-1Oct2026 \
-  --host "Escherichia coli" --out candidates.json
-python -m phage_lab rank --candidates candidates.json \
-  --sequences data/snapshots/inphared-genomes-1Oct2026 \
-  --host-genome host.fasta --phist /path/to/phist.py --out ranked.json
-python -m phage_lab run --candidates ranked.json --sample-id sample-001 \
-  --execution-mode virtual_hardware --require-snapshot
 ```
 
-The ranking tests use a stub `phist.py`; set `PHIST_PATH` to a real install to also run the opt-in integration test.
+Use `PHIST_PATH` for the opt-in real-tool integration test. CLI usage belongs in `README.md`; architecture details belong in `docs/architecture.md`.
 
-Tests should cover: the safe-state declaration and every stop path that requests it, the example adapter against the real-hardware validator, sequence indexing and duplicate/missing accessions, ranking provenance and the no-fallback rule, tool rows that report no match, snapshot identity and checksum failure, provider column resolution and no-match handling, snapshot-provenance pairing, sourced candidates over virtual hardware, rejection of candidates without provenance, strict real-hardware mode matching, no implicit fallback, reconciliation and failover under injected faults, selection-size bounds, and explicit labeling of virtual outputs.
+Maintain coverage for provenance and checksum validation, sequence indexing, ranking/no-match behavior, selection bounds, explicit execution modes, adapter contracts, reconciliation, cancellation and safe-state handling. Tests with twins verify software behavior; physical integration checks record the actual device and result artifacts.
 
-For GitHub changes, inspect the current branch head before updating it. Preserve concurrent work and never force-push over another contributor's changes.
+For GitHub changes, inspect the current branch head and diff before updating it. Preserve concurrent work and never force-push over another contributor's changes.
