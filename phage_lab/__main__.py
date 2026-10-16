@@ -15,7 +15,7 @@ from .workflow import (
 )
 
 MAX_INPUT_BYTES = 4_000_000
-COMMANDS = ("run", "host-profile", "phage-profiles", "fetch-snapshot", "candidates", "rank", "version")
+COMMANDS = ("run", "host-profile", "phage-profiles", "cocktail-design", "fetch-snapshot", "candidates", "rank", "version")
 
 
 def _load_json(path: Path, label: str):
@@ -86,7 +86,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host-genome", type=Path,
                         help="Host bacterial FASTA to rank candidates against.")
     parser.add_argument("--host-profile", type=Path,
-                        help="Optional HostProfile JSON to bind InteractionEvidence to a profile ID.")
+                        help="HostProfile JSON used to bind scientific artifacts.")
+    parser.add_argument("--phage-profiles", type=Path,
+                        help="JSON array of PhageProfile records.")
+    parser.add_argument("--cocktail-id",
+                        help="Caller-owned identifier for a CocktailDesign.")
+    parser.add_argument("--cocktail-min", type=int, default=2,
+                        help="Minimum PHIST-supported members for cocktail-design.")
+    parser.add_argument("--cocktail-max", type=int, default=3,
+                        help="Maximum members for cocktail-design.")
     parser.add_argument("--ranker", choices=["phist"], default="phist")
     parser.add_argument("--phist", type=Path,
                         help="Path to phist.py. Falls back to PHIST_PATH, then PATH.")
@@ -154,6 +162,59 @@ def _phage_profiles(args, parser) -> int:
     print(f"{len(profiles)} 个 PhageProfile → {args.out}", flush=True)
     print(
         "retrieved provenance 只表示外部记录来源；不会自动声明 biological origin。",
+        file=sys.stderr,
+    )
+    return 0
+
+
+
+def _cocktail_design(args, parser) -> int:
+    """Create a conservative, evidence-linked CocktailDesign."""
+
+    required = (
+        ("--host-profile", args.host_profile),
+        ("--phage-profiles", args.phage_profiles),
+        ("--candidates", args.candidates),
+        ("--cocktail-id", args.cocktail_id),
+        ("--out", args.out),
+    )
+    missing = [name for name, value in required if not value]
+    if missing:
+        parser.error("cocktail-design requires " + ", ".join(missing))
+    if not 2 <= args.cocktail_min <= args.cocktail_max:
+        parser.error("cocktail-design requires 2 <= --cocktail-min <= --cocktail-max")
+
+    from .cocktail_design import phist_screening_design, write_cocktail_design
+    from .host_profile import load_host_profile
+    from .phage_profile import phage_profile_from_dict
+
+    try:
+        host = load_host_profile(args.host_profile)
+        profile_payload = _load_json(args.phage_profiles, "PhageProfile")
+        if not isinstance(profile_payload, list):
+            raise ValueError("PhageProfile file must contain a JSON array.")
+        profiles = [phage_profile_from_dict(item) for item in profile_payload]
+        candidates = _load_candidates(args.candidates)
+        design = phist_screening_design(
+            host,
+            profiles,
+            candidates,
+            cocktail_id=args.cocktail_id,
+            min_members=args.cocktail_min,
+            max_members=args.cocktail_max,
+        )
+        write_cocktail_design(design, args.out)
+    except (OSError, ValueError) as exc:
+        print(f"CocktailDesign 创建失败：{exc}", file=sys.stderr)
+        return 2
+
+    print(
+        f"CocktailDesign {design.design_id}：{len(design.members)} 个成员 → {args.out}",
+        flush=True,
+    )
+    print(
+        "这是 PHIST-supported screening baseline，不是疗效或机制优化结论；"
+        "未解决证据缺口已写入 design。",
         file=sys.stderr,
     )
     return 0
@@ -327,6 +388,8 @@ def main(argv=None) -> int:
         return _host_profile(args, parser)
     if args.command == "phage-profiles":
         return _phage_profiles(args, parser)
+    if args.command == "cocktail-design":
+        return _cocktail_design(args, parser)
     if args.command == "fetch-snapshot":
         return _fetch_snapshot(args, parser)
     if args.command == "candidates":
