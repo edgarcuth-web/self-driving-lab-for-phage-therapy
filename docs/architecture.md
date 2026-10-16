@@ -105,16 +105,21 @@ Evidence IDs are hashes of the evidence content, so modified evidence fails vali
 
 ## CocktailDesign
 
-`CocktailDesign` records:
+CocktailDesign v1 is implemented as an immutable, content-hashed scientific design artifact. It records:
 
-- target `HostProfile`;
-- member `PhageProfile` versions;
-- supporting `InteractionEvidence`;
-- design objective and rationale;
-- assumptions, uncertainty and unresolved gaps;
-- model/optimizer identity.
+- target HostProfile identity;
+- versioned PhageProfile members;
+- the exact InteractionEvidence supporting each member;
+- named objectives and rationale;
+- assumptions and unresolved evidence gaps;
+- designer identity/version/parameters;
+- cohort-relative selection context such as legacy PHIST rank.
 
-Cocktail selection is a scientific decision, not an orchestration-agent task.
+The first designer is deliberately named `phist-screening-baseline`, not an optimizer. It selects at least two non-engineered PhageProfiles with PHIST-reported evidence, in cohort rank order. It does not top up with `no_signal` candidates and explicitly records missing physical phenotype, receptor/RBP, defense/counter-defense, cross-resistance and phage-phage compatibility evidence.
+
+Generic CocktailDesign can represent later engineered designs, but this baseline excludes engineered provenance to preserve the natural-first escalation rule.
+
+Cocktail selection is a scientific decision, not an orchestration-agent task. The current `run` path still accepts candidate records; CocktailDesign → ExperimentSpec is the next integration boundary.
 
 ## Engineering escalation
 
@@ -197,6 +202,7 @@ Feedback creates a new design/version; it does not overwrite previous experiment
 | `host_profile.py` | HostProfile v1 |
 | `phage_profile.py` | PhageProfile v1 and retrieved/natural/engineered provenance |
 | `interaction_evidence.py` | InteractionEvidence v1 and PHIST adapter |
+| `cocktail_design.py` | CocktailDesign v1 and conservative PHIST screening baseline |
 | `snapshots.py`, `candidates.py` | Reference snapshots and retrieved candidate records |
 | `sequences.py` | Accession-indexed sequences |
 | `ranking.py` | PHIST ranking compatibility layer and evidence producer |
@@ -211,12 +217,11 @@ Current implementation status belongs in [README.md](../README.md).
 ## Build order
 
 1. host-characterization analyzers;
-2. CocktailDesign;
-3. ExperimentSpec integration;
-4. measurement / phenotype ingestion;
-5. FailureAttribution;
-6. active learning;
-7. engineering escalation;
-8. additional real-device and Synbio integrations.
+2. ExperimentSpec integration;
+3. measurement / phenotype ingestion;
+4. FailureAttribution;
+5. active learning;
+6. engineering escalation;
+7. additional real-device and Synbio integrations.
 
 Each step should be mergeable and keep `main` runnable.

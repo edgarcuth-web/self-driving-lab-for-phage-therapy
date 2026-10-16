@@ -73,6 +73,8 @@ Every model/tool output needs tool/model identity, version, inputs and parameter
 
 `InteractionEvidence` is an evidence record, not a susceptibility verdict. It links a host identity and a versioned PhageProfile to one source signal. Evidence objects must remain content-addressed and reject probability-shaped fields that are not actually emitted by the source. Cohort-relative ordering such as rank belongs to ranking/design context, not pairwise InteractionEvidence.
 
+`CocktailDesign` is a scientific design artifact, not an execution plan. Every member must reference supporting InteractionEvidence; objectives, assumptions and unresolved gaps must be explicit. A baseline may prioritize weak computational evidence, but must not relabel it as mechanistic complementarity, cross-resistance protection or efficacy.
+
 ### Virtual hardware
 
 Virtual hardware may simulate job lifecycle, timeout, cancellation, failover, safe-state and artifact handoff.
@@ -109,6 +111,7 @@ Never execute model-generated code directly on devices.
 - `host_profile.py`: HostProfile v1.
 - `phage_profile.py`: PhageProfile v1 and provenance variants.
 - `interaction_evidence.py`: InteractionEvidence v1 and PHIST evidence adapter.
+- `cocktail_design.py`: CocktailDesign v1 and conservative PHIST screening baseline.
 - `snapshots.py`, `candidates.py`, `sequences.py`: reference data and retrieved candidates.
 - `ranking.py`: PHIST integration; emits legacy ranking plus InteractionEvidence.
 - `agents.py`: bounded orchestration decisions.
@@ -121,11 +124,10 @@ Never execute model-generated code directly on devices.
 Priority order:
 
 1. host-characterization analyzers;
-2. CocktailDesign;
-3. ExperimentSpec integration;
-4. real measurement / phenotype ingestion;
-5. FailureAttribution and active learning;
-6. engineering escalation.
+2. ExperimentSpec integration;
+3. real measurement / phenotype ingestion;
+4. FailureAttribution and active learning;
+5. engineering escalation.
 
 Do not expand robot simulation unless it supports one of these steps.
 

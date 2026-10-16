@@ -28,6 +28,7 @@ FailureAttribution / model update
 - HostProfile v1；
 - PhageProfile v1（retrieved / natural / engineered provenance）；
 - InteractionEvidence v1；
+- CocktailDesign v1 与 conservative PHIST screening baseline；
 - 固定参考快照、候选检索、序列索引；
 - PHIST 排序及结构化 interaction evidence；
 - 调度、恢复、事件日志；
@@ -37,7 +38,7 @@ FailureAttribution / model update
 待实现：
 
 - host characterization analyzers；
-- CocktailDesign；
+- ExperimentSpec integration；
 - 实测 phenotype ingestion；
 - failure attribution / active learning；
 - host-range engineering；
@@ -119,7 +120,24 @@ PHIST 的 shared k-mer statistic 不是感染成功概率；no-match 也不是 n
 
 `ranked.json` 继续保留 legacy `ranking` block 以兼容现有 workflow，同时每个候选新增 `interaction_evidence`。提供 `--host-profile` 时，CLI 会先确认 profile 与 host FASTA 的规范化 genome identity 一致，再把 HostProfile ID 写入 evidence。PHIST evidence 记录 pairwise signal、tool/version/parameters、sequence snapshot provenance 与原始统计量；候选池中的相对 `rank` 只保留在 legacy ranking，不进入 pairwise evidence。未来 scientific decision layer 应优先消费 `InteractionEvidence`。
 
-### 5. 验证 orchestration
+### 5. 生成 CocktailDesign v1
+
+```bash
+python -m phage_lab cocktail-design \
+  --host-profile host-profile.json \
+  --phage-profiles phage-profiles.json \
+  --candidates ranked.json \
+  --cocktail-id cocktail-001 \
+  --cocktail-min 2 \
+  --cocktail-max 3 \
+  --out cocktail-design.json
+```
+
+当前 baseline 只从非 engineered PhageProfile 中选择 PHIST-reported candidates，并把 cohort rank 记录为 design context。它明确保留 physical phenotype、receptor/RBP、defense/counter-defense、cross-resistance 和 phage-phage compatibility 等未解决 gap，因此不是疗效优化器，也不会用 `no_signal` 候选硬凑组合。
+
+现有 `run` 尚未直接消费 CocktailDesign；把 design 变成受约束的 ExperimentSpec 是下一阶段。
+
+### 6. 验证 orchestration
 
 ```bash
 python -m phage_lab run \
