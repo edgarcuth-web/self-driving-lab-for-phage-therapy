@@ -404,6 +404,69 @@ def new_host_state(
     )
 
 
+
+def host_state_evidence_from_measurement(
+    measurement,
+    *,
+    evidence_id: str,
+    relation: str,
+    details: dict | None = None,
+) -> HostStateEvidence:
+    """Create a provenance reference from one arm-scoped Measurement.
+
+    This copies lineage only. It does not promote raw measurement data into a
+    biological state interpretation.
+    """
+
+    from .measurement import Measurement
+
+    if not isinstance(measurement, Measurement):
+        raise ValueError("measurement must be a Measurement.")
+    if measurement.target_host_profile_id is None:
+        raise ValueError(
+            "Measurement must carry target_host_profile_id for HostState evidence."
+        )
+    return HostStateEvidence(
+        evidence_id=evidence_id,
+        host_profile_id=measurement.target_host_profile_id,
+        kind="measurement",
+        reference_id=measurement.record_id,
+        reference_sha256=measurement.content_sha256,
+        observed_at=measurement.recorded_at,
+        relation=relation,
+        details=dict(details or {}),
+    )
+
+
+def host_state_evidence_from_phenotype(
+    phenotype,
+    *,
+    evidence_id: str,
+    relation: str,
+    details: dict | None = None,
+) -> HostStateEvidence:
+    """Create a provenance reference from one admitted arm-scoped Phenotype.
+
+    The Phenotype interpretation remains the source of the biological claim;
+    HostState merely points to it.
+    """
+
+    from .phenotype import Phenotype
+
+    if not isinstance(phenotype, Phenotype):
+        raise ValueError("phenotype must be a Phenotype.")
+    return HostStateEvidence(
+        evidence_id=evidence_id,
+        host_profile_id=phenotype.target_host_profile_id,
+        kind="phenotype",
+        reference_id=phenotype.record_id,
+        reference_sha256=phenotype.content_sha256,
+        observed_at=phenotype.assessed_at,
+        relation=relation,
+        details=dict(details or {}),
+    )
+
+
 def host_state_evidence_from_dict(data: dict) -> HostStateEvidence:
     if not isinstance(data, dict):
         raise ValueError("HostState evidence must be an object.")

@@ -5,11 +5,15 @@ import unittest
 
 from phage_lab.biology import GenomeSummary
 from phage_lab.host_profile import new_host_profile, write_host_profile
+from phage_lab.measurement import Measurement
+from phage_lab.phenotype import Phenotype, PhenotypeAssessor
 from phage_lab.host_state import (
     HostStateComponent,
     HostStateEvidence,
     HostStateReference,
     host_state_component_from_dict,
+    host_state_evidence_from_measurement,
+    host_state_evidence_from_phenotype,
     host_state_from_dict,
     host_state_reference,
     load_host_state,
@@ -241,6 +245,70 @@ class HostStateTests(unittest.TestCase):
             write_host_state(state, path)
             loaded = load_host_state(path)
         self.assertEqual(loaded.to_dict(), state.to_dict())
+
+
+class HostStateArtifactEvidenceTests(unittest.TestCase):
+    def test_measurement_adapter_copies_lineage_without_interpreting_data(self):
+        measurement = Measurement(
+            measurement_id="measurement-001",
+            revision=1,
+            run_id="run-001",
+            experiment_spec_id="experiment-001:v1",
+            experiment_spec_sha256="d" * 64,
+            experiment_arm_id="treatment",
+            target_host_profile_id="isolate-001:v1",
+            phage_profile_ids=("PH-001:v1",),
+            source_step="measure",
+            device_id="reader-001",
+            material_batch_ids=("host-batch:v1", "phage-batch:v1"),
+            origin="physical_run",
+            physical_execution=True,
+            qc_status="valid",
+            qc_evidence=("qc-001",),
+            measurement_type="device_result",
+            data={"signal": [1.0, 2.0]},
+            recorded_at=T1,
+            created_at=T1,
+        )
+        ref = host_state_evidence_from_measurement(
+            measurement,
+            evidence_id="measurement-evidence",
+            relation="supports a time-dependent state variable",
+        )
+        self.assertEqual(ref.reference_id, measurement.record_id)
+        self.assertEqual(ref.reference_sha256, measurement.content_sha256)
+        self.assertEqual(ref.host_profile_id, "isolate-001:v1")
+        self.assertNotIn("signal", ref.details)
+
+    def test_phenotype_adapter_preserves_exact_interpretation_artifact_hash(self):
+        phenotype = Phenotype(
+            phenotype_id="phenotype-001",
+            revision=1,
+            experiment_spec_id="experiment-001:v1",
+            experiment_spec_sha256="d" * 64,
+            experiment_arm_id="treatment",
+            target_host_profile_id="isolate-001:v1",
+            phage_profile_ids=("PH-001:v1",),
+            material_batch_ids=("host-batch:v1", "phage-batch:v1"),
+            measurement_ids=("measurement-001:v1",),
+            phenotype_type="growth_response",
+            outcome="graded",
+            value=0.5,
+            unit="assessor_units",
+            interpretation="Explicit admitted phenotype.",
+            assessor=PhenotypeAssessor(name="manual", version="1"),
+            assessed_at=T1,
+        )
+        ref = host_state_evidence_from_phenotype(
+            phenotype,
+            evidence_id="phenotype-evidence",
+            relation="records historical phenotype at H(t)",
+        )
+        self.assertEqual(ref.kind, "phenotype")
+        self.assertEqual(ref.reference_id, phenotype.record_id)
+        self.assertEqual(ref.reference_sha256, phenotype.content_sha256)
+        self.assertEqual(ref.observed_at, phenotype.assessed_at)
+
 
 
 class HostStateCliTests(unittest.TestCase):
