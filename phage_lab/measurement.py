@@ -216,14 +216,36 @@ def measurement_from_run_report(
         f"device assignment for {source_step}",
     )
 
-    physical = report.get("physical_execution") is True
-    if physical and (
-        result.get("simulated") is True
-        or result.get("physical_execution") is False
-    ):
-        raise ValueError(
-            "physical run result contradicts its physical_execution provenance."
-        )
+    physical_flag = report.get("physical_execution")
+    if not isinstance(physical_flag, bool):
+        raise ValueError("run report physical_execution must be a boolean.")
+    physical = physical_flag
+    mode = report.get("execution_mode")
+    simulated = report.get("simulated")
+    if physical:
+        if mode != "real_hardware" or simulated is True:
+            raise ValueError(
+                "run report execution_mode/simulated contradict physical_execution=True."
+            )
+        if (
+            result.get("simulated") is True
+            or result.get("physical_execution") is False
+        ):
+            raise ValueError(
+                "physical run result contradicts its physical_execution provenance."
+            )
+    else:
+        if mode != "virtual_hardware" or simulated is not True:
+            raise ValueError(
+                "run report execution_mode/simulated contradict physical_execution=False."
+            )
+        if (
+            result.get("simulated") is False
+            or result.get("physical_execution") is True
+        ):
+            raise ValueError(
+                "virtual run result contradicts its non-physical provenance."
+            )
     origin = "physical_run" if physical else "virtual_run"
 
     spec = report.get("experiment_spec")
