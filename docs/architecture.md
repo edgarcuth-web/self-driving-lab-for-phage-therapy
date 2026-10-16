@@ -1,130 +1,366 @@
 # Architecture
 
-## 1. 目标与实现状态
+## 1. 目标
 
-系统以目标细菌基因组与研究目标为输入，贯通计算设计、实体制备、真实实验和结果反馈，形成 design–build–test–learn 闭环。
+系统以目标细菌 isolate/genome 与研究目标为输入，把科学决策、材料获取/制备、自动化实验与结果学习连接成可追溯的闭环。
 
-本文区分**目标架构**与**当前实现**。现有代码实现参考数据、候选检索、PHIST 排序、结构化规划、设备契约、调度恢复和运行记录。多路径设计、Synbio 领域模型、材料库存、实测反馈与学习仍待实现；真实设备目前有接入契约和 HTTP adapter 范例，仪器专用驱动与物理运行需要实际接入验证。
-
-## 2. 子系统与职责
+目标不是单独构建“会控制设备的 agent”，而是构建一个 **autonomous phage R&D platform**：
 
 ```text
-目标细菌基因组 + 研究目标 + 已有资源
-                       ↓
-             Bioinformatics 设计
-                       ↓ 设计包
-                 Synbio 制备
-                       ↓ 实体材料 + 质量记录
-                 自动化实验
-                       ↓ 实测数据
-                 分析与学习
-                       └────────→ 下一轮设计
-
-共享基础：版本与身份、材料账本、任务调度、设备连接、事件与结果存储
+Host genome / isolate
+        ↓
+Host characterization
+        ↓
+HostProfile
+        ↓
+PhageProfile + InteractionEvidence
+        ↓
+CocktailDesign
+        ↓
+ExperimentSpec
+        ↓
+Lab orchestration
+        ↓
+Measurement / Phenotype
+        ↓
+FailureAttribution
+        ↓
+model update / engineering escalation
+        └────────────────────→ next cycle
 ```
 
-### Bioinformatics：设计什么
+当前代码已经具备较成熟的 control-plane 基础：参考数据、候选检索、PHIST、调度恢复、设备契约、执行记录和 provenance。接下来优先建设 scientific decision layer，而不是继续扩张虚拟机器人能力。
 
-整合目标细菌特征、参考知识、已知变异和历史实验结果，支持四类可组合的任务：
+## 2. 两层智能必须分离
 
-- 筛选已有噬菌体候选。
-- 设计已有候选的鸡尾酒组合。
-- 为已有候选的覆盖缺口寻找或提出互补候选。
-- 提出新的或改造后的基因组候选。
+### Scientific decision layer
 
-输出版本固定的设计包：候选身份、来源或设计沿革、关联序列文件及校验值、组合成员、设计依据和待验证问题。检索、预测、序列设计与组合决策具有各自接口和评测；PHIST 是当前分析组件，不代表完整设计系统。
+回答：
 
-### Synbio：如何获得可测试的实物
+- 目标 host 是什么；
+- 哪些 phage-host 相互作用证据存在；
+- 哪些天然候选最值得测试；
+- cocktail 为什么这样组合；
+- 哪些覆盖缺口或抗性路径仍未解决；
+- 下一轮最有信息价值的实验是什么；
+- 是否有充分依据升级到工程化路径。
 
-Synbio 将设计包转化为可交付的实体材料。核酸合成是其中一个阶段；合成产物、制备批次和最终实验材料分别建模。
+其输出必须是结构化、可版本化、可追溯的科学对象，而不是直接设备命令。
 
-| 模块 | 职责与交付物 |
+### Lab orchestration layer
+
+回答：
+
+- 哪些操作组成 ExperimentSpec；
+- 哪台设备执行；
+- 任务依赖是什么；
+- job 是否真正完成；
+- timeout 后如何 reconciliation；
+- 是否可以重试/切换设备；
+- 中止时设备处于什么 safe state；
+- 哪些 artifact 与本次运行关联。
+
+它不能自行发明 biological efficacy，也不能把 workflow success 解释成 biological success。
+
+```text
+Scientific decision
+      ↓
+validated ExperimentSpec
+      ↓
+Orchestrator
+      ↓
+DeviceDriver(s)
+```
+
+## 3. 核心领域对象
+
+以下对象逐步替代跨模块传递的匿名 dict。
+
+| 对象 | 作用 |
 | --- | --- |
-| 设计交接与版本管理 | 固定输入版本，关联候选、序列摘要、组合关系和交付要求；设计变更产生新版本 |
-| 制备规划 | 根据现有库存和外部能力，生成获取、合成、制备与质量确认任务及依赖关系 |
-| 服务与设备连接 | 对接外部合成/制备服务及内部设备，追踪订单、远端任务、交付文件和执行状态 |
-| 材料与库存 | 维护实物标识、来源批次、容器位置、可用量、预留、转移与消耗记录 |
-| 质量确认与放行 | 将身份、材料质量和可用量的实际检查结果关联到批次，判定能否交付指定实验 |
-| 制备反馈 | 返回交付材料、质量记录、未完成阶段、失败原因及实际资源消耗 |
+| `HostProfile` | 目标 host 的版本化表征 |
+| `PhageProfile` | 天然或设计 phage 的版本化表征 |
+| `InteractionEvidence` | phage-host 关系的一条可追溯证据或模型输出 |
+| `CocktailDesign` | cocktail 成员、目标、依据、版本 |
+| `ExperimentSpec` | 要验证什么，以及允许的实验边界 |
+| `MaterialBatch` | 实体 phage/host/material 的批次与质量状态 |
+| `Measurement` | 与具体实验/设备/原始 artifact 绑定的测量 |
+| `Phenotype` | 对有效测量进行的生物学解释 |
+| `FailureAttribution` | 对失败机制的显式假设及证据 |
+| model/analysis record | 工具、模型、参数、输入和评测版本 |
 
-按候选情况选择路径：已有库存进入材料确认与交付；无库存候选进入外部获取或相应制备任务；新设计进入合成与实体制备路径。组合方案协调各成员的准备状态，并保留成员及批次关系。
+完整 lineage 最终应能表达：
 
-设备任务完成不自动等于材料可用。Synbio 的完成标准是：交付与设计版本对应、具有质量依据、数量和状态满足指定实验的实体材料，或返回明确的未完成状态。
+```text
+HostProfile
+    ↓
+Design version
+    ↓
+MaterialBatch
+    ↓
+ExperimentSpec
+    ↓
+Measurement
+    ↓
+Phenotype / FailureAttribution
+    ↓
+Feedback decision
+    ↓
+next Design version
+```
 
-### 自动化实验：测到什么
+已用于 build/test 的设计版本不可覆盖修改。
 
-接收材料交付信息与实验规格，生成任务图，经控制层调度真实设备。保存输入材料、执行条件、设备/任务身份、原始结果文件和处理结果之间的关联。
+## 4. Host characterization
 
-实验记录同时表达执行状态与测量结果，避免把成功完成调度直接解释为候选有效。
+Host genome 是科学闭环的入口，但 raw FASTA 本身不是 HostProfile。
 
-### 分析与学习：下一轮做什么
+Host characterization pipeline 将本地序列分析结果组织为版本化 profile。目标 profile 可以逐步容纳：
 
-关联设计、材料与实验结果，评价候选及组合，形成下一轮设计建议。记录训练/评测数据版本、模型版本和结果依据，区分计算预测与实测结论。
+- taxonomy / strain identity；
+- receptor candidates；
+- capsule、LPS 或其他 surface structures；
+- anti-phage defense systems；
+- AMR；
+- virulence context；
+- historical susceptibility / phenotype references。
 
-制备失败、设备执行失败和生物学测试结果是不同类别。未获得合格材料或有效测量的任务，不能被自动标成负向生物学结果。
+关键语义：
 
-## 3. 交接对象与追溯关系（目标接口）
+**unknown != assessed negative。**
 
-以下是待实现的领域边界，不是当前已有的 API 或数据库表：
+如果某一 feature class 从未分析，应明确为 `unknown`。只有一个有身份和版本的分析过程实际评估过该 feature class，才允许表达“已评估但未发现”。
 
-| 对象 | 应保留的关联 |
-| --- | --- |
-| 研究输入 | 样本身份、基因组引用及校验值、研究目标、允许使用的资源 |
-| 设计包 | 不可变版本、候选/组合成员、参考来源或父设计、模型/工具身份与输入 |
-| 制备任务 | 输入设计版本、任务依赖、执行服务/设备、远端任务标识及产物 |
-| 实体材料 | 独立材料标识、来源批次、位置、数量、质量状态、流转与消耗 |
-| 实验记录 | 输入材料和批次、规格版本、设备任务、原始测量与处理产物 |
-| 反馈记录 | 引用的设计和实验版本、分析/模型版本、判断依据及下一轮建议 |
+原始 FASTA 默认不发送给外部 LLM。需要序列的本地 bioinformatics tool 可以读取它；外部 reasoning component 默认接收结构化 profile 与必要 provenance。
 
-完整链路是：**设计版本 → 制备任务 → 材料批次 → 实验 → 结果 → 下一轮设计**。同一设计可以有多个批次，同一批次可以参与多个实验；必须记录实际分配与消耗。组合版本及其各成员批次需分别追踪。
+第一阶段只建立 `HostProfile v1` 的 schema、版本、序列摘要、feature 状态和 analysis provenance，不假装已经存在 receptor/defense predictor。
 
-制备、质量、库存和实验状态独立存储。交付前核对依赖和材料状态；运行失败保留已经发生的实物转移与消耗，不能仅靠重置软件状态回滚。
+## 5. Phage characterization 与 InteractionEvidence
 
-## 4. 当前代码与目标架构的关系
+天然 phage、实验室 collection 和 engineered/generated phage 必须区分 provenance。
 
-| 当前模块 | 已实现职责 |
-| --- | --- |
-| `biology.py` | FASTA 校验及隐私保护的输入摘要 |
-| `snapshots.py`、`candidates.py`、`sequences.py` | 固定参考快照、来源标记与序列索引 |
-| `ranking.py` | 外部 PHIST 调用与排序来源记录 |
-| `agents.py`、`workflow.py` | 结构化提案、校验、任务调度与恢复 |
-| `devices.py`、`virtual_hardware.py` | 设备契约与开发用 twin |
-| `records.py`、`provenance.py` | 追加式事件、报告及代码身份 |
+`PhageProfile` 后续可以容纳：
 
-模块路径相对于 `phage_lab/`。后续领域组件复用控制与记录基础，但不能把现有候选记录、设备任务结果直接冒充完整的设计包、材料账本或学习系统。
+- sequence/design identity；
+- natural/retrieved/generated/engineered provenance；
+- RBP/tail annotations；
+- receptor evidence；
+- counter-defense annotations；
+- known host-range phenotype references；
+- production/material references。
 
-### 当前候选与排序契约
+`InteractionEvidence` 用于把“证据”与“最终设计决策”分离。可以来自：
 
-- 来源候选必须有非空的 `source_db`、`accession`、ISO 8601 `retrieved_at` 和 `source_uri`。新设计需要独立的来源/版本模型及准入路径，不能伪造数据库 accession。
-- 快照引用包含成对的 `snapshot_version` 和 `snapshot_sha256`；`require_snapshot` 要求两者存在。加载时验证文件哈希。参考快照获取独立于实验执行；设备和外部制备服务通过各自连接层通信。
-- Provider 转述来源数据库注释；`recorded_host` 和 `host_annotation_source` 不等同于实测 host range。
-- 排序工具缺失或失败时报错，不自动替换为启发式或源顺序排名。`candidate_ranking` 标记工具来源或未排序的 `source_order`。
-- PHIST 输出共享 k-mer 统计量，不是感染概率。保留当前 `ranking` 字段校验；无匹配记录保持 `reported: false` 且没有有效 rank，`plan_ranking` 记录被选择但未获工具支持的候选。不混合工具、宿主基因组或部分已排序的集合。
-- 选择数量来自实验规格 `selection_size`，当前默认 1–3。未来模型扩展有自己的版本、输出语义与评测，不受限于当前 PHIST 实现。
+- database annotation；
+- PHIST 或其他 genome-based tool；
+- sequence/embedding model；
+- RBP-receptor model；
+- defense/counter-defense model；
+- physical experiment。
 
-## 5. 统一控制与设备边界
+PHIST 当前保留为其中一个 evidence producer。共享 k-mer statistics 不是 infection probability；未报告不是 negative phenotype。
 
-Agent 提交结构化提案；控制器校验候选、设备能力、任务依赖和恢复动作，再通过 driver 执行。不运行模型生成的代码。
+## 6. CocktailDesign
 
-`execution_mode` 必须显式指定。`real_hardware` 要求调用方提供 `simulated=False` 的设备；`virtual_hardware` 要求 `simulated=True`，可自动建立开发用 twin。禁止隐式切换或混用。实物执行以连接系统的确认记录为依据。
+Cocktail design 不应由 orchestration agent 简单“取排名前 N 个”。
 
-设备契约包含 `describe`、`write`、`read`、`wait`、`cancel`、`enter_safe_state` 和 `close`。稳定的逻辑命令标识关联设备自己的 job ID。超时后先核对原任务：完成则复用结果；重试或切换设备前确认取消；状态未知则停止。
+未来 `CocktailDesign` 至少需要保留：
 
-真实 driver 声明 `safe_state` 的策略、`retains_hazard` 布尔值和说明。策略包括 `park_and_release`、`contained_hold`、`operator_required`，后两者不能声明不保留危险状态。中止和未成功运行请求进入安全状态；缺失、异常或无效确认记为 `unknown`，`physical_state` 汇总最差设备状态。
+- design version；
+- target HostProfile；
+- member PhageProfile versions；
+- supporting InteractionEvidence；
+- objective/rationale；
+- coverage assumptions；
+- uncertainty / unresolved gaps；
+- model/optimizer identity。
 
-接入细节见 [hardware.md](hardware.md)，范例见 [HTTP adapter](../examples/adapters/http_instrument.py)。开发用 twin 使用同样的恢复语义；故障注入位于 `tests/support.py`。
+设计目标可以逐步扩展为多目标问题，例如 coverage、mechanistic complementarity、cross-resistance risk 与实验信息价值；具体数值模型必须有独立评测与 provenance。
 
-## 6. 存储、验证与实施里程碑
+LLM 可以解释或协调 bounded decisions，但不能凭文本推理把数据库 annotation 变成感染概率。
 
-当前记录是 `runs/<run-id>/` 中的文件与事件。后续持久化设计、任务、材料、预留/消耗、设备 job、测量产物及反馈关系，支持进程重启后的状态核对。首版可用 SQLite 存储结构化状态，文件存储原始产物及校验值。
+## 7. Engineering escalation
 
-输入隐私、代码身份和执行来源贯穿各阶段。模拟读数按设备标记保存，不能与物理测量混淆；默认不向外部模型发送原始 FASTA 或 header。
+工程化不是默认入口。
 
-建议按可验收的纵向链路交付：
+推荐 escalation：
 
-1. **真实测试链路**：已有实体候选 → 仪器 adapter → 确认的实验执行与关联结果。
-2. **材料与制备链路**：设计/来源候选 → 一条真实获取或制备路径 → 质量确认 → 材料交付 → 测试。
-3. **多路径设计接口**：接入各类候选与组合设计组件，明确设计版本和评测，并连接所需制备能力。
-4. **反馈闭环**：将有效实测结果用于下一轮决策，保留前后设计、数据与模型版本。
+```text
+natural phage retrieval
+        ↓
+interaction evaluation
+        ↓
+cocktail optimization
+        ↓
+remaining gap identified?
+        │
+        ├─ no → test / learn
+        │
+        └─ yes
+             ↓
+   mechanism-supported engineering
+             ↓
+   host-range / RBP-level path
+             ↓ if unresolved intracellular block
+   defense-counter-defense path
+             ↓ only when justified
+   broader genome-level design
+```
 
-单元测试验证软件约束；外部工具集成测试验证工具连接；物理集成验收记录实际设备、材料、测量产物与完整追溯关系。每个里程碑按真实完成的能力更新 README 状态。
+是否进入某一级 engineering 由证据与明确 gap 触发，并产生新的 design provenance；不得把 engineered design 冒充 retrieved natural candidate。
+
+## 8. Synbio 与材料
+
+Synbio 把版本化设计转化为可测试实体材料。
+
+需要区分：
+
+- design；
+- acquisition/order；
+- synthesis product；
+- build/preparation batch；
+- final experimental material；
+- quality status；
+- inventory/reservation/consumption。
+
+设备任务“完成”不等于材料“可用”。进入测试的 material 必须有明确身份、对应 design version、质量依据和可用量，或者返回明确 incomplete 状态。
+
+同一 design 可以有多个 material batch；实验必须记录实际使用的 batch。
+
+## 9. 自动化实验
+
+自动化实验层接收：
+
+```text
+ExperimentSpec
++ identified MaterialBatch(es)
++ device capabilities
+```
+
+并产生：
+
+```text
+execution records
+raw artifacts
+processed Measurement(s)
+```
+
+控制层不负责判断疗效。
+
+当前默认 `prepare → infect → measure` 只是 orchestrator 的早期 workflow 示例，不应成为最终领域模型。未来 workflow 应由 ExperimentSpec 派生，并通过明确 capability/adapter 执行。
+
+## 10. Measurement、Phenotype 与 feedback
+
+必须区分：
+
+1. build/acquisition failure；
+2. device execution failure；
+3. invalid/incomplete measurement；
+4. valid biological negative result；
+5. valid biological positive/graded result。
+
+只有有效 physical measurement 才能进入 phenotype analysis。
+
+`FailureAttribution` 后续用于表达例如 adsorption-level、intracellular compatibility、kinetics 或 unknown 等机制类别，但必须携带支持证据和不确定性；不能由 workflow failure 自动推断。
+
+feedback 决策引用原始设计、实验、分析和模型版本，并生成下一版本设计，而不是覆盖旧记录。
+
+## 11. 设备与 control plane
+
+现有设备边界继续保留。
+
+`execution_mode` 必须显式指定：
+
+- `real_hardware`：只接受 `simulated=False`；
+- `virtual_hardware`：只接受 `simulated=True`；
+- 禁止隐式 fallback 或混用。
+
+DeviceDriver 契约包含 `describe`、`write`、`read`、`wait`、`cancel`、`enter_safe_state`、`close`。
+
+timeout 表示 outcome unknown，不等于 failure。必须先查询原 job；只有确认取消后才能执行可能重复的物理动作。
+
+真实 driver 必须声明 safe-state policy。中止/失败运行请求设备进入声明状态；未能确认时记录 `unknown`。
+
+这些能力是平台基础设施，不是 biological intelligence。
+
+## 12. Virtual hardware 的边界
+
+virtual hardware 保留，用于：
+
+- scheduler 开发；
+- job lifecycle；
+- timeout/reconciliation；
+- cancellation；
+- failover；
+- safe-state；
+- artifact handoff。
+
+不应把随机 synthetic assay signal 当成科学闭环的数据源。
+
+后续 measurement-shaped development data 优先来自：
+
+1. historical physical data replay；
+2. explicit deterministic fixtures；
+3. unit-test-only stubs。
+
+所有此类数据都必须明确与 physical evidence 分离。
+
+## 13. 当前代码映射
+
+| 当前模块 | 已实现职责 | 下一步定位 |
+| --- | --- | --- |
+| `biology.py` | FASTA 校验、hash、长度/contig 摘要 | HostProfile 的 genome input |
+| `host_profile.py` | HostProfile v1 | scientific domain foundation |
+| `snapshots.py`, `candidates.py` | 参考快照、来源候选 | natural candidate source |
+| `sequences.py` | accession 序列索引 | analysis input |
+| `ranking.py` | PHIST 调用、排名 provenance | InteractionEvidence producer 之一 |
+| `agents.py` | bounded orchestration plan/recovery | 保持 orchestration，不承担 biological design |
+| `workflow.py` | 验证、调度、恢复 | ExperimentSpec execution engine |
+| `devices.py` | device contract | 保留 |
+| `virtual_hardware.py` | 开发 twin | 仅模拟设备行为 |
+| `records.py` | 运行 event/report | 扩展到科学 lineage |
+
+## 14. 实施顺序
+
+按可合并 vertical slice 推进：
+
+1. **HostProfile v1**：schema、unknown/assessed semantics、序列摘要、serialization/provenance。
+2. **PhageProfile v1**：自然/设计 provenance 分离。
+3. **InteractionEvidence**：先把 PHIST 包装成明确 evidence，再接其他模型。
+4. **CocktailDesign v1**：设计版本、成员、依据、目标与 uncertainty。
+5. **ExperimentSpec integration**：scientific design → existing orchestrator。
+6. **Measurement/Phenotype ingestion**：接真实历史数据，再接真实设备数据。
+7. **FailureAttribution**。
+8. **Active learning / experiment selection**。
+9. **Engineering escalation**。
+10. **更多真实设备和 Synbio integration**。
+
+每个阶段都应保持 main 可运行，并有测试覆盖。避免持续多轮、不可合并的大重构。
+
+## 15. 当前完成状态
+
+已实现：
+
+- reference snapshot / candidate retrieval；
+- sequence indexing；
+- PHIST integration；
+- orchestration plan/recovery；
+- real/virtual device boundary；
+- safe-state；
+- append-only run events 和报告；
+- HTTP instrument adapter example。
+
+尚未实现：
+
+- 完整 host characterization analyzers；
+- PhageProfile；
+- 通用 InteractionEvidence；
+- 真正 cocktail optimizer；
+- material ledger；
+- physical phenotype ingestion；
+- feedback learning；
+- failure attribution；
+- engineering design；
+- instrument-specific physical validation。
+
+文档中必须持续区分目标架构与当前实现，不能把计划中的接口写成已经具备的能力。
