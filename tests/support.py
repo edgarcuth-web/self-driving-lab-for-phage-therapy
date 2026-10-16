@@ -57,3 +57,37 @@ def make_test_fleet(emit, injector=None, *, operations=tuple(WORKFLOW), seed: in
     """Virtual devices with a compatible peer per operation, so failover has somewhere to go."""
     return make_virtual_devices(operations, emit, replicas=replicas, seed=seed,
                                 time_scale=time_scale, injector=injector)
+
+
+class RealDeviceDouble:
+    """A driver that declares itself non-simulated, for real_hardware paths."""
+
+    def __init__(self, device_id, operation):
+        self.device_id = device_id
+        self.operation = operation
+        self.jobs = {}
+
+    def describe(self):
+        return {"device_id": self.device_id, "operations": [self.operation],
+                "simulated": False, "state": "available"}
+
+    async def read(self, job_id=None):
+        if job_id is None:
+            return {**self.describe(), "busy": False}
+        return {"device_id": self.device_id, "job_id": job_id,
+                "state": "succeeded", "result": self.jobs[job_id]}
+
+    async def write(self, command):
+        job_id = f"{self.device_id}:{command.command_id}"
+        self.jobs[job_id] = {"sample_id": command.payload["sample_id"],
+                             "operation": command.operation, "source": "test-double"}
+        return job_id
+
+    async def wait(self, job_id):
+        return self.jobs[job_id]
+
+    async def cancel(self, job_id):
+        return False
+
+    async def close(self):
+        pass

@@ -10,39 +10,7 @@ from phage_lab.workflow import (
     validate_plan,
 )
 
-from support import CANDIDATES, WORKFLOW
-
-
-class RealDevice:
-    def __init__(self, device_id, operation):
-        self.device_id = device_id
-        self.operation = operation
-        self.jobs = {}
-
-    def describe(self):
-        return {"device_id": self.device_id, "operations": [self.operation],
-                "simulated": False, "state": "available"}
-
-    async def read(self, job_id=None):
-        if job_id is None:
-            return {**self.describe(), "busy": False}
-        return {"device_id": self.device_id, "job_id": job_id,
-                "state": "succeeded", "result": self.jobs[job_id]}
-
-    async def write(self, command):
-        job_id = f"{self.device_id}:{command.command_id}"
-        self.jobs[job_id] = {"sample_id": command.payload["sample_id"],
-                             "operation": command.operation, "source": "test-double"}
-        return job_id
-
-    async def wait(self, job_id):
-        return self.jobs[job_id]
-
-    async def cancel(self, job_id):
-        return False
-
-    async def close(self):
-        pass
+from support import CANDIDATES, WORKFLOW, RealDeviceDouble as RealDevice
 
 
 class StaticAgent:

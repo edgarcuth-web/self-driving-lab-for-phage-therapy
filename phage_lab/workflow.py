@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime
 import math
 from pathlib import Path
+import re
 
 from .biology import read_fasta
 from .devices import Command, DeviceUnavailable
@@ -14,6 +15,13 @@ EXECUTION_MODES = ("real_hardware", "virtual_hardware")
 
 # Every experiment-path candidate must carry all of these, as nonempty strings.
 CANDIDATE_PROVENANCE_FIELDS = ("source_db", "accession", "retrieved_at", "source_uri")
+
+# Records produced from a pinned snapshot additionally name the snapshot. They
+# are not required of every candidate — an isolate from a lab's own collection
+# has a legitimate source and no snapshot — but a record carrying one of them
+# must carry both, and `require_snapshot` makes them mandatory for a run.
+SNAPSHOT_PROVENANCE_FIELDS = ("snapshot_version", "snapshot_sha256")
+SHA256_PATTERN = re.compile(r"\A[0-9a-f]{64}\Z")
 
 # Inclusive (minimum, maximum) candidates a plan may select when the caller
 # does not state its own bound.
@@ -90,8 +98,32 @@ def validate_recovery(decision: dict, alternatives: list[str]) -> None:
         raise WorkflowError("Only failover can specify a replacement device.")
 
 
+def _validate_snapshot_provenance(candidate: dict, identifier: str, *,
+                                  require_snapshot: bool) -> None:
+    present = [field for field in SNAPSHOT_PROVENANCE_FIELDS
+               if candidate.get(field) not in (None, "")]
+    if require_snapshot and len(present) != len(SNAPSHOT_PROVENANCE_FIELDS):
+        raise WorkflowError(
+            f"Candidate {identifier!r} did not come from a pinned snapshot: "
+            f"{', '.join(SNAPSHOT_PROVENANCE_FIELDS)} are required for this run.")
+    if not present:
+        return
+    missing = [field for field in SNAPSHOT_PROVENANCE_FIELDS if field not in present]
+    if missing:
+        raise WorkflowError(
+            f"Candidate {identifier!r} names a snapshot but omits {', '.join(missing)}; "
+            "a snapshot reference is only traceable with both fields.")
+    for field in SNAPSHOT_PROVENANCE_FIELDS:
+        if not isinstance(candidate[field], str) or not candidate[field].strip():
+            raise WorkflowError(f"Candidate {identifier!r} has a non-string {field}.")
+    if not SHA256_PATTERN.match(candidate["snapshot_sha256"]):
+        raise WorkflowError(
+            f"Candidate {identifier!r} has a snapshot_sha256 that is not a SHA-256 digest.")
+
+
 def _validate_candidates(candidates: list[dict], *,
-                         min_candidates: int = 1, max_candidates: int | None = None) -> None:
+                         min_candidates: int = 1, max_candidates: int | None = None,
+                         require_snapshot: bool = False) -> None:
     """Require positive, traceable provenance on every experiment-path candidate.
 
     This is an allowlist, not a denylist. A candidate record is accepted only
@@ -129,12 +161,14 @@ def _validate_candidates(candidates: list[dict], *,
         except ValueError:
             raise WorkflowError(
                 f"Candidate {identifier!r} has a non-ISO-8601 retrieved_at timestamp.") from None
+        _validate_snapshot_provenance(candidate, identifier, require_snapshot=require_snapshot)
 
 
-def validate_experiment_inputs(candidates: list[dict], devices: dict, execution_mode: str) -> None:
+def validate_experiment_inputs(candidates: list[dict], devices: dict, execution_mode: str, *,
+                               require_snapshot: bool = False) -> None:
     if execution_mode not in EXECUTION_MODES:
         raise WorkflowError("Unknown execution mode.")
-    _validate_candidates(candidates)
+    _validate_candidates(candidates, require_snapshot=require_snapshot)
     if not devices:
         raise WorkflowError("An experiment run requires configured device drivers.")
     expected_simulated = execution_mode == "virtual_hardware"
@@ -247,7 +281,7 @@ class Scheduler:
 async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str,
                          candidates: list[dict], devices: dict | None, workflow: dict, agent,
                          execution_mode: str, selection_size: tuple[int, int] = DEFAULT_SELECTION_SIZE,
-                         timeout_seconds: float = 60.0,
+                         require_snapshot: bool = False, timeout_seconds: float = 60.0,
                          echo: bool = True, on_event=None) -> tuple[dict, Path]:
     """Run an experiment plan against physical or explicitly virtual hardware.
 
@@ -263,17 +297,20 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
     if execution_mode not in EXECUTION_MODES:
         raise ValueError(f"execution_mode must be one of {EXECUTION_MODES}.")
     operations = _validate_workflow(workflow)
-    _validate_candidates(candidates, min_candidates=selection_size[0])
+    _validate_candidates(candidates, min_candidates=selection_size[0],
+                         require_snapshot=require_snapshot)
     if execution_mode == "real_hardware" and not devices:
         raise WorkflowError("real_hardware requires configured physical device drivers.")
     if devices:
-        validate_experiment_inputs(candidates, devices, execution_mode)
+        validate_experiment_inputs(candidates, devices, execution_mode,
+                                   require_snapshot=require_snapshot)
 
     records = RunRecords(output_root, echo, on_event=on_event)
     if execution_mode == "virtual_hardware" and not devices:
         from .virtual_hardware import make_virtual_devices
         devices = make_virtual_devices(operations, records.emit)
-        validate_experiment_inputs(candidates, devices, execution_mode)
+        validate_experiment_inputs(candidates, devices, execution_mode,
+                                   require_snapshot=require_snapshot)
 
     physical_execution = execution_mode == "real_hardware"
     report = {"schema_version": 2, "started_at": utc_now(), "status": "running",
@@ -295,6 +332,10 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
         records.emit("input_validated", **report["genome"])
         report["candidates"] = candidates
         report["candidate_sources"] = sorted({candidate["source_db"] for candidate in candidates})
+        report["candidate_snapshots"] = sorted(
+            {f"{candidate['source_db']} {candidate['snapshot_version']} "
+             f"({candidate['snapshot_sha256'][:12]})"
+             for candidate in candidates if candidate.get("snapshot_version")})
         manifests = [device.describe() for device in devices.values()]
         records.emit("devices_discovered", count=len(manifests), execution_mode=execution_mode)
         records.emit("planning_requested", agent=report["agent"])
