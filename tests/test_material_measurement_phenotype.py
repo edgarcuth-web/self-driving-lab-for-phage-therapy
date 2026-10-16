@@ -467,6 +467,66 @@ class MaterialRunIntegrationTests(unittest.IsolatedAsyncioTestCase):
                     echo=False,
                 )
 
+    async def test_real_spec_run_flows_into_physical_measurement_and_phenotype(self):
+        spec = experiment_spec()
+        batches = material_batches()
+        devices = {
+            operation: RealDeviceDouble(operation, operation)
+            for operation in WORKFLOW
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            report, directory = await run_experiment(
+                GENOME,
+                Path(temporary) / "runs",
+                sample_id="sample-physical",
+                candidates=CANDIDATES,
+                devices=devices,
+                workflow=spec.workflow_dict(),
+                agent=RuleAgent(),
+                execution_mode="real_hardware",
+                experiment_spec=spec,
+                material_batches=batches,
+                echo=False,
+            )
+            self.assertEqual(report["status"], "succeeded")
+            self.assertTrue(report["physical_execution"])
+            self.assertEqual(
+                report["material_batch_ids"],
+                [batch.record_id for batch in batches],
+            )
+
+            persisted = json.loads(
+                (directory / "report.json").read_text(encoding="utf-8")
+            )
+            measurement = measurement_from_run_report(
+                persisted,
+                measurement_id="measurement-from-run",
+                qc_status="valid",
+                created_at=STAMP,
+            )
+            self.assertEqual(
+                measurement.evidence_class,
+                "physical_measurement",
+            )
+            phenotype = phenotype_from_measurements(
+                spec,
+                [measurement],
+                phenotype_id="phenotype-from-run",
+                phenotype_type="manual_result_review",
+                outcome="positive",
+                interpretation=(
+                    "Test assessor admitted the physical test-double result "
+                    "for lineage validation only."
+                ),
+                assessor_name="test-assessor",
+                assessor_version="1",
+                assessed_at=STAMP,
+            )
+            self.assertEqual(
+                phenotype.material_batch_ids,
+                tuple(batch.record_id for batch in batches),
+            )
+
     async def test_virtual_spec_run_can_bind_material_lineage_without_consumption_claim(self):
         spec = experiment_spec()
         batches = material_batches()
