@@ -16,6 +16,7 @@ Scientific components may produce:
 - `PhageProfile`
 - `InteractionEvidence`
 - `CocktailDesign`
+- `ExperimentSpec`
 - `FailureAttribution`
 - engineering proposals
 
@@ -75,6 +76,8 @@ Every model/tool output needs tool/model identity, version, inputs and parameter
 
 `CocktailDesign` is a scientific design artifact, not an execution plan. Every member must reference supporting InteractionEvidence; objectives, assumptions and unresolved gaps must be explicit. A baseline may prioritize weak computational evidence, but must not relabel it as mechanistic complementarity, cross-resistance protection or efficacy.
 
+`ExperimentSpec` is the scientific-to-orchestration boundary. It locks the exact CocktailDesign reference, target HostProfile, member PhageProfiles and abstract workflow before device assignment. In spec-bound execution, orchestration may assign/recover devices but must never add, drop or replace scientific members or alter the workflow.
+
 ### Virtual hardware
 
 Virtual hardware may simulate job lifecycle, timeout, cancellation, failover, safe-state and artifact handoff.
@@ -105,6 +108,8 @@ Real drivers declare `safe_state`. If the device cannot confirm its physical sta
 
 Never execute model-generated code directly on devices.
 
+For an ExperimentSpec-bound run, the agent interface is limited to `assign_devices()` and recovery. Legacy `plan()` candidate selection is permitted only on the compatibility path without an ExperimentSpec.
+
 ## Current code map
 
 - `biology.py`: FASTA validation and sequence summary.
@@ -112,6 +117,7 @@ Never execute model-generated code directly on devices.
 - `phage_profile.py`: PhageProfile v1 and provenance variants.
 - `interaction_evidence.py`: InteractionEvidence v1 and PHIST evidence adapter.
 - `cocktail_design.py`: CocktailDesign v1 and conservative PHIST screening baseline.
+- `experiment_spec.py`: ExperimentSpec v1, CocktailDesign freezing and candidate binding.
 - `snapshots.py`, `candidates.py`, `sequences.py`: reference data and retrieved candidates.
 - `ranking.py`: PHIST integration; emits legacy ranking plus InteractionEvidence.
 - `agents.py`: bounded orchestration decisions.
@@ -124,10 +130,9 @@ Never execute model-generated code directly on devices.
 Priority order:
 
 1. host-characterization analyzers;
-2. ExperimentSpec integration;
-3. real measurement / phenotype ingestion;
-4. FailureAttribution and active learning;
-5. engineering escalation.
+2. real measurement / phenotype ingestion;
+3. FailureAttribution and active learning;
+4. engineering escalation.
 
 Do not expand robot simulation unless it supports one of these steps.
 

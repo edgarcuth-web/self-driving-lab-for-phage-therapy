@@ -18,7 +18,12 @@ import json
 import random
 from typing import Callable, Iterable, Protocol
 
-from .devices import Command, DeviceError, DeviceUnavailable
+from .devices import (
+    Command,
+    DeviceError,
+    DeviceUnavailable,
+    validate_execution_payload,
+)
 
 VIRTUAL_INTERFACE = "phage-lab-virtual-twin-v1"
 
@@ -89,15 +94,9 @@ class VirtualDevice:
         self._reachable()
         if command.operation != self.operation:
             raise DeviceError("Device lacks the requested operation.")
-        if (not command.command_id or type(command.attempt) is not int or command.attempt < 1
-                or set(command.payload) != {"sample_id", "candidate_ids"}
-                or not isinstance(command.payload["sample_id"], str)
-                or not command.payload["sample_id"]
-                or not isinstance(command.payload["candidate_ids"], list)
-                or not command.payload["candidate_ids"]
-                or any(not isinstance(item, str) or not item
-                       for item in command.payload["candidate_ids"])):
+        if not command.command_id or type(command.attempt) is not int or command.attempt < 1:
             raise DeviceError("Command is outside the virtual device contract.")
+        validate_execution_payload(command.payload)
         fingerprint = sha256(json.dumps(
             [command.operation, command.payload], sort_keys=True).encode()).hexdigest()
         previous = self._commands.get(command.command_id)

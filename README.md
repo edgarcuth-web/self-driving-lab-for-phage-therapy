@@ -29,6 +29,7 @@ FailureAttribution / model update
 - PhageProfile v1（retrieved / natural / engineered provenance）；
 - InteractionEvidence v1；
 - CocktailDesign v1 与 conservative PHIST screening baseline；
+- ExperimentSpec v1 与 CocktailDesign → spec-bound run；
 - 固定参考快照、候选检索、序列索引；
 - PHIST 排序及结构化 interaction evidence；
 - 调度、恢复、事件日志；
@@ -38,8 +39,7 @@ FailureAttribution / model update
 待实现：
 
 - host characterization analyzers；
-- ExperimentSpec integration；
-- 实测 phenotype ingestion；
+- 实测 measurement / phenotype ingestion；
 - failure attribution / active learning；
 - host-range engineering；
 - 仪器专用驱动与真实物理运行。
@@ -135,19 +135,32 @@ python -m phage_lab cocktail-design \
 
 当前 baseline 只从非 engineered PhageProfile 中选择 PHIST-reported candidates，并把 cohort rank 记录为 design context。它明确保留 physical phenotype、receptor/RBP、defense/counter-defense、cross-resistance 和 phage-phage compatibility 等未解决 gap，因此不是疗效优化器，也不会用 `no_signal` 候选硬凑组合。
 
-现有 `run` 尚未直接消费 CocktailDesign；把 design 变成受约束的 ExperimentSpec 是下一阶段。
+### 6. 冻结为 ExperimentSpec v1
 
-### 6. 验证 orchestration
+```bash
+python -m phage_lab experiment-spec \
+  --cocktail-design cocktail-design.json \
+  --experiment-id experiment-001 \
+  --out experiment-spec.json
+```
+
+ExperimentSpec 记录 source CocktailDesign ID/hash、目标 HostProfile、锁定的 PhageProfile members、抽象 workflow、scientific questions 与 execution constraints。它不包含 device assignment；如需自定义 workflow，应在创建 ExperimentSpec 时用 `--workflow` 固定下来。
+
+### 7. 执行 locked ExperimentSpec
 
 ```bash
 python -m phage_lab run \
+  --experiment-spec experiment-spec.json \
   --candidates ranked.json \
+  --genome my_isolate.fasta \
   --sample-id sample-001 \
   --execution-mode virtual_hardware \
   --require-snapshot
 ```
 
-virtual hardware 只验证控制链路。
+spec-bound run 会从 candidate 文件中只解析 ExperimentSpec 锁定的成员；额外 discovery candidates 不会进入执行。运行时 agent 只能分配/恢复设备，不能改 cocktail membership，也不能覆盖 spec workflow。Host genome、member provenance 或 workflow 不一致时执行被拒绝。
+
+未提供 `--experiment-spec` 时，旧 candidate-based `run` 仍保留作兼容路径。virtual hardware 只验证控制链路，不产生 biological evidence。
 
 ## 真实设备
 

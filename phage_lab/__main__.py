@@ -15,7 +15,7 @@ from .workflow import (
 )
 
 MAX_INPUT_BYTES = 4_000_000
-COMMANDS = ("run", "host-profile", "phage-profiles", "cocktail-design", "fetch-snapshot", "candidates", "rank", "version")
+COMMANDS = ("run", "host-profile", "phage-profiles", "cocktail-design", "experiment-spec", "fetch-snapshot", "candidates", "rank", "version")
 
 
 def _load_json(path: Path, label: str):
@@ -91,6 +91,12 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="JSON array of PhageProfile records.")
     parser.add_argument("--cocktail-id",
                         help="Caller-owned identifier for a CocktailDesign.")
+    parser.add_argument("--cocktail-design", type=Path,
+                        help="CocktailDesign JSON used to create an ExperimentSpec.")
+    parser.add_argument("--experiment-id",
+                        help="Caller-owned identifier for an ExperimentSpec.")
+    parser.add_argument("--experiment-spec", type=Path,
+                        help="ExperimentSpec JSON that locks scientific membership for run.")
     parser.add_argument("--cocktail-min", type=int, default=2,
                         help="Minimum PHIST-supported members for cocktail-design.")
     parser.add_argument("--cocktail-max", type=int, default=3,
@@ -220,6 +226,51 @@ def _cocktail_design(args, parser) -> int:
     return 0
 
 
+def _experiment_spec(args, parser) -> int:
+    """Freeze a CocktailDesign into an execution-neutral ExperimentSpec."""
+
+    missing = [
+        name
+        for name, value in (
+            ("--cocktail-design", args.cocktail_design),
+            ("--experiment-id", args.experiment_id),
+            ("--out", args.out),
+        )
+        if not value
+    ]
+    if missing:
+        parser.error("experiment-spec requires " + ", ".join(missing))
+
+    from .cocktail_design import load_cocktail_design
+    from .experiment_spec import (
+        experiment_spec_from_cocktail,
+        write_experiment_spec,
+    )
+
+    try:
+        design = load_cocktail_design(args.cocktail_design)
+        workflow = _load_workflow(args.workflow)
+        spec = experiment_spec_from_cocktail(
+            design,
+            experiment_id=args.experiment_id,
+            workflow=workflow,
+        )
+        write_experiment_spec(spec, args.out)
+    except (OSError, ValueError) as exc:
+        print(f"ExperimentSpec 创建失败：{exc}", file=sys.stderr)
+        return 2
+
+    print(
+        f"ExperimentSpec {spec.spec_id}：{len(spec.member_phage_profile_ids)} 个锁定成员 → {args.out}",
+        flush=True,
+    )
+    print(
+        "ExperimentSpec 不分配设备；cocktail membership 已冻结，运行时 orchestration 只能分配/恢复设备。",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def _fetch_snapshot(args, parser) -> int:
     from .snapshots import SnapshotError, create_snapshot
     missing = [name for name, value in (("--snapshot", args.snapshot),
@@ -323,11 +374,28 @@ def _rank(args, parser) -> int:
 
 
 def _run(args, parser) -> int:
-    if bool(args.candidates) == bool(args.snapshot):
+    spec_mode = args.experiment_spec is not None
+    if spec_mode:
+        if not args.candidates or args.snapshot:
+            parser.error(
+                "run --experiment-spec requires --candidates and does not accept --snapshot"
+            )
+        if args.workflow is not None:
+            parser.error(
+                "run --experiment-spec uses the workflow locked in the spec; omit --workflow"
+            )
+    elif bool(args.candidates) == bool(args.snapshot):
         parser.error("run requires exactly one of --candidates or --snapshot")
-    missing = [name for name, value in (("--execution-mode", args.execution_mode),
-                                        ("--sample-id", args.sample_id)) if not value]
-    if args.snapshot and not args.host:
+
+    missing = [
+        name
+        for name, value in (
+            ("--execution-mode", args.execution_mode),
+            ("--sample-id", args.sample_id),
+        )
+        if not value
+    ]
+    if not spec_mode and args.snapshot and not args.host:
         missing.append("--host")
     if missing:
         parser.error("run requires " + ", ".join(missing))
@@ -336,33 +404,56 @@ def _run(args, parser) -> int:
 
     from .agents import AgentError, OpenRouterAgent, RuleAgent
     from .candidates import ProviderError, load_snapshot_dir
+    from .experiment_spec import load_experiment_spec
     from .snapshots import SnapshotError
+
     try:
         agent = RuleAgent() if args.agent == "rule" else OpenRouterAgent.from_environment()
-        if args.snapshot:
+        spec = load_experiment_spec(args.experiment_spec) if spec_mode else None
+        if spec_mode:
+            candidates = _load_candidates(args.candidates)
+            workflow = spec.workflow_dict()
+        elif args.snapshot:
             provider = load_snapshot_dir(args.snapshot, verify=not args.skip_verify)
             manifest = provider.describe()
             candidates = provider.search(args.host, limit=args.limit)
-            print(f"候选来自 {manifest['provider']} 快照 {manifest['snapshot_version']}："
-                  f"{len(candidates)} 条", flush=True)
+            print(
+                f"候选来自 {manifest['provider']} 快照 {manifest['snapshot_version']}："
+                f"{len(candidates)} 条",
+                flush=True,
+            )
+            workflow = _load_workflow(args.workflow)
         else:
             candidates = _load_candidates(args.candidates)
-        workflow = _load_workflow(args.workflow)
+            workflow = _load_workflow(args.workflow)
     except (AgentError, ProviderError, SnapshotError, OSError, ValueError) as exc:
         print(f"无法启动：{exc}", file=sys.stderr)
         return 2
 
     if args.execution_mode == "virtual_hardware":
-        print("VIRTUAL HARDWARE: 设备动作与读数由软件 twin 产生，不是湿实验证据。", flush=True)
+        print(
+            "VIRTUAL HARDWARE: 设备动作与读数由软件 twin 产生，不是湿实验证据。",
+            flush=True,
+        )
 
     try:
-        report, directory = asyncio.run(run_experiment(
-            args.genome, args.output_dir, sample_id=args.sample_id,
-            candidates=candidates, devices=None, workflow=workflow, agent=agent,
-            execution_mode=args.execution_mode,
-            selection_size=(args.select_min, args.select_max),
-            require_snapshot=args.require_snapshot,
-            timeout_seconds=args.timeout_seconds, echo=not args.quiet))
+        report, directory = asyncio.run(
+            run_experiment(
+                args.genome,
+                args.output_dir,
+                sample_id=args.sample_id,
+                candidates=candidates,
+                devices=None,
+                workflow=workflow,
+                agent=agent,
+                execution_mode=args.execution_mode,
+                selection_size=(args.select_min, args.select_max),
+                require_snapshot=args.require_snapshot,
+                timeout_seconds=args.timeout_seconds,
+                echo=not args.quiet,
+                experiment_spec=spec,
+            )
+        )
     except WorkflowError as exc:
         print(f"运行被拒绝：{exc}", file=sys.stderr)
         return 2
@@ -372,7 +463,10 @@ def _run(args, parser) -> int:
     except KeyboardInterrupt:
         return 130
 
-    print(f"\n流程状态：{report['status']}\n报告：{directory / 'report.md'}", flush=True)
+    print(
+        f"\n流程状态：{report['status']}\n报告：{directory / 'report.md'}",
+        flush=True,
+    )
     return 0 if report["status"] == "succeeded" else 2
 
 
@@ -390,6 +484,8 @@ def main(argv=None) -> int:
         return _phage_profiles(args, parser)
     if args.command == "cocktail-design":
         return _cocktail_design(args, parser)
+    if args.command == "experiment-spec":
+        return _experiment_spec(args, parser)
     if args.command == "fetch-snapshot":
         return _fetch_snapshot(args, parser)
     if args.command == "candidates":

@@ -57,6 +57,97 @@ class SafeStateError(DeviceError):
     """The device could not confirm that it reached its declared safe state."""
 
 
+
+
+REQUIRED_EXECUTION_PAYLOAD_FIELDS = {"sample_id", "candidate_ids"}
+SPEC_LINEAGE_PAYLOAD_FIELDS = {
+    "experiment_spec_id",
+    "experiment_spec_sha256",
+    "cocktail_design_id",
+    "phage_profile_ids",
+}
+ALLOWED_EXECUTION_PAYLOAD_FIELDS = (
+    REQUIRED_EXECUTION_PAYLOAD_FIELDS | SPEC_LINEAGE_PAYLOAD_FIELDS
+)
+
+
+def validate_execution_payload(payload: dict) -> dict:
+    """Validate the controller-to-device execution payload.
+
+    Legacy runs carry only sample_id and candidate_ids. ExperimentSpec-bound
+    runs add the complete lineage block. Unknown fields and partial lineage are
+    rejected so scientific membership cannot be smuggled through driver data.
+    """
+
+    if not isinstance(payload, dict):
+        raise DeviceError("Command payload must be an object.")
+    missing = REQUIRED_EXECUTION_PAYLOAD_FIELDS - set(payload)
+    unknown = set(payload) - ALLOWED_EXECUTION_PAYLOAD_FIELDS
+    if missing:
+        raise DeviceError(
+            "Command payload is missing required field(s): "
+            + ", ".join(sorted(missing))
+            + "."
+        )
+    if unknown:
+        raise DeviceError(
+            "Command payload contains unknown field(s): "
+            + ", ".join(sorted(unknown))
+            + "."
+        )
+
+    sample_id = payload["sample_id"]
+    candidate_ids = payload["candidate_ids"]
+    if not isinstance(sample_id, str) or not sample_id.strip():
+        raise DeviceError("Command payload sample_id must be a nonempty string.")
+    if (
+        not isinstance(candidate_ids, list)
+        or not candidate_ids
+        or any(not isinstance(item, str) or not item.strip() for item in candidate_ids)
+        or len(set(candidate_ids)) != len(candidate_ids)
+    ):
+        raise DeviceError(
+            "Command payload candidate_ids must be a nonempty array of unique strings."
+        )
+
+    present_lineage = SPEC_LINEAGE_PAYLOAD_FIELDS & set(payload)
+    if present_lineage and present_lineage != SPEC_LINEAGE_PAYLOAD_FIELDS:
+        missing_lineage = SPEC_LINEAGE_PAYLOAD_FIELDS - present_lineage
+        raise DeviceError(
+            "ExperimentSpec lineage payload is incomplete; missing "
+            + ", ".join(sorted(missing_lineage))
+            + "."
+        )
+    if present_lineage:
+        for field in ("experiment_spec_id", "cocktail_design_id"):
+            if not isinstance(payload[field], str) or not payload[field].strip():
+                raise DeviceError(
+                    f"Command payload {field} must be a nonempty string."
+                )
+        digest = payload["experiment_spec_sha256"]
+        if (
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or any(char not in "0123456789abcdef" for char in digest)
+        ):
+            raise DeviceError(
+                "Command payload experiment_spec_sha256 must be a SHA-256 digest."
+            )
+        profile_ids = payload["phage_profile_ids"]
+        if (
+            not isinstance(profile_ids, list)
+            or not profile_ids
+            or any(not isinstance(item, str) or not item.strip() for item in profile_ids)
+            or len(set(profile_ids)) != len(profile_ids)
+            or len(profile_ids) != len(candidate_ids)
+        ):
+            raise DeviceError(
+                "Command payload phage_profile_ids must be unique strings aligned "
+                "one-to-one with candidate_ids."
+            )
+    return payload
+
+
 @dataclass(frozen=True)
 class Command:
     command_id: str
