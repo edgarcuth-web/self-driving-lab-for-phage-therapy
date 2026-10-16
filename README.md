@@ -26,6 +26,7 @@ FailureAttribution / model update
 已实现：
 
 - HostProfile v1；
+- PhageProfile v1（retrieved / natural / engineered provenance）；
 - 固定参考快照、候选检索、序列索引；
 - PHIST 排序及 provenance；
 - 调度、恢复、事件日志；
@@ -35,7 +36,7 @@ FailureAttribution / model update
 待实现：
 
 - host characterization analyzers；
-- PhageProfile 与通用 InteractionEvidence；
+- 通用 InteractionEvidence；
 - CocktailDesign；
 - 实测 phenotype ingestion；
 - failure attribution / active learning；
@@ -81,7 +82,23 @@ python -m phage_lab candidates \
 
 INPHARED 的 host 字段是数据库注释，不是目标 isolate 的实测 host range。
 
-### 3. 可选：PHIST 排序
+### 3. 转换为 PhageProfile
+
+```bash
+python -m phage_lab phage-profiles \
+  --candidates candidates.json \
+  --out phage-profiles.json
+```
+
+PhageProfile v1 区分三类 provenance：
+
+- `retrieved`：来自外部数据库/参考记录；只说明记录来源，不自动断言 biological origin；
+- `natural`：本地明确记录的天然 isolate，使用 collection/isolate identity；
+- `engineered`：设计/工程化 phage，必须保留 parent PhageProfile lineage。
+
+candidate 的 host query 和 PHIST ranking 不会复制进 PhageProfile；它们属于后续 `InteractionEvidence`。
+
+### 4. 可选：PHIST 排序
 
 ```bash
 python -m phage_lab fetch-snapshot \
@@ -99,7 +116,7 @@ python -m phage_lab rank \
 
 PHIST 的 shared k-mer statistic 不是感染成功概率；no-match 也不是 negative phenotype。
 
-### 4. 验证 orchestration
+### 5. 验证 orchestration
 
 ```bash
 python -m phage_lab run \
