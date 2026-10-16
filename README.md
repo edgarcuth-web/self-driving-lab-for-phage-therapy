@@ -15,7 +15,9 @@ ExperimentSpec v2 + ExperimentArm(s)
         ↓
 Lab orchestration
         ↓
-Measurement / Phenotype
+arm-scoped Measurement
+        ↓
+Phenotype → PhenotypeComparison
         ↓
 FailureAttribution / model update
         └────────────────────→ next cycle
@@ -31,8 +33,8 @@ FailureAttribution / model update
 - CocktailDesign v1 与 conservative PHIST screening baseline；
 - ExperimentSpec v2 / ExperimentArm：control / treatment、0/1/N phage、conditions、expected readouts；
 - MaterialBatch v1 与 test-ready batch binding；
-- Measurement v1 run-report ingestion；
-- Phenotype v1（仅 physical + QC-valid Measurement）；
+- Measurement v2：spec-bound 结果按 ExperimentArm 摄取并保留 arm-specific material lineage；
+- Phenotype v2 + PhenotypeComparison v1：单 arm interpretation 与显式 arm-vs-arm comparison；
 - 固定参考快照、候选检索、序列索引；
 - PHIST 排序及结构化 interaction evidence；
 - 调度、恢复、事件日志；
@@ -199,37 +201,59 @@ spec-bound run 只解析 ExperimentSpec 锁定的成员。提供 MaterialBatch �
 
 未提供 `--experiment-spec` 时，旧 candidate-based `run` 仍保留作兼容路径。
 
-### 9. 摄取 Measurement v1
+### 9. 按 ExperimentArm 摄取 Measurement v2
+
+spec-bound run 的 measurement-producing device result 必须返回按 arm 分开的结果。摄取时显式选择一个 arm：
 
 ```bash
 python -m phage_lab measurement \
   --run-report runs/<run-id>/report.json \
-  --measurement-id measurement-001 \
+  --measurement-id measurement-control-001 \
+  --arm-id host-control \
   --step measure \
   --qc-status valid \
-  --qc-evidence "LIMS:measurement-qc-001" \
-  --out measurement.json
+  --qc-evidence "LIMS:measurement-qc-control-001" \
+  --out measurement-control.json
 ```
 
-`qc_status` 是显式 admission state，不由 workflow success 自动推断；`valid` 或 `invalid` 都必须带至少一个 `qc_evidence` reference，只有 `pending` 可以没有。Measurement 保留 run/spec/device/material/QC lineage 与原始 device result。virtual run 也可以被摄取用于控制链分析，但其 `evidence_class=none`。
+同一 run 的 treatment arm 需要独立摄取成另一个 Measurement。Measurement v2 记录 ExperimentSpec、ExperimentArm、host、该 arm 的 phage membership、device/QC lineage，并只引用该 arm 实际需要的 MaterialBatch：host-only control 只保留 host batch；treatment arm 保留 host + 该 arm 的 phage batches。virtual result 仍可摄取，但 `evidence_class=none`。
 
-### 10. 从有效物理 Measurement 建立 Phenotype v1
+### 10. 建立单-arm Phenotype v2
 
 ```bash
 python -m phage_lab phenotype \
   --experiment-spec experiment-spec.json \
-  --measurements measurement.json \
-  --phenotype-id phenotype-001 \
+  --measurements measurement-treatment.json \
+  --arm-id cocktail-treatment \
+  --phenotype-id phenotype-treatment-001 \
   --phenotype-type growth_response \
   --phenotype-outcome graded \
   --phenotype-value 0.42 \
-  --interpretation "Assessor-defined interpretation of the admitted physical measurement." \
+  --interpretation "Assessor-defined treatment-arm interpretation." \
   --assessor manual-review \
   --assessor-version 1 \
-  --out phenotype.json
+  --out phenotype-treatment.json
 ```
 
-Phenotype 不自动从读数猜结论。所有 source Measurement 必须来自 physical execution、`qc_status=valid`、同一 ExperimentSpec，并引用同一组 MaterialBatch。virtual、pending 或 invalid Measurement 都不能被提升为 positive/negative/graded biological phenotype。
+Phenotype v2 只能消费同一 ExperimentSpec、同一 ExperimentArm、physical execution、`qc_status=valid` 且 material lineage 一致的 Measurement。control arm 合法拥有零个 phage；不能把 control 与 treatment Measurements 混成一个 Phenotype。
+
+### 11. 显式比较两个 arm phenotype
+
+```bash
+python -m phage_lab phenotype-comparison \
+  --experiment-spec experiment-spec.json \
+  --baseline-phenotype phenotype-control.json \
+  --comparator-phenotype phenotype-treatment.json \
+  --comparison-id comparison-001 \
+  --comparison-type treatment_vs_host_control \
+  --comparison-outcome reduced_signal \
+  --comparison-value -0.35 \
+  --interpretation "Assessor-stated comparison of admitted arm phenotypes." \
+  --assessor manual-review \
+  --out comparison.json
+```
+
+`PhenotypeComparison` 不根据数值自动判断 efficacy。它只锁定两个不同 arm 的 Phenotype ID/hash、comparison type、assessor 明确声明的 outcome/value/interpretation。两个 source Phenotype 必须属于同一 ExperimentSpec 且具有相同 `phenotype_type`。
 
 ## 真实设备
 
@@ -252,7 +276,9 @@ HostProfile / scientific state
   → source artifact(s) / scientific intent
   → ExperimentSpec v2 + ExperimentArm(s)
   → MaterialBatch
-  → Measurement / Phenotype
+  → arm-scoped Measurement
+  → Phenotype
+  → PhenotypeComparison
   → Feedback
   → next decision
 ```

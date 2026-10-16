@@ -50,19 +50,41 @@ legacy run 的必需字段：
 }
 ```
 
-ExperimentSpec-bound run 会额外携带一整组 lineage metadata：
+ExperimentSpec-bound run 会额外携带完整 arm lineage：
 
 ```json
 {
   "experiment_spec_id": "experiment-001:v1",
   "experiment_spec_sha256": "...",
-  "cocktail_design_id": "cocktail-001:v1",
   "phage_profile_ids": ["..."],
+  "experiment_arms": [
+    {
+      "arm_id": "host-control",
+      "role": "control",
+      "target_host": {"profile_id": "isolate-001:v1", "genome_sha256": "..."},
+      "phage_profile_ids": [],
+      "conditions": {},
+      "expected_readouts": ["biological_phenotype"]
+    }
+  ],
   "material_batch_ids": ["host-batch:v1", "phage-batch:v1"]
 }
 ```
 
-ExperimentSpec lineage 必须完整；`material_batch_ids` 只有在完整 spec lineage 下才允许出现。formal real-hardware spec-run 会在 dispatch 前验证 host 与所有 phage 都有唯一 test-ready MaterialBatch。driver 应把这些字段当成审计/幂等上下文，不得据此自行改写 scientific membership、QC 状态或库存状态。virtual run 可以携带 batch IDs，但不代表物理物料被消耗。
+若 spec 来自 CocktailDesign，payload 还可包含 `cocktail_design_id`。ExperimentSpec lineage 必须完整，且所有 `experiment_arms[*].phage_profile_ids` 的并集必须等于顶层 `phage_profile_ids`；driver 不得自行改变 arm membership、conditions 或 expected readouts。
+
+对于会产生可摄取 Measurement 的 spec-bound step，device result 必须保留按 arm 分隔的结果，例如：
+
+```json
+{
+  "arms": {
+    "host-control": {"signal": [1.0, 1.1], "unit": "instrument_units"},
+    "cocktail-treatment": {"signal": [0.2, 0.3], "unit": "instrument_units"}
+  }
+}
+```
+
+Measurement ingestion 会按 `arm_id` 选择对应结果；它不会把一个全局读数事后复制到多个 arms。formal real-hardware spec-run 仍会在 dispatch 前验证 host 与所有 phage 都有唯一 test-ready MaterialBatch。
 
 ### Idempotent write
 

@@ -127,8 +127,8 @@ For an ExperimentSpec-bound run, the agent interface is limited to `assign_devic
 - `cocktail_design.py`: CocktailDesign v1 and conservative PHIST screening baseline.
 - `experiment_spec.py`: ExperimentSpec v2, ExperimentArm, generic scientific intent and optional CocktailDesign source binding.
 - `material_batch.py`: MaterialBatch v1 and test-ready ExperimentSpec binding.
-- `measurement.py`: Measurement v1 and run-report ingestion.
-- `phenotype.py`: Phenotype v1 from admitted physical Measurements.
+- `measurement.py`: Measurement v2, arm-scoped run-report ingestion and arm-specific material lineage.
+- `phenotype.py`: Phenotype v2 and explicit PhenotypeComparison v1.
 - `snapshots.py`, `candidates.py`, `sequences.py`: reference data and retrieved candidates.
 - `ranking.py`: PHIST integration; emits legacy ranking plus InteractionEvidence.
 - `agents.py`: bounded orchestration decisions.
@@ -140,9 +140,9 @@ For an ExperimentSpec-bound run, the agent interface is limited to `assign_devic
 
 Priority order:
 
-1. make Measurement / Phenotype arm-aware so results can be interpreted as control-vs-treatment or arm-vs-arm comparisons;
-2. introduce HostState H(t);
-3. add InteractionPrediction, then the natural-phage recommender / CandidateSet;
+1. introduce HostState H(t);
+2. add InteractionPrediction above InteractionEvidence;
+3. build the natural-phage recommender / CandidateSet;
 4. active learning and FailureAttribution;
 5. engineering escalation.
 

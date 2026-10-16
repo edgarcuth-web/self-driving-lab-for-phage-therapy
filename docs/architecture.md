@@ -36,8 +36,9 @@ Scientific components choose what to test. The orchestration layer executes a va
 | `ExperimentArm` | One control/treatment arm with host, 0/1/N phages, conditions and expected readouts |
 | `ExperimentSpec` | Versioned arm-aware experimental intent independent of any one design artifact |
 | `MaterialBatch` | Physical material identity, quality and availability |
-| `Measurement` | Raw/processed measurement linked to experiment and device |
-| `Phenotype` | Biological interpretation of valid measurements |
+| `Measurement` | Arm-scoped raw/processed measurement with run/spec/device/material/QC lineage |
+| `Phenotype` | Biological interpretation of valid physical Measurements from exactly one ExperimentArm |
+| `PhenotypeComparison` | Explicit assessor-stated comparison between two admitted arm phenotypes |
 | `FailureAttribution` | Mechanism hypothesis with supporting evidence |
 | model/analysis record | Tool/model identity, version, inputs and parameters |
 
@@ -48,8 +49,9 @@ HostProfile
   → scientific source(s) / intent
   → ExperimentSpec + ExperimentArm(s)
   → MaterialBatch
-  → Measurement
-  → Phenotype / FailureAttribution
+  → arm-scoped Measurement
+  → Phenotype
+  → PhenotypeComparison / FailureAttribution
   → Feedback
   → next Design
 ```
@@ -245,10 +247,10 @@ Feedback creates a new design/version; it does not overwrite previous experiment
 | `phage_profile.py` | PhageProfile v1 and retrieved/natural/engineered provenance |
 | `interaction_evidence.py` | InteractionEvidence v1 and PHIST adapter |
 | `cocktail_design.py` | CocktailDesign v1 and conservative PHIST screening baseline |
-| `experiment_spec.py` | ExperimentSpec v1, design freezing and member binding |
+| `experiment_spec.py` | ExperimentSpec v2, ExperimentArm, generic scientific intent and optional source binding |
 | `material_batch.py` | MaterialBatch v1 and test-ready material binding |
-| `measurement.py` | Measurement v1 and run-report ingestion |
-| `phenotype.py` | Phenotype v1 from admitted physical Measurements |
+| `measurement.py` | Measurement v2, arm-scoped run-report ingestion and arm-specific material lineage |
+| `phenotype.py` | Phenotype v2 plus explicit PhenotypeComparison v1 |
 | `snapshots.py`, `candidates.py` | Reference snapshots and retrieved candidate records |
 | `sequences.py` | Accession-indexed sequences |
 | `ranking.py` | PHIST ranking compatibility layer and evidence producer |
@@ -262,11 +264,11 @@ Current implementation status belongs in [README.md](../README.md).
 
 ## Build order
 
-1. make Measurement / Phenotype arm-aware and support explicit arm comparison;
-2. introduce HostState H(t) without bloating stable HostProfile identity;
-3. add InteractionPrediction above InteractionEvidence;
-4. natural-phage recommender / CandidateSet and active learning;
-5. FailureAttribution and engineering escalation.
+1. introduce HostState H(t) without bloating stable HostProfile identity;
+2. add InteractionPrediction above InteractionEvidence;
+3. natural-phage recommender / CandidateSet;
+4. active learning and FailureAttribution;
+5. engineering escalation.
 
 MaterialBatch, provenance, device abstraction and simulator detail are otherwise frozen unless one of these scientific-layer steps requires a change.
 
