@@ -14,6 +14,10 @@ from .devices import (
     SafeStateError,
     validate_safe_state,
 )
+from .experiment_spec import (
+    ExperimentSpec,
+    bind_candidates_to_spec,
+)
 from .interaction_evidence import interaction_evidence_from_dict
 from .records import RunRecords, evaluate, utc_now
 from .provenance import source_identity
@@ -96,6 +100,38 @@ def validate_plan(plan: dict, candidates: list[dict], devices: dict,
         if (not isinstance(device_id, str) or device_id not in devices
                 or operation not in devices[device_id].describe().get("operations", [])):
             raise WorkflowError("Plan assigned an unknown or incompatible device.")
+
+
+def validate_device_assignment(
+    decision: dict,
+    devices: dict,
+    operations: tuple[str, ...] | list[str],
+) -> None:
+    """Validate orchestration-only assignment for a locked ExperimentSpec."""
+
+    if not isinstance(decision, dict) or set(decision) != {
+        "device_assignments",
+        "reason",
+    }:
+        raise WorkflowError(
+            "Device assignment must contain exactly device_assignments and reason."
+        )
+    _validate_reason(decision)
+    assignments = decision["device_assignments"]
+    operations = tuple(operations)
+    if not isinstance(assignments, dict) or set(assignments) != set(operations):
+        raise WorkflowError(
+            "Device assignment must assign exactly every workflow operation."
+        )
+    for operation, device_id in assignments.items():
+        if (
+            not isinstance(device_id, str)
+            or device_id not in devices
+            or operation not in devices[device_id].describe().get("operations", [])
+        ):
+            raise WorkflowError(
+                "Device assignment selected an unknown or incompatible device."
+            )
 
 
 def validate_recovery(decision: dict, alternatives: list[str]) -> None:
@@ -543,7 +579,8 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
                          candidates: list[dict], devices: dict | None, workflow: dict, agent,
                          execution_mode: str, selection_size: tuple[int, int] = DEFAULT_SELECTION_SIZE,
                          require_snapshot: bool = False, timeout_seconds: float = 60.0,
-                         echo: bool = True, on_event=None) -> tuple[dict, Path]:
+                         echo: bool = True, on_event=None,
+                         experiment_spec: ExperimentSpec | None = None) -> tuple[dict, Path]:
     """Run an experiment plan against physical or explicitly virtual hardware.
 
     ``execution_mode`` is required: there is no default, because a caller that
@@ -557,9 +594,33 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
         raise ValueError("sample_id must be a nonempty string.")
     if execution_mode not in EXECUTION_MODES:
         raise ValueError(f"execution_mode must be one of {EXECUTION_MODES}.")
-    operations = _validate_workflow(workflow)
-    _validate_candidates(candidates, min_candidates=selection_size[0],
-                         require_snapshot=require_snapshot)
+    if experiment_spec is not None and not isinstance(experiment_spec, ExperimentSpec):
+        raise ValueError("experiment_spec must be an ExperimentSpec or None.")
+    if experiment_spec is not None:
+        spec_workflow = experiment_spec.workflow_dict()
+        normalized_workflow = {
+            operation: tuple(dependencies)
+            for operation, dependencies in workflow.items()
+        }
+        if normalized_workflow != spec_workflow:
+            raise WorkflowError(
+                "Runtime workflow does not match the locked ExperimentSpec."
+            )
+        try:
+            candidates = bind_candidates_to_spec(experiment_spec, candidates)
+        except ValueError as exc:
+            raise WorkflowError(str(exc)) from None
+        operations = _validate_workflow(spec_workflow)
+        _validate_candidates(
+            candidates,
+            min_candidates=len(experiment_spec.member_phage_profile_ids),
+            max_candidates=len(experiment_spec.member_phage_profile_ids),
+            require_snapshot=require_snapshot,
+        )
+    else:
+        operations = _validate_workflow(workflow)
+        _validate_candidates(candidates, min_candidates=selection_size[0],
+                             require_snapshot=require_snapshot)
     if execution_mode == "real_hardware" and not devices:
         raise WorkflowError("real_hardware requires configured physical device drivers.")
     if devices:
@@ -578,7 +639,9 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
               "simulated": not physical_execution, "execution_mode": execution_mode,
               "physical_execution": physical_execution,
               "agent": getattr(agent, "name", type(agent).__name__),
-              "sample_id": sample_id, "results": {}, "recoveries": [], "error": None,
+              "sample_id": sample_id,
+              "scientific_membership_locked": experiment_spec is not None,
+              "results": {}, "recoveries": [], "error": None,
               "limitations": ["Biological efficacy is not inferred by the orchestration layer."]}
     if not physical_execution:
         report["limitations"].append(
@@ -591,7 +654,22 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
         records.emit("source_identified", **report["source"])
         genome = read_fasta(genome_path)
         report["genome"] = genome.public_metadata()
+        if (
+            experiment_spec is not None
+            and genome.sha256 != experiment_spec.target_host.genome_sha256
+        ):
+            raise WorkflowError(
+                "Runtime host genome does not match the locked ExperimentSpec."
+            )
         records.emit("input_validated", **report["genome"])
+        if experiment_spec is not None:
+            report["experiment_spec"] = experiment_spec.to_dict()
+            records.emit(
+                "experiment_spec_bound",
+                spec_id=experiment_spec.spec_id,
+                source_design_id=experiment_spec.source_design.design_id,
+                members=list(experiment_spec.member_phage_profile_ids),
+            )
         report["candidates"] = candidates
         report["candidate_sources"] = sorted({candidate["source_db"] for candidate in candidates})
         report["candidate_ranking"] = _ranking_summary(candidates)
@@ -601,17 +679,49 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
              for candidate in candidates if candidate.get("snapshot_version")})
         manifests = [device.describe() for device in devices.values()]
         records.emit("devices_discovered", count=len(manifests), execution_mode=execution_mode)
-        records.emit("planning_requested", agent=report["agent"])
-        plan = await agent.plan({"genome": genome.public_metadata(), "candidates": candidates,
-                                "devices": manifests, "workflow": workflow,
-                                "execution_mode": execution_mode,
-                                "physical_execution": physical_execution,
-                                "selection_size": list(selection_size)})
-        validate_plan(plan, candidates, devices, operations=operations,
-                      selection_size=selection_size)
+        if experiment_spec is not None:
+            assign = getattr(agent, "assign_devices", None)
+            if not callable(assign):
+                raise WorkflowError(
+                    "Spec-bound execution requires an agent with assign_devices()."
+                )
+            records.emit(
+                "device_assignment_requested",
+                agent=report["agent"],
+                spec_id=experiment_spec.spec_id,
+            )
+            decision = await assign({
+                "experiment_spec": experiment_spec.to_dict(),
+                "devices": manifests,
+                "workflow": experiment_spec.workflow_dict(),
+                "execution_mode": execution_mode,
+                "physical_execution": physical_execution,
+            })
+            validate_device_assignment(decision, devices, operations)
+            locked_ids = [candidate["id"] for candidate in candidates]
+            plan = {
+                "candidate_ids": locked_ids,
+                "device_assignments": decision["device_assignments"],
+                "reason": decision["reason"],
+            }
+            records.emit(
+                "device_assignment_accepted",
+                agent=report["agent"],
+                spec_id=experiment_spec.spec_id,
+                **decision,
+            )
+        else:
+            records.emit("planning_requested", agent=report["agent"])
+            plan = await agent.plan({"genome": genome.public_metadata(), "candidates": candidates,
+                                    "devices": manifests, "workflow": workflow,
+                                    "execution_mode": execution_mode,
+                                    "physical_execution": physical_execution,
+                                    "selection_size": list(selection_size)})
+            validate_plan(plan, candidates, devices, operations=operations,
+                          selection_size=selection_size)
+            records.emit("plan_accepted", agent=report["agent"], **plan)
         report["plan"] = plan
         report["plan_ranking"] = _plan_ranking(plan["candidate_ids"], candidates)
-        records.emit("plan_accepted", agent=report["agent"], **plan)
         if report["plan_ranking"].get("selected_without_tool_support"):
             records.emit("plan_includes_unreported_candidates",
                          candidates=report["plan_ranking"]["selected_without_tool_support"],
@@ -621,6 +731,13 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
         scheduler = Scheduler(devices, agent, records, report,
                               timeout_seconds=timeout_seconds, ledger=ledger)
         payload = {"sample_id": sample_id, "candidate_ids": list(plan["candidate_ids"])}
+        if experiment_spec is not None:
+            payload.update({
+                "experiment_spec_id": experiment_spec.spec_id,
+                "experiment_spec_sha256": experiment_spec.content_sha256,
+                "cocktail_design_id": experiment_spec.source_design.design_id,
+                "phage_profile_ids": list(experiment_spec.member_phage_profile_ids),
+            })
         for operation in operations:
             result = await scheduler.execute(operation, plan["device_assignments"][operation], payload)
             report["results"][operation] = result
