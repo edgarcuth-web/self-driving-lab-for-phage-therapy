@@ -71,7 +71,7 @@ Keep source annotation, prediction and physical measurement distinct.
 
 Every model/tool output needs tool/model identity, version, inputs and parameters.
 
-`InteractionEvidence` is an evidence record, not a susceptibility verdict. It links a host identity and a versioned PhageProfile to one source signal. Evidence objects must remain content-addressed and reject probability-shaped fields that are not actually emitted by the source.
+`InteractionEvidence` is an evidence record, not a susceptibility verdict. It links a host identity and a versioned PhageProfile to one source signal. Evidence objects must remain content-addressed and reject probability-shaped fields that are not actually emitted by the source. Cohort-relative ordering such as rank belongs to ranking/design context, not pairwise InteractionEvidence.
 
 ### Virtual hardware
 
