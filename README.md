@@ -110,13 +110,14 @@ python -m phage_lab rank \
   --candidates candidates.json \
   --sequences data/snapshots/inphared-genomes-1Oct2026 \
   --host-genome my_isolate.fasta \
+  --host-profile host-profile.json \
   --phist /path/to/PHIST/phist.py \
   --out ranked.json
 ```
 
 PHIST 的 shared k-mer statistic 不是感染成功概率；no-match 也不是 negative phenotype。
 
-`ranked.json` 继续保留 legacy `ranking` block 以兼容现有 workflow，同时每个候选新增 `interaction_evidence`。PHIST evidence 明确记录 Host genome identity、PhageProfile ID、tool/version/parameters、sequence snapshot provenance、原始统计量与解释。未来 scientific decision layer 应优先消费 `InteractionEvidence`，而不是直接依赖 legacy ranking。
+`ranked.json` 继续保留 legacy `ranking` block 以兼容现有 workflow，同时每个候选新增 `interaction_evidence`。提供 `--host-profile` 时，CLI 会先确认 profile 与 host FASTA 的规范化 genome identity 一致，再把 HostProfile ID 写入 evidence。PHIST evidence 记录 pairwise signal、tool/version/parameters、sequence snapshot provenance 与原始统计量；候选池中的相对 `rank` 只保留在 legacy ranking，不进入 pairwise evidence。未来 scientific decision layer 应优先消费 `InteractionEvidence`。
 
 ### 5. 验证 orchestration
 
