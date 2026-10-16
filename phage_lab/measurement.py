@@ -86,6 +86,7 @@ class Measurement:
     origin: str
     physical_execution: bool
     qc_status: str
+    qc_evidence: tuple[str, ...]
     measurement_type: str
     data: dict
     recorded_at: str
@@ -130,6 +131,11 @@ class Measurement:
             )
         if self.qc_status not in QC_STATUSES:
             raise ValueError(f"qc_status must be one of {QC_STATUSES}.")
+        _validate_text_tuple(self.qc_evidence, "qc_evidence")
+        if self.qc_status in {"valid", "invalid"} and not self.qc_evidence:
+            raise ValueError(
+                f"qc_status={self.qc_status!r} requires qc_evidence."
+            )
         _require_text(self.measurement_type, "measurement_type")
         if not isinstance(self.data, dict):
             raise ValueError("data must be an object.")
@@ -161,6 +167,7 @@ class Measurement:
             "physical_execution": self.physical_execution,
             "evidence_class": self.evidence_class,
             "qc_status": self.qc_status,
+            "qc_evidence": list(self.qc_evidence),
             "measurement_type": self.measurement_type,
             "data": self.data,
             "recorded_at": self.recorded_at,
@@ -188,6 +195,7 @@ def measurement_from_run_report(
     source_step: str = "measure",
     measurement_type: str = "device_result",
     qc_status: str = "pending",
+    qc_evidence: tuple[str, ...] = (),
     revision: int = 1,
     created_at: str | None = None,
 ) -> Measurement:
@@ -276,6 +284,7 @@ def measurement_from_run_report(
         origin=origin,
         physical_execution=physical,
         qc_status=qc_status,
+        qc_evidence=qc_evidence,
         measurement_type=measurement_type,
         data=dict(result),
         recorded_at=recorded_at,
@@ -302,6 +311,7 @@ def measurement_from_dict(data: dict) -> Measurement:
         "physical_execution",
         "evidence_class",
         "qc_status",
+        "qc_evidence",
         "measurement_type",
         "data",
         "recorded_at",
@@ -311,6 +321,8 @@ def measurement_from_dict(data: dict) -> Measurement:
         raise ValueError("Measurement has missing or unknown fields.")
     if not isinstance(data["material_batch_ids"], list):
         raise ValueError("material_batch_ids must be an array.")
+    if not isinstance(data["qc_evidence"], list):
+        raise ValueError("qc_evidence must be an array.")
 
     measurement = Measurement(
         schema_version=data["schema_version"],
@@ -325,6 +337,7 @@ def measurement_from_dict(data: dict) -> Measurement:
         origin=data["origin"],
         physical_execution=data["physical_execution"],
         qc_status=data["qc_status"],
+        qc_evidence=tuple(data["qc_evidence"]),
         measurement_type=data["measurement_type"],
         data=data["data"],
         recorded_at=data["recorded_at"],
