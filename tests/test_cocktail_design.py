@@ -8,6 +8,7 @@ from phage_lab.cocktail_design import (
     CocktailDesign,
     CocktailMember,
     DesignObjective,
+    DesignProducer,
     cocktail_design_from_dict,
     load_cocktail_design,
     phist_screening_design,
@@ -209,6 +210,23 @@ class CocktailDesignTests(unittest.TestCase):
                 created_at=STAMP,
             )
 
+    def test_generic_cocktail_requires_at_least_two_members(self):
+        design = self.baseline()
+        with self.assertRaisesRegex(ValueError, "at least two members"):
+            CocktailDesign(
+                cocktail_id="single",
+                revision=1,
+                target_host=design.target_host,
+                members=(design.members[0],),
+                supporting_evidence=(design.supporting_evidence[0],),
+                objectives=design.objectives,
+                assumptions=design.assumptions,
+                unresolved_gaps=design.unresolved_gaps,
+                rationale=design.rationale,
+                designer=design.designer,
+                created_at=STAMP,
+            )
+
     def test_member_cannot_use_evidence_for_another_phage(self):
         records = [candidate("PH-001", 1), candidate("PH-002", 2)]
         design = phist_screening_design(
@@ -237,7 +255,7 @@ class CocktailDesignTests(unittest.TestCase):
                 assumptions=(),
                 unresolved_gaps=(),
                 rationale="Invalid test design.",
-                designer=EvidenceProducer(name="test", version="1"),
+                designer=DesignProducer(name="test", version="1"),
                 created_at=STAMP,
             )
 
