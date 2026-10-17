@@ -6,6 +6,30 @@ belong in [README](../README.md); commands belong in [usage](usage.md).
 
 ## Objects and ownership
 
+`dashboard.py` and `web/` provide a separate browser-only clinical workflow
+presentation. Synthetic fixture isolation/matching and a scenario clock never
+call the scientific modules or scheduler. The page illustrates domain concepts
+without constructing domain artifacts; `execution_mode=presentation_only`,
+`physical_execution=false`, and `evidence_class=none` describe this boundary.
+`clinical_reports.py` optionally minimizes terminal snapshots and calls Kimi Code
+K3 to draft a clinical-format narrative. Credentials/jobs live in process memory;
+the loopback API checks origin/host/session tokens and deduplicates requests per
+run/configuration. Failed or truncated responses remain failures, with no local
+model fallback. The generated draft is text, not a scientific domain artifact,
+physical evidence, susceptibility result, prescription or clinician approval.
+The presentation's fragment detector uses deterministic artificial query/reference
+windows and a documented uncalibrated support score. Unclassified bacterial-like
+signals stay separate from named candidates and never establish a novel species
+or automatically enter matching. The report boundary recomputes score components,
+retains review flags and fragment IDs, and strips all query/reference bases.
+The presentation tour maps elapsed playback seconds to the existing scenario
+clock without modifying node dependencies or duration contracts. Pause/reset,
+case changes and leaving presentation mode stop automatic advancement. A
+separate derived timeline shows independent matching/preparation states; review
+counts include low-support candidates and unresolved signals even after the
+main workflow completes. Terminal notification is once per run, separate from
+the tour's final report chapter and actual asynchronous report completion.
+
 | Module | Artifact / responsibility |
 | --- | --- |
 | `host_profile.py` | Stable HostProfile identity, normalized genome hash and characterization |
