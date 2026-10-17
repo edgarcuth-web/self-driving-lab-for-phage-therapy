@@ -23,3 +23,6 @@ data/snapshots/
 !examples/toy_genome.fasta
 *.fastq
 *.fq
+
+# Local tooling (not part of the repo)
+.tools/
