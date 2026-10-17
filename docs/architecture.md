@@ -37,7 +37,8 @@ the tour's final report chapter and actual asynchronous report completion.
 | `phage_profile.py` | PhageProfile identity and retrieved / natural / engineered provenance |
 | `interaction_evidence.py`, `ranking.py` | Pairwise source signals and PHIST adapter |
 | `interaction_prediction.py` | Exact H(t)/phage predictions with uncertainty and model provenance |
-| `interaction_model.py` | Provenance-bound feature vectors, host-grouped research baseline, held-out metrics and uncalibrated raw scores |
+| `interaction_features.py` | Provenance-bound numeric feature vectors tied to exact HostState and PhageProfile records |
+| `interaction_model.py` | Host-grouped research baseline, held-out metrics and uncalibrated raw scores |
 | `natural_phage_recommender.py` | CandidateSet, screening policy and single-phage spec conversion |
 | `cocktail_design.py` | CocktailDesign and conservative PHIST screening baseline |
 | `experiment_spec.py` | ExperimentSpec v2, arms, optional source references and abstract workflow |

@@ -2,7 +2,7 @@
 
 ## Approach
 
-Keep the core dependency-free. Add one domain module that admits provenance-bound numeric feature vectors, joins them to existing LearningObservation records, fits a small L2-regularized logistic baseline, and records a deterministic host-grouped holdout evaluation. A separate research-score artifact prevents raw model output from entering the calibrated InteractionPrediction contract by accident.
+Keep the core dependency-free. Add a focused feature-contract module and a separate model module. The feature module admits provenance-bound numeric vectors; the model module joins them to existing LearningObservation records, fits a small L2-regularized logistic baseline, and records a deterministic host-grouped holdout evaluation. A separate research-score artifact prevents raw model output from entering the calibrated InteractionPrediction contract by accident.
 
 ## Workstreams
 

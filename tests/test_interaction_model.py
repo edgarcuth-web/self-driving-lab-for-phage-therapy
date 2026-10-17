@@ -11,13 +11,15 @@ import unittest
 from phage_lab.biology import GenomeSummary
 from phage_lab.host_profile import new_host_profile
 from phage_lab.host_state import new_host_state, write_host_state
-from phage_lab.interaction_model import (
+from phage_lab.interaction_features import (
     FeatureProducer,
     FeatureSource,
-    ModelTrainingExample,
     interaction_feature_vector_from_dict,
-    interaction_model_from_dict,
     new_interaction_feature_vector,
+)
+from phage_lab.interaction_model import (
+    ModelTrainingExample,
+    interaction_model_from_dict,
     predict_research_score,
     research_prediction_from_dict,
     train_interaction_model,

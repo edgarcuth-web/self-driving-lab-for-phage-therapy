@@ -21,7 +21,7 @@ def _interaction_feature_vector(args, parser) -> int:
         parser.error("--vector-revision must be a positive integer")
 
     from ..host_state import load_host_state
-    from ..interaction_model import (
+    from ..interaction_features import (
         feature_producer_from_dict,
         feature_source_from_dict,
         new_interaction_feature_vector,
@@ -137,8 +137,8 @@ def _interaction_model_score(args, parser) -> int:
     if missing:
         parser.error("interaction-model-score requires " + ", ".join(missing))
 
+    from ..interaction_features import load_interaction_feature_vector
     from ..interaction_model import (
-        load_interaction_feature_vector,
         load_interaction_model,
         predict_research_score,
         write_research_prediction,
