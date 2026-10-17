@@ -98,6 +98,8 @@ Every model/tool output needs tool/model identity, version, inputs and parameter
 
 `HostState` is a time-indexed scientific state artifact, not a mutable field bag on HostProfile. It must bind one exact HostProfile ID/genome, one `as_of` time, explicit state components and the evidence supporting each component. Missing components are unknown. A later HostState may reference an earlier state but must not inherit its dynamic components implicitly. Measurement/Phenotype-to-HostState adapters may copy artifact lineage only; they must not invent a state interpretation.
 
+`FailureAttribution` v1 records explicit assessor review of one phage-containing treatment arm against a declared criterion. Outcomes are failure_observed, failure_not_observed or inconclusive; negative Phenotype is not automatically failure. Preserve full source snapshots and re-admit physical/QC-valid Measurements, exact Phenotype/Comparison lineage and temporal order on construction/load. Mechanism entries are unconfirmed hypotheses with result references and limitations; an empty hypothesis set means unknown. Do not promote hypothesis to causal fact, split cocktail failure among members, update H(t)/predictions automatically, or treat this review artifact as an ActiveLearner.
+
 ### Virtual hardware
 
 Virtual hardware may simulate job lifecycle, timeout, cancellation, failover, safe-state and artifact handoff.
@@ -144,6 +146,7 @@ For an ExperimentSpec-bound run, the agent interface is limited to `assign_devic
 - `material_batch.py`: MaterialBatch v1 and test-ready ExperimentSpec binding.
 - `measurement.py`: Measurement v2, arm-scoped run-report ingestion and arm-specific material lineage.
 - `phenotype.py`: Phenotype v2 and explicit PhenotypeComparison v1.
+- `failure_attribution.py`: FailureAttribution v1, criterion-based explicit review and unconfirmed mechanism hypotheses over re-admitted physical results.
 - `snapshots.py`, `candidates.py`, `sequences.py`: reference data and retrieved candidates.
 - `ranking.py`: PHIST integration; emits legacy ranking plus InteractionEvidence.
 - `agents.py`: bounded orchestration decisions.
@@ -155,7 +158,7 @@ For an ExperimentSpec-bound run, the agent interface is limited to `assign_devic
 
 Priority order:
 
-1. connect admitted results to explicit FailureAttribution and active-learning decisions;
+1. consume explicit FailureAttribution/result feedback in active-learning decisions;
 2. add calibrated prediction models when suitable training/evaluation data are available;
 3. introduce prediction-driven cocktail optimization when evidence supports it;
 4. engineering escalation.

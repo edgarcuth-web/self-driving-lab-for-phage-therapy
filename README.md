@@ -25,7 +25,7 @@ arm-scoped Measurement
         ↓
 Phenotype → PhenotypeComparison
         ↓
-FailureAttribution / model update
+FailureAttribution v1 → [next] ActiveLearner / model update
         └────────────────────→ next cycle
 ```
 
@@ -44,6 +44,7 @@ FailureAttribution / model update
 - MaterialBatch v1 与 test-ready batch binding；
 - Measurement v2：spec-bound 结果按 ExperimentArm 摄取并保留 arm-specific material lineage；
 - Phenotype v2 + PhenotypeComparison v1：单 arm interpretation 与显式 arm-vs-arm comparison；
+- FailureAttribution v1：显式失败判读、声明 criterion、复核物理/QC/arm lineage，并保留未证实的机制假设；
 - 固定参考快照、候选检索、序列索引；
 - PHIST 排序及结构化 interaction evidence；
 - 调度、恢复、事件日志；
@@ -54,7 +55,7 @@ FailureAttribution / model update
 
 - host characterization analyzers；
 - calibrated biological predictors 与 prediction-driven cocktail optimizer；
-- failure attribution / active learning；
+- active learning 与自动模型更新；
 - host-range engineering；
 - 仪器专用驱动与真实物理运行。
 
@@ -181,7 +182,45 @@ python -m phage_lab experiment-spec \
 
 `--expected-readout` 必须由调用方声明，可重复；可用 `--conditions conditions.json` 提供所有 arms 的共同条件，未提供时为空。ExperimentSpec 锁定 CandidateSet ID/hash 与精确入选 membership；该命令不把候选混成 cocktail，也不执行设备。
 
-推荐器目前不评估 material readiness、safety、receptor diversity、phage-phage compatibility 或 information gain；adsorption/resistance estimates 原样保留，不参与这个单目标 baseline 的排序。当前只有 unresolved predictions 时，实际能力是**可追溯的探索性实验选择**。下一阶段转向结果反馈、FailureAttribution 与 active learning。
+推荐器目前不评估 material readiness、safety、receptor diversity、phage-phage compatibility 或 information gain；adsorption/resistance estimates 原样保留，不参与这个单目标 baseline 的排序。当前只有 unresolved predictions 时，实际能力是**可追溯的探索性实验选择**。结果现在可进入 FailureAttribution v1；下一步是 active learning。
+
+### FailureAttribution v1：显式结果判读
+
+这一步消费已 admission 的单-arm Phenotype、可选的 PhenotypeComparison，以及它们引用的全部 Measurement。创建和加载时都会重新检查 physical / QC-valid、spec / host / phage / arm / material lineage、comparison 的精确 phenotype hash 和时间顺序。virtual、pending、invalid 或执行失败记录不能变成生物学失败结论。
+
+调用者必须声明 criterion、outcome、interpretation、assessor/version 和 limitations。`negative` 没有通用的成功/失败方向，因此不会自动映射成 failure。criterion 是本次判读的声明，不声称已在实验前注册。
+
+`review-input.json` 示例（人工判读输入，不是实验数据）：
+
+```json
+{
+  "outcome": "inconclusive",
+  "criterion": "Describe the objective and decision criterion used for this review.",
+  "interpretation": "The reviewed results do not resolve this criterion.",
+  "limitations": ["Failure mechanism remains unknown."],
+  "hypotheses": []
+}
+```
+
+```bash
+python -m phage_lab failure-attribution \
+  --experiment-spec experiment-spec.json \
+  --arm-id cocktail-treatment \
+  --measurements admitted-measurements.json \
+  --phenotypes phenotype-control.json \
+  --phenotypes phenotype-treatment.json \
+  --phenotype-comparison comparison.json \
+  --attribution-id review-001 \
+  --attribution-input review-input.json \
+  --assessor manual-review --assessor-version 1 \
+  --out failure-attribution.json
+```
+
+`--phenotypes` / `--phenotype-comparison` 可重复；Measurement 文件可为一个对象或数组。单 arm 判读可省略 comparison 和其他 arm 的结果。上游 ExperimentSpec 若使用其他 arm ID，应传实际 ID。
+
+outcome 可为 `failure_observed`、`failure_not_observed` 或 `inconclusive`。没有机制假设时，`mechanism_status=unknown`。只有 `failure_observed` 可附带 hypotheses，每条都必须有 category、rationale、supporting_phenotype_ids / supporting_comparison_ids 和非空 limitations；引用的是本次包含的确切结果 record ID。类别为 adsorption / intracellular / kinetics / other，状态始终是 **hypothesized**，不代表因果机制已证实。
+
+输出保存完整 spec、measurement、phenotype、comparison 快照及其内容 hash。判读绑定整个 treatment arm；cocktail 的结果不会拆成各成员的失败结论，也不会自动修改 H(t)、prediction、候选排名或产生工程方案。这里完成的是可追溯的结果反馈入口，ActiveLearner 仍待实现。
 
 ### 2. 获取参考快照并检索候选
 

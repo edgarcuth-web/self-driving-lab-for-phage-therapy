@@ -28,6 +28,7 @@ COMMANDS = (
     "measurement",
     "phenotype",
     "phenotype-comparison",
+    "failure-attribution",
     "fetch-snapshot",
     "candidates",
     "rank",
@@ -239,6 +240,14 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Assessor-stated comparison outcome; not inferred.")
     parser.add_argument("--comparison-value",
                         help="Optional scalar effect/comparison value.")
+    parser.add_argument("--phenotypes", action="append", type=Path, default=[],
+                        help="Reviewed Phenotype JSON; repeat for all source arms/readouts.")
+    parser.add_argument("--phenotype-comparison", action="append", type=Path, default=[],
+                        help="Optional reviewed PhenotypeComparison JSON; repeat as needed.")
+    parser.add_argument("--attribution-id", help="Caller-owned FailureAttribution identifier.")
+    parser.add_argument("--attribution-revision", type=int, default=1)
+    parser.add_argument("--attribution-input", type=Path,
+                        help="Explicit review JSON: outcome, criterion, interpretation, limitations, hypotheses.")
 
     parser.add_argument("--cocktail-min", type=int, default=2,
                         help="Minimum PHIST-supported members for cocktail-design.")
@@ -776,6 +785,53 @@ def _phenotype_comparison(args, parser) -> int:
     return 0
 
 
+def _failure_attribution(args, parser) -> int:
+    missing = [name for name, value in (
+        ("--experiment-spec", args.experiment_spec), ("--arm-id", args.arm_id),
+        ("--measurements", args.measurements), ("--phenotypes", args.phenotypes),
+        ("--attribution-id", args.attribution_id), ("--attribution-input", args.attribution_input),
+        ("--assessor", args.assessor), ("--out", args.out),
+    ) if not value]
+    if missing:
+        parser.error("failure-attribution requires " + ", ".join(missing))
+
+    from .experiment_spec import load_experiment_spec
+    from .phenotype import phenotype_from_dict, phenotype_comparison_from_dict
+    from .failure_attribution import (
+        failure_attribution_from_results, mechanism_hypothesis_from_dict,
+        write_failure_attribution,
+    )
+    try:
+        review = _load_json(args.attribution_input, "FailureAttribution review")
+        required = {"outcome", "criterion", "interpretation", "limitations"}
+        optional = {"hypotheses", "assessed_at", "assessor_parameters"}
+        if not isinstance(review, dict) or not required <= set(review) or set(review) - required - optional:
+            raise ValueError("Review has missing or unknown fields.")
+        if not isinstance(review["limitations"], list) or not isinstance(review.get("hypotheses", []), list):
+            raise ValueError("Review limitations and hypotheses must be arrays.")
+        attribution = failure_attribution_from_results(
+            load_experiment_spec(args.experiment_spec),
+            _load_measurements(args.measurements),
+            [phenotype_from_dict(_load_json(path, "Phenotype")) for path in args.phenotypes],
+            comparisons=[phenotype_comparison_from_dict(_load_json(path, "PhenotypeComparison"))
+                         for path in args.phenotype_comparison],
+            attribution_id=args.attribution_id, revision=args.attribution_revision,
+            target_arm_id=args.arm_id, outcome=review["outcome"], criterion=review["criterion"],
+            interpretation=review["interpretation"], limitations=review["limitations"],
+            hypotheses=[mechanism_hypothesis_from_dict(item) for item in review.get("hypotheses", [])],
+            assessor_name=args.assessor, assessor_version=args.assessor_version,
+            assessor_parameters=review.get("assessor_parameters"),
+            assessed_at=review.get("assessed_at"),
+        )
+        write_failure_attribution(attribution, args.out)
+    except (OSError, ValueError) as exc:
+        print(f"FailureAttribution 创建失败：{exc}", file=sys.stderr)
+        return 2
+    print(f"FailureAttribution {attribution.record_id}: {attribution.outcome}; "
+          f"mechanism={attribution.mechanism_status} → {args.out}", flush=True)
+    return 0
+
+
 def _material_batch(args, parser) -> int:
     """Register one versioned physical MaterialBatch."""
 
@@ -1165,6 +1221,8 @@ def main(argv=None) -> int:
         return _phenotype(args, parser)
     if args.command == "phenotype-comparison":
         return _phenotype_comparison(args, parser)
+    if args.command == "failure-attribution":
+        return _failure_attribution(args, parser)
     if args.command == "fetch-snapshot":
         return _fetch_snapshot(args, parser)
     if args.command == "candidates":

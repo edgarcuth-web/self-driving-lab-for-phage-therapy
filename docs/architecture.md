@@ -48,7 +48,7 @@ Scientific components choose what to test. The orchestration layer executes a va
 | `Measurement` | Arm-scoped raw/processed measurement with run/spec/device/material/QC lineage |
 | `Phenotype` | Biological interpretation of valid physical Measurements from exactly one ExperimentArm |
 | `PhenotypeComparison` | Explicit assessor-stated comparison between two admitted arm phenotypes |
-| `FailureAttribution` | Mechanism hypothesis with supporting evidence |
+| `FailureAttribution` | Explicit arm-level review against a criterion, with unconfirmed mechanism hypotheses |
 | model/analysis record | Tool/model identity, version, inputs and parameters |
 
 Target lineage:
@@ -311,7 +311,11 @@ Keep these outcomes distinct:
 4. valid negative Phenotype;
 5. valid positive/graded Phenotype.
 
-`FailureAttribution` may later classify mechanisms such as adsorption-level failure, intracellular incompatibility, kinetics or unknown, but only from supporting evidence.
+`FailureAttribution v1` records an explicit assessor judgment against a declared criterion for one phage-containing treatment arm. Outcome is `failure_observed`, `failure_not_observed` or `inconclusive`. Negative Phenotype has no automatic success/failure interpretation. A criterion recorded here is not evidence of pre-registration.
+
+The artifact preserves full ExperimentSpec, Measurement, Phenotype and optional PhenotypeComparison snapshots. Construction and loading re-admit every source Measurement through the existing physical/QC-valid Phenotype gate and verify host/phage/arm/material/spec lineage. Comparisons must involve the target arm and bind the exact supplied phenotype contents. All source Measurements must be referenced; other-arm phenotypes require a comparison with the target. Source timestamps must precede the assessments that use them.
+
+No hypotheses means `mechanism_status=unknown`. An assessor may attach adsorption / intracellular / kinetics / other hypotheses only to an observed failure, with exact reviewed-result references, rationale and limitations. These remain `hypothesized`, never automatically confirmed. The result remains scoped to the whole treatment arm, including a cocktail; there is no inferred member-level failure, host-state mutation, probability update, engineering recommendation or automatic next experiment. ActiveLearner is the next consumer, not part of this artifact.
 
 Feedback creates a new design/version; it does not overwrite previous experimental lineage.
 
@@ -344,7 +348,7 @@ Current implementation status belongs in [README.md](../README.md).
 
 ## Build order
 
-1. connect admitted results to explicit FailureAttribution and active-learning decisions;
+1. consume explicit FailureAttribution/result feedback in active-learning decisions;
 2. replace evidence-only unresolved records with calibrated predictors as training/evaluation data becomes available;
 3. introduce prediction-driven cocktail optimization when its evidence requirements are met;
 4. engineering escalation.
