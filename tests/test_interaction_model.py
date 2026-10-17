@@ -1,11 +1,16 @@
 """InteractionModel v0 software contracts; all data here are synthetic fixtures."""
 
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
+import io
+import json
+from pathlib import Path
+import tempfile
 import unittest
 
 from phage_lab.biology import GenomeSummary
 from phage_lab.host_profile import new_host_profile
-from phage_lab.host_state import new_host_state
+from phage_lab.host_state import new_host_state, write_host_state
 from phage_lab.interaction_model import (
     FeatureProducer,
     FeatureSource,
@@ -23,6 +28,8 @@ from phage_lab.interaction_prediction import (
     new_interaction_prediction,
 )
 from phage_lab.learning import new_learning_observation
+from phage_lab.__main__ import main
+from phage_lab.phage_profile import write_phage_profile
 from phage_lab.natural_phage_recommender import recommend_natural_phages
 from fixtures_feedback import LATEST, review, screen
 from fixtures_screening import phage
@@ -261,6 +268,97 @@ class InteractionModelTrainingTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "feature schema|feature names"):
             predict_research_score(model, bad, prediction_id="bad-score", predicted_at=T3)
+
+
+
+class InteractionModelCliTests(unittest.TestCase):
+    def test_cli_train_and_score_round_trip(self):
+        examples = dataset()
+        vector = make_example(9, "query", True).feature_vector
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dataset_path = root / "training-examples.json"
+            vector_path = root / "feature-vector.json"
+            model_path = root / "model.json"
+            score_path = root / "research-score.json"
+            dataset_path.write_text(
+                json.dumps([item.to_dict() for item in examples], ensure_ascii=False),
+                encoding="utf-8",
+            )
+            vector_path.write_text(
+                json.dumps(vector.to_dict(), ensure_ascii=False),
+                encoding="utf-8",
+            )
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(main([
+                    "interaction-model-train",
+                    "--dataset", str(dataset_path),
+                    "--model-id", "cli-model",
+                    "--epochs", "30",
+                    "--created-at", T3,
+                    "--out", str(model_path),
+                ]), 0)
+                self.assertEqual(main([
+                    "interaction-model-score",
+                    "--model", str(model_path),
+                    "--feature-vector", str(vector_path),
+                    "--prediction-id", "cli-score",
+                    "--predicted-at", T3,
+                    "--out", str(score_path),
+                ]), 0)
+            payload = json.loads(score_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["status"], "uncalibrated_research_score")
+            self.assertIn("model_artifact_sha256", payload)
+            self.assertNotIn("probabilities", payload)
+
+    def test_cli_feature_vector_binds_exact_host_and_phage(self):
+        host_profile = new_host_profile(
+            "cli-host",
+            GenomeSummary(sha256="f" * 64, bases=1000, contigs=1),
+            created_at=T0,
+        )
+        state = new_host_state(
+            host_profile,
+            host_state_id="cli-host-state",
+            as_of=T1,
+            created_at=T1,
+        )
+        profile = phage("cli-phage")
+        source = FeatureSource(
+            source="cli-fixture",
+            version="1",
+            method="contract-test",
+            input_sha256="d" * 64,
+            reference="fixture://cli",
+            evidence_ids=(),
+        )
+        producer = FeatureProducer(name="cli-fixture", version="1")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_path = root / "state.json"
+            profile_path = root / "profile.json"
+            feature_input_path = root / "feature-input.json"
+            vector_path = root / "vector.json"
+            write_host_state(state, state_path)
+            write_phage_profile(profile, profile_path)
+            feature_input_path.write_text(json.dumps({
+                "features": {"feature_a": 1.0},
+                "feature_sources": {"feature_a": source.to_dict()},
+                "producer": producer.to_dict(),
+            }), encoding="utf-8")
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(main([
+                    "interaction-feature-vector",
+                    "--host-state", str(state_path),
+                    "--phage-profile", str(profile_path),
+                    "--feature-input", str(feature_input_path),
+                    "--vector-id", "cli-vector",
+                    "--created-at", T3,
+                    "--out", str(vector_path),
+                ]), 0)
+            payload = json.loads(vector_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["host_state"]["record_id"], state.record_id)
+            self.assertEqual(payload["phage_profile_id"], profile.profile_id)
 
 
 if __name__ == "__main__":

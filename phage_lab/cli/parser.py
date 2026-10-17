@@ -24,6 +24,11 @@ from .results import (
 )
 from .reference import _fetch_snapshot, _retrieve_candidates, _rank
 from .run import _run
+from .modeling import (
+    _interaction_feature_vector,
+    _interaction_model_train,
+    _interaction_model_score,
+)
 
 
 def _add_shared(parser, *names):
@@ -314,6 +319,39 @@ def build_parser():
                         help="Prediction target scored by the report.")
     sub.add_argument("--created-at",
                         help="Optional ISO-8601 report creation time; defaults to now.")
+
+    sub = commands.add_parser('interaction-feature-vector', allow_abbrev=False)
+    sub.set_defaults(handler=_interaction_feature_vector, command_parser=sub)
+    sub.add_argument("--host-state", type=Path, help="Exact HostState H(t) JSON.")
+    sub.add_argument("--phage-profile", type=Path, help="Exact PhageProfile JSON.")
+    sub.add_argument("--feature-input", type=Path,
+                     help="JSON object with features, feature_sources and producer.")
+    sub.add_argument("--vector-id", help="Caller-owned InteractionFeatureVector identifier.")
+    sub.add_argument("--vector-revision", type=int, default=1)
+    sub.add_argument("--created-at", help="Optional ISO-8601 creation time.")
+    sub.add_argument("--out", type=Path, help="Output feature-vector artifact path.")
+
+    sub = commands.add_parser('interaction-model-train', allow_abbrev=False)
+    sub.set_defaults(handler=_interaction_model_train, command_parser=sub)
+    sub.add_argument("--dataset", type=Path,
+                     help="JSON array of {feature_vector, observation} training examples.")
+    sub.add_argument("--model-id", help="Caller-owned model identifier.")
+    sub.add_argument("--model-revision", type=int, default=1)
+    sub.add_argument("--test-fraction", type=float, default=0.25)
+    sub.add_argument("--seed", type=int, default=17)
+    sub.add_argument("--epochs", type=int, default=120)
+    sub.add_argument("--learning-rate", type=float, default=0.05)
+    sub.add_argument("--l2", type=float, default=0.01)
+    sub.add_argument("--created-at", help="Optional ISO-8601 model timestamp.")
+    sub.add_argument("--out", type=Path, help="Output model artifact path.")
+
+    sub = commands.add_parser('interaction-model-score', allow_abbrev=False)
+    sub.set_defaults(handler=_interaction_model_score, command_parser=sub)
+    sub.add_argument("--model", type=Path, help="Research-only InteractionModel artifact.")
+    sub.add_argument("--feature-vector", type=Path, help="Input InteractionFeatureVector JSON.")
+    sub.add_argument("--prediction-id", help="Caller-owned raw-score artifact identifier.")
+    sub.add_argument("--predicted-at", help="Optional ISO-8601 scoring time.")
+    sub.add_argument("--out", type=Path, help="Output ResearchPrediction artifact path.")
 
     sub = commands.add_parser('fetch-snapshot', allow_abbrev=False)
     sub.set_defaults(handler=_fetch_snapshot, command_parser=sub)
