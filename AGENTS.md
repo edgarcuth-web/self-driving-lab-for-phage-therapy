@@ -78,7 +78,7 @@ the outcome. Keep the one-command offline demo working.
 - Implement the smallest change that turns the criterion green while keeping the frozen contracts above.
 - Run the full gate `python -m unittest discover -s tests -v`; it must be green before merge.
 - Open one pull request per issue with `Refs #N`. Merge is not completion; the user closes the issue after acceptance.
-- This file is the source of truth for the change process; `docs/hackathon/` describes the event setup, not day-to-day process.
+- This file is the source of truth for the change process. Do not restate this loop in other documents; keep one description.
 
 ## Windows tooling
 
@@ -92,10 +92,16 @@ the outcome. Keep the one-command offline demo working.
   extracted binaries, tokens or credential files.
 - `gh auth login` is interactive. Never write tokens or credential files into the
   repository.
-- Spec Kit is checked in (`.specify/`, `specs/`, agent command files). The
-  `specify` CLI is optional — the `/speckit*` commands run from the committed
+- Spec Kit SDD artifacts are checked in: `.specify/` (templates, scripts,
+  constitution), `.kilo/command/` (agent commands) and `examples/spec_kit_sample/`
+  (a frozen worked example, not an approved feature). Real features live under
+  `specs/NNN-<name>/`; `/speckit.specify` creates that directory and the
+  per-checkout `.specify/feature.json` pointer, which is git-ignored. To point the
+  tooling at an existing feature, set `SPECIFY_FEATURE_DIRECTORY` or write that
+  pointer.
+- The `specify` CLI is optional — the `/speckit*` commands run from the committed
   `.specify/scripts/` helpers without it. Install it only for CLI-level work
-  (adding agent integrations, extensions, upgrades), using the version pinned in
+  (agent integrations, extensions, upgrades), using the version pinned in
   `.specify/init-options.json`:
   `uv tool install "specify-cli==1.2.1" --python 3.11`.
 
