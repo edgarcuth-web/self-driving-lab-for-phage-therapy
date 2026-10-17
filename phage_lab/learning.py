@@ -125,11 +125,15 @@ class LearningObservation:
             or arm.target_host.genome_sha256 != prediction.host_state.host_genome_sha256
         ):
             raise ValueError("Prediction HostState does not match the experiment host.")
+        prediction_time = _time(prediction.predicted_at, "predicted_at")
+        spec_time = _time(spec.created_at, "ExperimentSpec created_at")
+        phenotype_time = _time(phenotype.assessed_at, "phenotype assessed_at")
         assessed = _time(self.assessed_at, "assessed_at")
-        if assessed < _time(phenotype.assessed_at, "phenotype assessed_at"):
-            raise ValueError("Learning assessment cannot precede its Phenotype.")
-        if assessed < _time(prediction.predicted_at, "predicted_at"):
-            raise ValueError("Learning assessment cannot precede its prediction.")
+        if not prediction_time <= spec_time <= phenotype_time <= assessed:
+            raise ValueError(
+                "Learning chronology requires prediction <= ExperimentSpec <= "
+                "Phenotype <= learning assessment."
+            )
 
     @property
     def record_id(self):

@@ -94,6 +94,24 @@ class LearningObservationTests(unittest.TestCase):
                 assessed_at=LATEST,
             )
 
+    def test_rejects_prediction_created_after_frozen_spec(self):
+        item = learning_case()
+        late_prediction = replace(item.prediction, predicted_at=LATEST)
+        with self.assertRaisesRegex(ValueError, "prediction <= ExperimentSpec"):
+            new_learning_observation(
+                late_prediction,
+                item.experiment_spec,
+                item.phenotype,
+                observation_id="late-prediction",
+                target="productive_infection",
+                observed=True,
+                interpretation="Fixture chronology violation.",
+                assessor_name="fixture",
+                assessor_version="1",
+                limitations=("Fixture.",),
+                assessed_at=LATEST,
+            )
+
     def test_round_trip_and_tamper_detection(self):
         item = learning_case()
         loaded = learning_observation_from_dict(item.to_dict())
