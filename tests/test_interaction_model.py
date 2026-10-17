@@ -1,9 +1,6 @@
 """InteractionModel v0 software contracts; all data here are synthetic fixtures."""
 
 from dataclasses import replace
-import json
-from pathlib import Path
-import tempfile
 import unittest
 
 from phage_lab.biology import GenomeSummary
@@ -155,14 +152,10 @@ class InteractionFeatureVectorTests(unittest.TestCase):
         sources = dict(example.feature_vector.feature_sources)
         sources.pop("fixture_signal")
         with self.assertRaisesRegex(ValueError, "feature_sources|provenance"):
-            new_interaction_feature_vector(
-                example.observation.prediction.host_state,
-                example.observation.prediction.phage_profile_id,
-                {"fixture_signal": 1.0},
-                sources,
-                FeatureProducer(name="test", version="1"),
-                vector_id="bad-vector",
-                created_at=T3,
+            replace(
+                example.feature_vector,
+                features={"fixture_signal": 1.0},
+                feature_sources=sources,
             )
 
     def test_non_finite_feature_is_rejected(self):
