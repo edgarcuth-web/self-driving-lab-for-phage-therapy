@@ -267,6 +267,24 @@ class InteractionModelTrainingTests(unittest.TestCase):
         self.assertEqual(research_prediction_from_dict(payload), score)
 
 
+
+    def test_training_rejects_mixed_assay_context(self):
+        examples = dataset()
+        original = examples[-1]
+        changed_phenotype = replace(
+            original.observation.phenotype,
+            phenotype_type="incompatible-assay-type",
+        )
+        changed_observation = replace(
+            original.observation,
+            phenotype=changed_phenotype,
+        )
+        examples[-1] = replace(original, observation=changed_observation)
+        with self.assertRaisesRegex(ValueError, "assay context|assay/label context"):
+            train_interaction_model(
+                examples, model_id="mixed-assay-model", seed=17, epochs=10, created_at=T3
+            )
+
     def test_training_rejects_mixed_feature_producer_versions(self):
         examples = dataset()
         original = examples[-1]
