@@ -135,6 +135,18 @@ function drawEdges() {
   branch.setAttribute('d', `M ${x} ${from.bottom-container.top} V ${to.top-container.top-5}`);
   branch.setAttribute('class', `edge ${detectionOf(state) ? 'done' : ''}`);
   edges.push(branch);
+  for (const resource of document.querySelectorAll('[data-reference-target]')) {
+    const target = nodeElements.get(resource.dataset.referenceTarget) || $(resource.dataset.referenceTarget);
+    const sourceRect = resource.getBoundingClientRect(), targetRect = target.getBoundingClientRect();
+    const x1 = sourceRect.left + sourceRect.width / 2 - container.left;
+    const y1 = sourceRect.bottom - container.top;
+    const x2 = targetRect.left + targetRect.width / 2 - container.left;
+    const y2 = targetRect.top - container.top - 5;
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', `M ${x1} ${y1} C ${x1} ${y1 + 18}, ${x2} ${y2 - 18}, ${x2} ${y2}`);
+    path.setAttribute('class', 'edge reference-edge');
+    edges.push(path);
+  }
   $("edges").replaceChildren(...edges);
 }
 function confidenceBadge(record) {
