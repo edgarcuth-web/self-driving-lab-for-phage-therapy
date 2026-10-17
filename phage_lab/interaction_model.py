@@ -36,7 +36,7 @@ RESEARCH_SCORE_STATUS = "uncalibrated_research_score"
 
 _MODEL_FIELDS = {
     "content_sha256", "schema_version", "record_id", "model_id", "revision",
-    "target", "feature_schema_id", "algorithm", "algorithm_version", "input_feature_names",
+    "target", "feature_schema_id", "assay_context_sha256", "algorithm", "algorithm_version", "input_feature_names",
     "transformed_feature_names", "imputation_means", "scales", "coefficients",
     "intercept", "training_dataset_sha256", "train_example_ids", "test_example_ids",
     "training_host_groups", "test_host_groups", "seed", "test_fraction", "epochs",
@@ -134,6 +134,26 @@ class ModelTrainingExample:
     def pair_key(self):
         return (self.host_group, self.feature_vector.phage_profile_sha256)
 
+    @property
+    def assay_context_sha256(self):
+        spec = self.observation.experiment_spec
+        phenotype = self.observation.phenotype
+        arm = next(
+            item for item in spec.arms
+            if item.arm_id == phenotype.experiment_arm_id
+        )
+        return content_hash({
+            "arm_conditions": arm.conditions,
+            "expected_readouts": list(arm.expected_readouts),
+            "workflow": spec.to_dict()["workflow"],
+            "phenotype_type": phenotype.phenotype_type,
+            "phenotype_unit": phenotype.unit,
+            "phenotype_assessor_version": phenotype.assessor.version,
+            "phenotype_assessor_parameters": phenotype.assessor.parameters,
+            "label_assessor_version": self.observation.assessor.version,
+            "label_assessor_parameters": self.observation.assessor.parameters,
+        })
+
     def to_dict(self):
         return {
             "feature_vector": self.feature_vector.to_dict(),
@@ -158,6 +178,7 @@ class InteractionModelArtifact:
     revision: int
     target: str
     feature_schema_id: str
+    assay_context_sha256: str
     algorithm: str
     algorithm_version: str
     input_feature_names: tuple[str, ...]
@@ -192,6 +213,7 @@ class InteractionModelArtifact:
         if self.target != MODEL_TARGET:
             raise ValueError(f"InteractionModel v0 target must be {MODEL_TARGET}.")
         validate_digest(self.feature_schema_id, "feature_schema_id")
+        validate_digest(self.assay_context_sha256, "assay_context_sha256")
         if self.algorithm != MODEL_ALGORITHM or self.algorithm_version != MODEL_ALGORITHM_VERSION:
             raise ValueError("unsupported InteractionModel algorithm or version.")
         _text_tuple(self.input_feature_names, "input_feature_names", nonempty=True)
@@ -270,6 +292,7 @@ class InteractionModelArtifact:
             "revision": self.revision,
             "target": self.target,
             "feature_schema_id": self.feature_schema_id,
+            "assay_context_sha256": self.assay_context_sha256,
             "algorithm": self.algorithm,
             "algorithm_version": self.algorithm_version,
             "input_feature_names": list(self.input_feature_names),
@@ -314,6 +337,7 @@ def interaction_model_from_dict(data):
         revision=data["revision"],
         target=data["target"],
         feature_schema_id=data["feature_schema_id"],
+        assay_context_sha256=data["assay_context_sha256"],
         algorithm=data["algorithm"],
         algorithm_version=data["algorithm_version"],
         input_feature_names=tuple(data["input_feature_names"]),
@@ -552,7 +576,13 @@ def train_interaction_model(
         raise ValueError("duplicate host-genome/phage pairs are not allowed.")
     feature_names = tuple(sorted(ordered_examples[0].feature_vector.features))
     feature_schema_id = ordered_examples[0].feature_vector.feature_schema_id
+    assay_context_sha256 = ordered_examples[0].assay_context_sha256
     for item in ordered_examples:
+        if item.assay_context_sha256 != assay_context_sha256:
+            raise ValueError(
+                "assay context or label-assessor protocol differs across examples; "
+                "train on a comparable cohort."
+            )
         if tuple(sorted(item.feature_vector.features)) != feature_names:
             raise ValueError("all feature vectors must use exactly the same feature names.")
         if item.feature_vector.feature_schema_id != feature_schema_id:
@@ -618,6 +648,7 @@ def train_interaction_model(
         revision=revision,
         target=MODEL_TARGET,
         feature_schema_id=feature_schema_id,
+        assay_context_sha256=assay_context_sha256,
         algorithm=MODEL_ALGORITHM,
         algorithm_version=MODEL_ALGORITHM_VERSION,
         input_feature_names=feature_names,

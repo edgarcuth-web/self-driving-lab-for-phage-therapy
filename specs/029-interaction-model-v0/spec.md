@@ -59,6 +59,7 @@ A researcher evaluates a baseline on held-out host-genome groups and obtains a c
 - **FR-003**: Missing feature values MUST remain distinguishable from measured zero values; preprocessing parameters MUST be fit on training rows only.
 - **FR-013**: Training vectors MUST share the same feature names, per-feature source/method versions, and feature-producer configuration; inference MUST reject semantic schema drift even when feature names match.
 - **FR-014**: A feature source MUST have been available no later than the prediction being labeled; future feature sources MUST be rejected to prevent temporal leakage.
+- **FR-015**: A training cohort MUST share one assay/label-context signature (arm conditions, readouts, workflow, phenotype type/unit, and assessor protocol); mixed contexts MUST be rejected.
 - **FR-004**: Training labels MUST come from admitted LearningObservation records with target productive_infection; labels MUST NOT be inferred from phenotype polarity.
 - **FR-005**: The training dataset MUST reject duplicate host-genome/phage pairs and mismatched feature/observation lineage.
 - **FR-006**: The split MUST be deterministic and grouped by host genome digest, with disjoint train and test groups.

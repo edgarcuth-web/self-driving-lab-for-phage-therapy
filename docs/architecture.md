@@ -200,8 +200,9 @@ genome digest; imputation and scaling parameters are fitted on training rows onl
 
 The dependency-free v0 baseline is an L2-regularized logistic model. Its
 content-addressed artifact stores dataset digest, feature schema, preprocessing,
-coefficients, split membership and held-out AUROC, average precision, Brier score
-and log loss. These metrics describe the supplied dataset and do not establish
+coefficients, assay/label-context digest, split membership and held-out AUROC,
+average precision, Brier score and log loss. Training rejects cohorts with different
+assay conditions, readouts, workflow, phenotype type/unit, or assessor protocol. These metrics describe the supplied dataset and do not establish
 assay comparability or external generalization.
 
 ResearchPrediction is deliberately a separate artifact. It labels the model score
