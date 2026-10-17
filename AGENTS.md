@@ -14,6 +14,7 @@ Read [docs/architecture.md](docs/architecture.md) for the domain contracts and
 - HostState components require explicit evidence. New states never inherit dynamic components implicitly; lineage adapters do not infer biological state.
 - Physical execution requires test-ready MaterialBatch binding. QC admission is explicit, independent of execution success. Phenotype requires physical, QC-valid, same-arm/spec/material Measurements.
 - Failure review remains arm-scoped and criterion-based. Mechanism hypotheses are not confirmed causes; cocktail outcomes are not member outcomes.
+- Learning labels are explicit assessor declarations tied to exact prediction/spec/physical Phenotype lineage. Never infer a target label from phenotype polarity. Calibration reports are descriptive and must not fit, replace or silently recalibrate a model.
 - Feedback screening preserves its fixed campaign/context, criterion and history. Conflicts/inconclusive reviews require review; empty selection abstains. No automatic model, probability or HostState update.
 - Prefer evaluating natural phages, then cocktails; engineering requires an explicit evidence gap. Retrieved record provenance alone does not establish natural origin.
 

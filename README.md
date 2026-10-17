@@ -2,7 +2,7 @@
 
 把科学决策、实验执行和结果判读连接成可追溯的 Design–Build/Acquire–Test–Learn 流程。
 
-当前实现的是**反馈驱动的筛选软件闭环**：记录输入与预测，生成冻结的实验设计，摄取经过 QC 的结果，再选择下一轮尚未解决的筛选问题。尚无经过校准的感染预测器、自动模型训练或真实仪器运行验证。
+当前实现的是**反馈驱动的筛选软件闭环**：记录输入与预测，生成冻结的实验设计，摄取经过 QC 的结果，形成显式 prediction-vs-outcome 学习记录，并选择下一轮尚未解决的筛选问题。可对同一预测 cohort 做描述性 calibration 评估；尚无自动模型训练、自动重校准或真实仪器运行验证。
 
 ## 当前能力
 
@@ -12,7 +12,7 @@
 | 科学决策 | InteractionPrediction 输入契约、CandidateSet、PHIST cocktail baseline | unresolved prediction 不填占位概率；尚无疗效优化器 |
 | 实验设计 | ExperimentSpec v2、control/treatment arms、MaterialBatch binding | 记录意图与材料来源；不替用户定义实验方法 |
 | 执行 | 调度、日志、超时核对、取消恢复、虚拟设备、HTTP adapter 示例 | CLI 默认不配置真实驱动；虚拟设备不产生生物学证据 |
-| 反馈 | Measurement、Phenotype、Comparison、FailureAttribution、下一轮选择 | 当前是固定上下文的反馈筛选策略，不训练模型或更新 H(t) |
+| 反馈与学习 | Measurement、Phenotype、Comparison、FailureAttribution、LearningObservation、CalibrationReport、下一轮选择 | label 必须显式声明；calibration 仅描述评估，不训练模型或更新 H(t) |
 
 主路径：
 
@@ -21,7 +21,8 @@ HostState + PhageProfile + InteractionEvidence
   → InteractionPrediction → CandidateSet
   → ExperimentSpec → execution + MaterialBatch
   → Measurement → Phenotype / Comparison → FailureAttribution
-  → feedback-screening decision → next ExperimentSpec
+  ├→ LearningObservation → CalibrationReport
+  └→ feedback-screening decision → next ExperimentSpec
 ```
 
 CocktailDesign 是 ExperimentSpec 的另一种可选来源；单噬菌体筛选不需要先组成 cocktail。
@@ -67,9 +68,9 @@ python -m phage_lab host-state \
 
 ## 下一步
 
-1. 用可获得的真实实验结果验证反馈筛选流程。
-2. 数据条件具备后接入经过校准和评估的预测器。
-3. 在证据支持时增加 prediction-driven cocktail optimization，再评估工程化升级。
+1. 用真实实验结果积累 LearningObservation，并建立独立训练/验证数据切分。
+2. 在数据量与 assay 可比性足够后接入可重现的模型拟合与 held-out calibration/evaluation。
+3. 在预测器经过验证后增加 prediction-driven cocktail optimization，再评估工程化升级。
 
 ## License
 
