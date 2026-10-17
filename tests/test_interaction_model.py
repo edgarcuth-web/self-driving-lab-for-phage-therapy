@@ -10,7 +10,7 @@ from phage_lab.interaction_model import (
     FeatureProducer,
     FeatureSource,
     ModelTrainingExample,
-    feature_vector_from_dict,
+    interaction_feature_vector_from_dict,
     interaction_model_from_dict,
     new_interaction_feature_vector,
     predict_research_score,
@@ -140,12 +140,12 @@ def dataset():
 class InteractionFeatureVectorTests(unittest.TestCase):
     def test_round_trip_and_tamper_detection(self):
         item = make_example(1, "one", True).feature_vector
-        loaded = feature_vector_from_dict(item.to_dict())
+        loaded = interaction_feature_vector_from_dict(item.to_dict())
         self.assertEqual(loaded, item)
         tampered = item.to_dict()
         tampered["features"]["fixture_signal"] = 99.0
         with self.assertRaisesRegex(ValueError, "hash|content"):
-            feature_vector_from_dict(tampered)
+            interaction_feature_vector_from_dict(tampered)
 
     def test_missing_feature_provenance_is_rejected(self):
         example = make_example(1, "one", True)
