@@ -160,7 +160,23 @@ class InteractionFeatureVector:
 
     @property
     def feature_schema_id(self):
-        return content_hash(sorted(self.features))
+        return content_hash({
+            "feature_names": sorted(self.features),
+            "feature_sources": {
+                name: {
+                    "source": self.feature_sources[name].source,
+                    "version": self.feature_sources[name].version,
+                    "method": self.feature_sources[name].method,
+                }
+                for name in sorted(self.feature_sources)
+            },
+            "producer": {
+                "name": self.producer.name,
+                "version": self.producer.version,
+                "parameters": self.producer.parameters,
+                "code_sha256": self.producer.code_sha256,
+            },
+        })
 
     @property
     def content_sha256(self):

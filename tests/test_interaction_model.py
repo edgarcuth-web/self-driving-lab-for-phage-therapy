@@ -256,6 +256,30 @@ class InteractionModelTrainingTests(unittest.TestCase):
         self.assertNotIn("probabilities", payload)
         self.assertEqual(research_prediction_from_dict(payload), score)
 
+
+    def test_training_rejects_mixed_feature_producer_versions(self):
+        examples = dataset()
+        original = examples[-1]
+        sources = dict(original.feature_vector.feature_sources)
+        sources["fixture_signal"] = replace(sources["fixture_signal"], version="2")
+        changed_vector = replace(original.feature_vector, feature_sources=sources)
+        examples[-1] = replace(original, feature_vector=changed_vector)
+        with self.assertRaisesRegex(ValueError, "source/method versions|producer configuration"):
+            train_interaction_model(
+                examples, model_id="mixed-schema-model", seed=17, epochs=10, created_at=T3
+            )
+
+    def test_score_rejects_same_names_with_different_feature_provenance(self):
+        model = train_interaction_model(
+            dataset(), model_id="fixture-model", seed=17, epochs=30, created_at=T3
+        )
+        example = make_example(9, "query", True)
+        sources = dict(example.feature_vector.feature_sources)
+        sources["fixture_signal"] = replace(sources["fixture_signal"], version="2")
+        bad = replace(example.feature_vector, feature_sources=sources)
+        with self.assertRaisesRegex(ValueError, "feature schema provenance"):
+            predict_research_score(model, bad, prediction_id="bad-schema-score", predicted_at=T3)
+
     def test_feature_schema_mismatch_is_rejected(self):
         model = train_interaction_model(
             dataset(), model_id="fixture-model", seed=17, epochs=30, created_at=T3

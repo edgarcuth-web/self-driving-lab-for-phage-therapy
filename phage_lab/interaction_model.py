@@ -36,7 +36,7 @@ RESEARCH_SCORE_STATUS = "uncalibrated_research_score"
 
 _MODEL_FIELDS = {
     "content_sha256", "schema_version", "record_id", "model_id", "revision",
-    "target", "algorithm", "algorithm_version", "input_feature_names",
+    "target", "feature_schema_id", "algorithm", "algorithm_version", "input_feature_names",
     "transformed_feature_names", "imputation_means", "scales", "coefficients",
     "intercept", "training_dataset_sha256", "train_example_ids", "test_example_ids",
     "training_host_groups", "test_host_groups", "seed", "test_fraction", "epochs",
@@ -150,6 +150,7 @@ class InteractionModelArtifact:
     model_id: str
     revision: int
     target: str
+    feature_schema_id: str
     algorithm: str
     algorithm_version: str
     input_feature_names: tuple[str, ...]
@@ -183,6 +184,7 @@ class InteractionModelArtifact:
             raise ValueError(f"InteractionModelArtifact schema_version must be {SCHEMA_VERSION}.")
         if self.target != MODEL_TARGET:
             raise ValueError(f"InteractionModel v0 target must be {MODEL_TARGET}.")
+        validate_digest(self.feature_schema_id, "feature_schema_id")
         if self.algorithm != MODEL_ALGORITHM or self.algorithm_version != MODEL_ALGORITHM_VERSION:
             raise ValueError("unsupported InteractionModel algorithm or version.")
         _text_tuple(self.input_feature_names, "input_feature_names", nonempty=True)
@@ -260,6 +262,7 @@ class InteractionModelArtifact:
             "model_id": self.model_id,
             "revision": self.revision,
             "target": self.target,
+            "feature_schema_id": self.feature_schema_id,
             "algorithm": self.algorithm,
             "algorithm_version": self.algorithm_version,
             "input_feature_names": list(self.input_feature_names),
@@ -303,6 +306,7 @@ def interaction_model_from_dict(data):
         model_id=data["model_id"],
         revision=data["revision"],
         target=data["target"],
+        feature_schema_id=data["feature_schema_id"],
         algorithm=data["algorithm"],
         algorithm_version=data["algorithm_version"],
         input_feature_names=tuple(data["input_feature_names"]),
@@ -351,10 +355,6 @@ def _group_split(examples, *, test_fraction, seed):
             "for a grouped train/test split."
         )
     test_count = max(2, min(len(groups) - 2, math.ceil(len(groups) * test_fraction)))
-    group_labels = {
-        group: {example.label for example in examples if example.host_group == group}
-        for group in groups
-    }
     for attempt in range(512):
         ordered = sorted(
             groups,
@@ -533,7 +533,7 @@ def train_interaction_model(
     if learning_rate == 0:
         raise ValueError("learning_rate must be positive.")
     _finite_number(l2, "l2", minimum=0.0)
-    if revision < 1:
+    if type(revision) is not int or revision < 1:
         raise ValueError("revision must be a positive integer.")
 
     ordered_examples = sorted(examples, key=lambda item: item.observation.record_id)
@@ -544,9 +544,14 @@ def train_interaction_model(
     if len(set(pair_keys)) != len(pair_keys):
         raise ValueError("duplicate host-genome/phage pairs are not allowed.")
     feature_names = tuple(sorted(ordered_examples[0].feature_vector.features))
+    feature_schema_id = ordered_examples[0].feature_vector.feature_schema_id
     for item in ordered_examples:
         if tuple(sorted(item.feature_vector.features)) != feature_names:
-            raise ValueError("all feature vectors must use exactly the same feature schema.")
+            raise ValueError("all feature vectors must use exactly the same feature names.")
+        if item.feature_vector.feature_schema_id != feature_schema_id:
+            raise ValueError(
+                "feature source/method versions or producer configuration differ across examples."
+            )
         if item.observation.target != MODEL_TARGET:
             raise ValueError(f"all labels must target {MODEL_TARGET}.")
     labels = [item.label for item in ordered_examples]
@@ -605,6 +610,7 @@ def train_interaction_model(
         model_id=model_id,
         revision=revision,
         target=MODEL_TARGET,
+        feature_schema_id=feature_schema_id,
         algorithm=MODEL_ALGORITHM,
         algorithm_version=MODEL_ALGORITHM_VERSION,
         input_feature_names=feature_names,
@@ -714,6 +720,8 @@ def predict_research_score(
         raise ValueError("model must be an InteractionModelArtifact.")
     if not isinstance(feature_vector, InteractionFeatureVector):
         raise ValueError("feature_vector must be an InteractionFeatureVector.")
+    if feature_vector.feature_schema_id != model.feature_schema_id:
+        raise ValueError("feature schema provenance does not match the model.")
     row = _transform(
         feature_vector,
         model.input_feature_names,
