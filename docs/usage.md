@@ -264,7 +264,7 @@ LearningObservation。以下 feature-input.json 仅说明格式，feature_a 和�
 训练数据是一个 JSON 数组，每项包含完整的 feature_vector artifact 和
 LearningObservation artifact；后者必须来自已 admission 的物理/QC-valid phenotype，
 而不是 UI 合成结果。训练要求至少五个不同宿主基因组组，并要求 train/test
-两边都包含正负标签。
+两边都包含正负标签；所有样本还必须共享相同的 assay conditions、readouts、workflow、phenotype type/unit 和 assessor protocol。
 
     python -m phage_lab interaction-model-train --dataset training-examples.json --model-id productive-infection-baseline-v0 --test-fraction 0.25 --seed 17 --out interaction-model.json
 

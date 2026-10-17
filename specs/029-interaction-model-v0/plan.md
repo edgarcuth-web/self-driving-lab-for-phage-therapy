@@ -13,7 +13,7 @@ Keep the core dependency-free. Add a focused feature-contract module and a separ
 
 2. **Training admission and split**
    - Join feature vectors to LearningObservation labels.
-   - Require the productive_infection target and exact host/phage lineage.
+   - Require the productive_infection target, exact host/phage lineage, and a homogeneous assay/label context.
    - Reject duplicate host-genome/phage pairs.
    - Select a deterministic grouped holdout split by host genome digest; fit all imputation/scaling parameters from training rows only.
 
