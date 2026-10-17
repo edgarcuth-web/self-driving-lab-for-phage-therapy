@@ -7,11 +7,19 @@ threshold or biological conclusion is inferred automatically.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from hashlib import sha256
-import json
 import math
 from pathlib import Path
+
+from .artifacts import (
+    atomic_write_json,
+    content_hash,
+    parse_timestamp as _validate_timestamp,
+    read_json,
+    require_text as _require_text,
+    utc_now,
+    validate_digest as _validate_digest,
+    with_content_hash,
+)
 
 from .experiment_spec import ExperimentSpec
 from .measurement import Measurement
@@ -19,34 +27,6 @@ from .measurement import Measurement
 SCHEMA_VERSION = 2
 COMPARISON_SCHEMA_VERSION = 1
 OUTCOMES = ("positive", "negative", "graded")
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _require_text(value: str, field_name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field_name} must be a nonempty string.")
-    return value.strip()
-
-
-def _validate_timestamp(value: str, field_name: str) -> None:
-    try:
-        parsed = datetime.fromisoformat(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{field_name} must be an ISO-8601 timestamp.") from None
-    if parsed.tzinfo is None:
-        raise ValueError(f"{field_name} must include a timezone.")
-
-
-def _validate_digest(value: str, field_name: str) -> None:
-    if (
-        not isinstance(value, str)
-        or len(value) != 64
-        or any(char not in "0123456789abcdef" for char in value)
-    ):
-        raise ValueError(f"{field_name} must be a SHA-256 digest.")
 
 
 def _validate_text_tuple(values: tuple[str, ...], field_name: str) -> None:
@@ -180,16 +160,10 @@ class Phenotype:
 
     @property
     def content_sha256(self) -> str:
-        canonical = json.dumps(
-            self._content_dict(),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return sha256(canonical).hexdigest()
+        return content_hash(self._content_dict())
 
     def to_dict(self) -> dict:
-        return {"content_sha256": self.content_sha256, **self._content_dict()}
+        return with_content_hash(self._content_dict())
 
 
 @dataclass(frozen=True)
@@ -277,16 +251,10 @@ class PhenotypeComparison:
 
     @property
     def content_sha256(self) -> str:
-        canonical = json.dumps(
-            self._content_dict(),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return sha256(canonical).hexdigest()
+        return content_hash(self._content_dict())
 
     def to_dict(self) -> dict:
-        return {"content_sha256": self.content_sha256, **self._content_dict()}
+        return with_content_hash(self._content_dict())
 
 
 def _arm_by_id(spec: ExperimentSpec, arm_id: str):
@@ -603,20 +571,11 @@ def phenotype_comparison_from_dict(data: dict) -> PhenotypeComparison:
 def write_phenotype(phenotype: Phenotype, path: Path) -> None:
     if not isinstance(phenotype, Phenotype):
         raise ValueError("phenotype must be a Phenotype.")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(
-        json.dumps(phenotype.to_dict(), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    atomic_write_json(phenotype.to_dict(), path)
 
 
 def load_phenotype(path: Path) -> Phenotype:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise ValueError(f"Phenotype could not be loaded: {exc}") from None
+    data = read_json(path, 'Phenotype')
     return phenotype_from_dict(data)
 
 
@@ -626,20 +585,9 @@ def write_phenotype_comparison(
 ) -> None:
     if not isinstance(comparison, PhenotypeComparison):
         raise ValueError("comparison must be a PhenotypeComparison.")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(
-        json.dumps(comparison.to_dict(), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    atomic_write_json(comparison.to_dict(), path)
 
 
 def load_phenotype_comparison(path: Path) -> PhenotypeComparison:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise ValueError(
-            f"PhenotypeComparison could not be loaded: {exc}"
-        ) from None
+    data = read_json(path, 'PhenotypeComparison')
     return phenotype_comparison_from_dict(data)

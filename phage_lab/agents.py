@@ -44,35 +44,11 @@ class RuleAgent:
     model = None
 
     async def plan(self, context: dict) -> dict:
-        assignments = {}
-        for operation in _operations(context):
-            eligible = [device["device_id"] for device in context["devices"]
-                        if operation in device.get("operations", [])]
-            if not eligible:
-                raise AgentError(f"No compatible device is available for {operation}.")
-            assignments[operation] = sorted(eligible)[0]
-        low, high = _selection_size(context)
-        candidates = context["candidates"]
-        # When a host-range tool ranked the candidates, prefer the ones it actually
-        # reported; fall back to the rest only to reach the minimum the plan needs.
-        reported = [item["id"] for item in candidates
-                    if isinstance(item.get("ranking"), dict) and item["ranking"].get("reported")]
-        rest = [item["id"] for item in candidates if item["id"] not in set(reported)]
-        offered = reported + rest if reported else [item["id"] for item in candidates]
-        if len(offered) < low:
-            raise AgentError("Fewer candidates were offered than the plan requires.")
-        if reported:
-            # Take as many tool-reported candidates as the bounds allow, topping up
-            # from the rest only if the minimum cannot be met otherwise.
-            want = max(low, min(high, len(reported)))
-        else:
-            want = max(low, min(high, 2))
-        chosen = offered[:want]
-        return {"candidate_ids": chosen,
-                "device_assignments": assignments,
-                "reason": (f"Offline policy: take {len(chosen)} candidate(s)"
-                           + (" the host-range tool reported" if reported else " in offered order")
-                           + ", and a compatible device per operation.")}
+        from .legacy import offline_candidate_selection
+
+        assignment = await self.assign_devices(context)
+        return {**offline_candidate_selection(context),
+                "device_assignments": assignment["device_assignments"]}
 
     async def assign_devices(self, context: dict) -> dict:
         assignments = {}

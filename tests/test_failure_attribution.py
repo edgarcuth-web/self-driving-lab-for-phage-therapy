@@ -15,7 +15,7 @@ from phage_lab.failure_attribution import (
 from phage_lab.phenotype import (
     phenotype_from_measurements, phenotype_comparison_from_phenotypes,
 )
-from test_material_measurement_phenotype import experiment_spec, physical_measurement, STAMP
+from fixtures_results import experiment_spec, physical_measurement, STAMP
 
 
 class FailureAttributionTests(unittest.TestCase):

@@ -7,11 +7,17 @@ resistant labels, or biological truth.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from hashlib import sha256
 import json
 from pathlib import Path
 import re
+
+from .artifacts import (
+    atomic_write_json,
+    parse_timestamp as _validate_timestamp,
+    read_json,
+    require_text as _require_text,
+)
 
 SCHEMA_VERSION = 1
 EVIDENCE_KINDS = ("source_annotation", "computational")
@@ -19,21 +25,6 @@ SHA256_PATTERN = re.compile(r"\A[0-9a-f]{64}\Z")
 _SUSPECT_PROBABILITY = re.compile(
     r"(probab|likelihood|efficacy|infectivity|success_rate)", re.I
 )
-
-
-def _require_text(value: str, field_name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field_name} must be a nonempty string.")
-    return value.strip()
-
-
-def _validate_timestamp(value: str, field_name: str) -> None:
-    try:
-        parsed = datetime.fromisoformat(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{field_name} must be an ISO-8601 timestamp.") from None
-    if parsed.tzinfo is None:
-        raise ValueError(f"{field_name} must include a timezone.")
 
 
 def _validate_sha256(value: str, field_name: str) -> None:
@@ -320,22 +311,11 @@ def write_interaction_evidence(
 
     if not isinstance(evidence, InteractionEvidence):
         raise ValueError("evidence must be an InteractionEvidence.")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(
-        json.dumps(evidence.to_dict(), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    atomic_write_json(evidence.to_dict(), path)
 
 
 def load_interaction_evidence(path: Path) -> InteractionEvidence:
     """Load and validate one InteractionEvidence JSON document."""
 
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise ValueError(
-            f"InteractionEvidence could not be loaded: {exc}"
-        ) from None
+    data = read_json(path, 'InteractionEvidence')
     return interaction_evidence_from_dict(data)

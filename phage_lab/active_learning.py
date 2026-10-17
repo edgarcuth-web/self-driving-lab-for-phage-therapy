@@ -7,9 +7,16 @@ conflicting reviews require human review; cocktail results never retire members.
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from hashlib import sha256
-import json
 from pathlib import Path
+
+from .artifacts import (
+    atomic_write_json,
+    content_hash,
+    parse_timestamp as _time,
+    read_json,
+    require_text as _text,
+    with_content_hash,
+)
 
 from .experiment_spec import (
     ExperimentSpec, SourceReference, experiment_spec_from_dict,
@@ -24,21 +31,6 @@ from .natural_phage_recommender import (
 SCHEMA_VERSION = 1
 POLICY_NAME = "feedback-screening"
 POLICY_VERSION = "1"
-
-
-def _text(value, name):
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{name} must be a nonempty string.")
-
-
-def _time(value):
-    try:
-        result = datetime.fromisoformat(value)
-    except (ValueError, TypeError):
-        raise ValueError("Expected an ISO-8601 timestamp.") from None
-    if result.tzinfo is None:
-        raise ValueError("Timestamp must include a timezone.")
-    return result
 
 
 def _reference(kind, artifact):
@@ -159,11 +151,15 @@ class ActiveLearningDecision:
         return f"{self.decision_id}:v{self.revision}"
 
     def _feedback_evaluations(self):
+        reviews_by_profile = {}
+        for review in self.feedback:
+            target = next(a for a in review.experiment_spec.arms
+                          if a.arm_id == review.target_arm_id)
+            if len(target.phage_profile_ids) == 1:
+                reviews_by_profile.setdefault(target.phage_profile_ids[0], []).append(review)
         entries = []
         for entry in self.candidate_set.evaluations:
-            reviews = [f for f in self.feedback if next(
-                a for a in f.experiment_spec.arms if a.arm_id == f.target_arm_id
-            ).phage_profile_ids == (entry.phage_profile_id,)]
+            reviews = reviews_by_profile.get(entry.phage_profile_id, [])
             outcomes = {f.outcome for f in reviews}
             if entry.disposition == "excluded":
                 state = "excluded"
@@ -187,19 +183,17 @@ class ActiveLearningDecision:
             })
         return tuple(entries)
 
-    @property
-    def selected_phage_profile_ids(self):
-        available = {e["phage_profile_id"] for e in self._feedback_evaluations()
+    def _selection(self):
+        """Derive feedback state, selection and status once per public access/export."""
+        feedback_entries = self._feedback_evaluations()
+        available = {e["phage_profile_id"] for e in feedback_entries
                      if e["state"] == "untested"}
-        return _select([e for e in self.candidate_set.evaluations
-                        if e.phage_profile_id in available], self.policy)
-
-    @property
-    def evaluations(self):
-        selected = set(self.selected_phage_profile_ids)
+        selected_ids = _select([e for e in self.candidate_set.evaluations
+                                if e.phage_profile_id in available], self.policy)
+        selected = set(selected_ids)
         source_entries = {e.phage_profile_id: e for e in self.candidate_set.evaluations}
         entries = []
-        for entry in self._feedback_evaluations():
+        for entry in feedback_entries:
             source = source_entries[entry["phage_profile_id"]]
             if entry["phage_profile_id"] in selected:
                 disposition = "selected"
@@ -212,17 +206,27 @@ class ActiveLearningDecision:
                 reason = entry["reason"]
             entries.append({**entry, "disposition": disposition,
                             "selection_basis": source.basis, "selection_reason": reason})
-        return tuple(entries)
+        if not selected_ids:
+            status = "abstained"
+        elif not self.feedback:
+            status = "no_feedback"
+        elif all(e["state"] in ("untested", "excluded") for e in entries):
+            status = "no_actionable_feedback"
+        else:
+            status = "feedback_applied"
+        return selected_ids, tuple(entries), status
+
+    @property
+    def selected_phage_profile_ids(self):
+        return self._selection()[0]
+
+    @property
+    def evaluations(self):
+        return self._selection()[1]
 
     @property
     def status(self):
-        if not self.selected_phage_profile_ids:
-            return "abstained"
-        if not self.feedback:
-            return "no_feedback"
-        if all(e["state"] in ("untested", "excluded") for e in self.evaluations):
-            return "no_actionable_feedback"
-        return "feedback_applied"
+        return self._selection()[2]
 
     @property
     def limitations(self):
@@ -239,6 +243,7 @@ class ActiveLearningDecision:
     def _content_dict(self):
         if self._current_source_hashes() != self._source_hashes:
             raise ValueError("Decision source snapshots were mutated; create a new decision.")
+        selected, evaluations, status = self._selection()
         return {
             "schema_version": self.schema_version, "record_id": self.record_id,
             "decision_id": self.decision_id, "revision": self.revision,
@@ -248,18 +253,17 @@ class ActiveLearningDecision:
             "policy": {**self.policy.to_dict(), "name": POLICY_NAME, "version": POLICY_VERSION},
             "created_at": self.created_at,
             "previous_decision": self.previous_decision.to_dict() if self.previous_decision else None,
-            "evaluations": list(self.evaluations),
-            "selected_phage_profile_ids": list(self.selected_phage_profile_ids),
-            "status": self.status, "limitations": list(self.limitations),
+            "evaluations": list(evaluations),
+            "selected_phage_profile_ids": list(selected),
+            "status": status, "limitations": list(self.limitations),
         }
 
     @property
     def content_sha256(self):
-        return sha256(json.dumps(self._content_dict(), ensure_ascii=False, sort_keys=True,
-                                 separators=(",", ":")).encode("utf-8")).hexdigest()
+        return content_hash(self._content_dict())
 
     def to_dict(self):
-        return {**self._content_dict(), "content_sha256": self.content_sha256}
+        return with_content_hash(self._content_dict())
 
 
 def plan_next_screen(candidate_set, screening_spec, feedback, *, decision_id, criterion,
@@ -345,19 +349,13 @@ def active_learning_decision_from_dict(data):
 
 
 def write_active_learning_decision(decision, path: Path):
-    active_learning_decision_from_dict(decision.to_dict())
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(decision.to_dict(), ensure_ascii=False, indent=2) + "\n",
-                         encoding="utf-8")
-    temporary.replace(path)
+    data = decision.to_dict()
+    active_learning_decision_from_dict(data)
+    atomic_write_json(data, path)
 
 
 def load_active_learning_decision(path: Path):
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise ValueError(f"ActiveLearningDecision could not be loaded: {exc}") from None
+    data = read_json(path, 'ActiveLearningDecision')
     return active_learning_decision_from_dict(data)
 
 

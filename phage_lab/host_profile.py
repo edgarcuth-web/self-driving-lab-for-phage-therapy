@@ -9,10 +9,16 @@ Raw FASTA content is never stored in the profile.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-import json
 from pathlib import Path
 import re
+
+from .artifacts import (
+    atomic_write_json,
+    parse_timestamp as _validate_timestamp,
+    read_json,
+    require_text as _require_text,
+    utc_now,
+)
 
 from .biology import GenomeSummary
 
@@ -26,25 +32,6 @@ FEATURE_GROUPS = (
 )
 FEATURE_STATUSES = ("unknown", "assessed")
 SHA256_PATTERN = re.compile(r"\A[0-9a-f]{64}\Z")
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _require_text(value: str, field_name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field_name} must be a nonempty string.")
-    return value.strip()
-
-
-def _validate_timestamp(value: str, field_name: str) -> None:
-    try:
-        parsed = datetime.fromisoformat(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{field_name} must be an ISO-8601 timestamp.") from None
-    if parsed.tzinfo is None:
-        raise ValueError(f"{field_name} must include a timezone.")
 
 
 @dataclass(frozen=True)
@@ -356,20 +343,11 @@ def write_host_profile(profile: HostProfile, path: Path) -> None:
 
     if not isinstance(profile, HostProfile):
         raise ValueError("profile must be a HostProfile.")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(
-        json.dumps(profile.to_dict(), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    atomic_write_json(profile.to_dict(), path)
 
 
 def load_host_profile(path: Path) -> HostProfile:
     """Load and validate a HostProfile JSON document."""
 
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise ValueError(f"HostProfile could not be loaded: {exc}") from None
+    data = read_json(path, 'HostProfile')
     return host_profile_from_dict(data)

@@ -6,9 +6,9 @@ from pathlib import Path
 from statistics import mean
 from uuid import uuid4
 
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from .artifacts import (
+    utc_now,
+)
 
 
 class RunRecords:

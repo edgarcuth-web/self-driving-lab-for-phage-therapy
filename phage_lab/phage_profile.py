@@ -7,33 +7,20 @@ into properties of the phage itself.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-import json
 from pathlib import Path
 import re
+
+from .artifacts import (
+    atomic_write_json,
+    parse_timestamp as _validate_timestamp,
+    read_json,
+    require_text as _require_text,
+    utc_now,
+)
 
 SCHEMA_VERSION = 1
 PROVENANCE_KINDS = ("retrieved", "natural", "engineered")
 SHA256_PATTERN = re.compile(r"\A[0-9a-f]{64}\Z")
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _require_text(value: str, field_name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field_name} must be a nonempty string.")
-    return value.strip()
-
-
-def _validate_timestamp(value: str, field_name: str) -> None:
-    try:
-        parsed = datetime.fromisoformat(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{field_name} must be an ISO-8601 timestamp.") from None
-    if parsed.tzinfo is None:
-        raise ValueError(f"{field_name} must include a timezone.")
 
 
 def _validate_sha256(value: str, field_name: str) -> None:
@@ -520,20 +507,11 @@ def write_phage_profile(profile: PhageProfile, path: Path) -> None:
 
     if not isinstance(profile, PhageProfile):
         raise ValueError("profile must be a PhageProfile.")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(
-        json.dumps(profile.to_dict(), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    atomic_write_json(profile.to_dict(), path)
 
 
 def load_phage_profile(path: Path) -> PhageProfile:
     """Load and validate one PhageProfile JSON document."""
 
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise ValueError(f"PhageProfile could not be loaded: {exc}") from None
+    data = read_json(path, 'PhageProfile')
     return phage_profile_from_dict(data)

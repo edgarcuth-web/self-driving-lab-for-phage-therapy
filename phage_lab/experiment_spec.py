@@ -10,11 +10,19 @@ no instrument-specific commands or wet-lab procedure parameters.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from hashlib import sha256
-import json
 import math
 from pathlib import Path
+
+from .artifacts import (
+    atomic_write_json,
+    content_hash,
+    parse_timestamp as _validate_timestamp,
+    read_json,
+    require_text as _require_text,
+    utc_now,
+    validate_digest as _validate_digest,
+    with_content_hash,
+)
 
 from .cocktail_design import CocktailDesign
 from .interaction_evidence import HostReference
@@ -27,34 +35,6 @@ DEFAULT_EXECUTION_CONSTRAINTS = (
     "Device assignment may change during recovery, but scientific arm definitions may not.",
     "Workflow completion is not evidence of biological efficacy.",
 )
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _require_text(value: str, field_name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field_name} must be a nonempty string.")
-    return value.strip()
-
-
-def _validate_timestamp(value: str, field_name: str) -> None:
-    try:
-        parsed = datetime.fromisoformat(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{field_name} must be an ISO-8601 timestamp.") from None
-    if parsed.tzinfo is None:
-        raise ValueError(f"{field_name} must include a timezone.")
-
-
-def _validate_digest(value: str, field_name: str) -> None:
-    if (
-        not isinstance(value, str)
-        or len(value) != 64
-        or any(char not in "0123456789abcdef" for char in value)
-    ):
-        raise ValueError(f"{field_name} must be a SHA-256 digest.")
 
 
 def _validate_text_tuple(
@@ -353,16 +333,10 @@ class ExperimentSpec:
 
     @property
     def content_sha256(self) -> str:
-        canonical = json.dumps(
-            self._content_dict(),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return sha256(canonical).hexdigest()
+        return content_hash(self._content_dict())
 
     def to_dict(self) -> dict:
-        return {"content_sha256": self.content_sha256, **self._content_dict()}
+        return with_content_hash(self._content_dict())
 
 
 def _host_reference_from_dict(data: dict) -> HostReference:
@@ -648,20 +622,11 @@ def write_experiment_spec(spec: ExperimentSpec, path: Path) -> None:
 
     if not isinstance(spec, ExperimentSpec):
         raise ValueError("spec must be an ExperimentSpec.")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(
-        json.dumps(spec.to_dict(), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    atomic_write_json(spec.to_dict(), path)
 
 
 def load_experiment_spec(path: Path) -> ExperimentSpec:
     """Load and validate one ExperimentSpec JSON document."""
 
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise ValueError(f"ExperimentSpec could not be loaded: {exc}") from None
+    data = read_json(path, 'ExperimentSpec')
     return experiment_spec_from_dict(data)

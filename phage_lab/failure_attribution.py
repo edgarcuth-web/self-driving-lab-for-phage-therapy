@@ -9,9 +9,16 @@ measurement QC and exact arm/comparison lineage.
 
 from dataclasses import dataclass, fields
 from datetime import datetime, timezone
-from hashlib import sha256
-import json
 from pathlib import Path
+
+from .artifacts import (
+    atomic_write_json,
+    content_hash,
+    parse_timestamp as _time,
+    read_json,
+    require_text as _text,
+    with_content_hash,
+)
 
 from .experiment_spec import ExperimentSpec, experiment_spec_from_dict
 from .measurement import Measurement, measurement_from_dict
@@ -24,21 +31,6 @@ from .phenotype import (
 SCHEMA_VERSION = 1
 FAILURE_OUTCOMES = ("failure_observed", "failure_not_observed", "inconclusive")
 MECHANISM_CATEGORIES = ("adsorption", "intracellular", "kinetics", "other")
-
-
-def _text(value, name):
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{name} must be a nonempty string.")
-
-
-def _time(value):
-    try:
-        parsed = datetime.fromisoformat(value)
-    except (TypeError, ValueError):
-        raise ValueError("Expected an ISO-8601 timestamp.") from None
-    if parsed.tzinfo is None:
-        raise ValueError("Timestamp must include a timezone.")
-    return parsed
 
 
 def _texts(value, name, *, nonempty=False):
@@ -256,12 +248,10 @@ class FailureAttribution:
 
     @property
     def content_sha256(self):
-        canonical = json.dumps(self._content_dict(), ensure_ascii=False,
-                               sort_keys=True, separators=(",", ":"))
-        return sha256(canonical.encode("utf-8")).hexdigest()
+        return content_hash(self._content_dict())
 
     def to_dict(self):
-        return {"content_sha256": self.content_sha256, **self._content_dict()}
+        return with_content_hash(self._content_dict())
 
 
 def failure_attribution_from_results(
@@ -323,17 +313,11 @@ def write_failure_attribution(attribution, path: Path):
     if not isinstance(attribution, FailureAttribution):
         raise ValueError("attribution must be a FailureAttribution.")
     # Also check nested snapshots again in case a caller mutated a nested dict.
-    failure_attribution_from_dict(attribution.to_dict())
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(attribution.to_dict(), ensure_ascii=False, indent=2)
-                         + "\n", encoding="utf-8")
-    temporary.replace(path)
+    data = attribution.to_dict()
+    failure_attribution_from_dict(data)
+    atomic_write_json(data, path)
 
 
 def load_failure_attribution(path: Path):
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise ValueError(f"FailureAttribution could not be loaded: {exc}") from None
+    data = read_json(path, 'FailureAttribution')
     return failure_attribution_from_dict(data)

@@ -6,9 +6,18 @@ predictions remain an explicit exploration queue; no raw PHIST rank is read.
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from hashlib import sha256
-import json
 from pathlib import Path
+
+from .artifacts import (
+    atomic_write_json,
+    canonical_json as _canonical,
+    content_hash,
+    parse_timestamp as _time,
+    read_json,
+    require_text as _text,
+    validate_digest as _digest,
+    with_content_hash,
+)
 
 from .host_state import HostState, HostStateReference, host_state_reference
 from .interaction_prediction import (
@@ -23,34 +32,9 @@ POLICY_NAME = "natural-phage-screening"
 POLICY_VERSION = "1"
 
 
-def _text(value, name):
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{name} must be a nonempty string.")
-
-
-def _time(value, name):
-    try:
-        parsed = datetime.fromisoformat(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{name} must be an ISO-8601 timestamp.") from None
-    if parsed.tzinfo is None:
-        raise ValueError(f"{name} must include a timezone.")
-    return parsed
-
-
-def _digest(value, name):
-    if (not isinstance(value, str) or len(value) != 64
-            or any(char not in "0123456789abcdef" for char in value)):
-        raise ValueError(f"{name} must be a SHA-256 digest.")
-
-
 def _fields(data, names, label):
     if not isinstance(data, dict) or set(data) != set(names.split()):
         raise ValueError(f"{label} has missing or unknown fields.")
-
-
-def _canonical(data):
-    return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 @dataclass(frozen=True)
@@ -263,10 +247,10 @@ class CandidateSet:
 
     @property
     def content_sha256(self):
-        return sha256(_canonical(self._content_dict()).encode("utf-8")).hexdigest()
+        return content_hash(self._content_dict())
 
     def to_dict(self):
-        return {"content_sha256": self.content_sha256, **self._content_dict()}
+        return with_content_hash(self._content_dict())
 
 
 def recommend_natural_phages(
@@ -381,18 +365,11 @@ def candidate_set_from_dict(data: dict) -> CandidateSet:
 def write_candidate_set(candidate_set: CandidateSet, path: Path) -> None:
     if not isinstance(candidate_set, CandidateSet):
         raise ValueError("candidate_set must be a CandidateSet.")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(candidate_set.to_dict(), ensure_ascii=False, indent=2)
-                         + "\n", encoding="utf-8")
-    temporary.replace(path)
+    atomic_write_json(candidate_set.to_dict(), path)
 
 
 def load_candidate_set(path: Path) -> CandidateSet:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise ValueError(f"CandidateSet could not be loaded: {exc}") from None
+    data = read_json(path, 'CandidateSet')
     return candidate_set_from_dict(data)
 
 
