@@ -37,6 +37,7 @@ the tour's final report chapter and actual asynchronous report completion.
 | `phage_profile.py` | PhageProfile identity and retrieved / natural / engineered provenance |
 | `interaction_evidence.py`, `ranking.py` | Pairwise source signals and PHIST adapter |
 | `interaction_prediction.py` | Exact H(t)/phage predictions with uncertainty and model provenance |
+| `interaction_model.py` | Provenance-bound feature vectors, host-grouped research baseline, held-out metrics and uncalibrated raw scores |
 | `natural_phage_recommender.py` | CandidateSet, screening policy and single-phage spec conversion |
 | `cocktail_design.py` | CocktailDesign and conservative PHIST screening baseline |
 | `experiment_spec.py` | ExperimentSpec v2, arms, optional source references and abstract workflow |
@@ -180,6 +181,34 @@ gap, Brier score and log loss. It does not fit or recalibrate a model, establish
 assay comparability, create confidence intervals, update H(t), or replace any
 InteractionPrediction. Training/validation splitting and model fitting remain a
 separate future boundary.
+
+## InteractionModel v0
+
+InteractionFeatureVector binds numeric feature values to one exact HostState
+reference and PhageProfile fingerprint. Every feature carries source, method,
+version, input digest and optional evidence references. Null means missing; it is
+not converted to a biological negative. Feature vectors are supplied by upstream
+analysis. This module does not annotate raw genomes, detect receptors/RBPs or
+infer defense-counterdefense mechanisms.
+
+ModelTrainingExample joins one vector to one admitted LearningObservation for
+the same exact host/phage pair and the productive_infection target. Training
+rejects duplicate pairs, mismatched lineage, non-finite values and insufficient
+host groups/classes. The deterministic holdout split groups by normalized host
+genome digest; imputation and scaling parameters are fitted on training rows only.
+
+The dependency-free v0 baseline is an L2-regularized logistic model. Its
+content-addressed artifact stores dataset digest, feature schema, preprocessing,
+coefficients, split membership and held-out AUROC, average precision, Brier score
+and log loss. These metrics describe the supplied dataset and do not establish
+assay comparability or external generalization.
+
+ResearchPrediction is deliberately a separate artifact. It labels the model score
+as uncalibrated and research-only; it is not an InteractionPrediction, is not
+accepted by CandidateSet, and cannot trigger execution. v0 does not fit a
+probability calibrator, promote models, update HostState or train on simulated
+biological outcomes. A future calibrated predictor must be separately validated
+before it can populate estimated InteractionPrediction targets.
 
 ## Feedback screening
 

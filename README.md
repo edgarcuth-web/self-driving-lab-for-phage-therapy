@@ -2,7 +2,7 @@
 
 把科学决策、实验执行和结果判读连接成可追溯的 Design–Build/Acquire–Test–Learn 流程。
 
-当前实现的是**反馈驱动的筛选软件闭环**：记录输入与预测，生成冻结的实验设计，摄取经过 QC 的结果，形成显式 prediction-vs-outcome 学习记录，并选择下一轮尚未解决的筛选问题。可对同一预测 cohort 做描述性 calibration 评估；尚无自动模型训练、自动重校准或真实仪器运行验证。
+当前实现的是**反馈驱动的筛选软件闭环**：记录输入与预测，生成冻结的实验设计，摄取经过 QC 的结果，形成显式 prediction-vs-outcome 学习记录，并选择下一轮尚未解决的筛选问题。新增的 InteractionModel v0 可用带来源的数值特征与已 admission 的 LearningObservation 标签训练 research-only baseline，并进行按宿主基因组分组的 held-out evaluation；它只输出未校准 raw score，不产生可进入 CandidateSet 的 InteractionPrediction。尚无生物学特征提取器、已训练的真实数据模型、概率校准或真实仪器运行验证。
 
 ## 当前能力
 
@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | 输入与证据 | HostProfile、HostState、PhageProfile、参考快照、PHIST evidence | 未运行 analyzer 的特征保持 unknown；PHIST 不是感染概率 |
 | 科学决策 | InteractionPrediction 输入契约、CandidateSet、PHIST cocktail baseline | unresolved prediction 不填占位概率；尚无疗效优化器 |
+| 模型 | InteractionFeatureVector、host-grouped L2 logistic baseline、held-out metrics、ResearchPrediction | 需外部提供真实特征与标签；raw score 未校准，不进入科学决策主路径 |
 | 实验设计 | ExperimentSpec v2、control/treatment arms、MaterialBatch binding | 记录意图与材料来源；不替用户定义实验方法 |
 | 执行 | 调度、日志、超时核对、取消恢复、虚拟设备、HTTP adapter 示例 | CLI 默认不配置真实驱动；虚拟设备不产生生物学证据 |
 | 反馈与学习 | Measurement、Phenotype、Comparison、FailureAttribution、LearningObservation、CalibrationReport、下一轮选择 | label 必须显式声明；calibration 仅描述评估，不训练模型或更新 H(t) |
@@ -25,6 +26,13 @@ HostState + PhageProfile + InteractionEvidence
   └→ feedback-screening decision → next ExperimentSpec
 ```
 
+模型研究支路（与科学决策主路径隔离）：
+
+  upstream biological features + exact HostState / PhageProfile
+  → InteractionFeatureVector + admitted LearningObservation labels
+  → InteractionModel v0 → ResearchPrediction (uncalibrated raw score only)
+
+该支路不会自动更新 InteractionPrediction、CandidateSet、HostState 或执行队列。
 CocktailDesign 是 ExperimentSpec 的另一种可选来源；单噬菌体筛选不需要先组成 cocktail。
 
 ## 本地检查
@@ -124,9 +132,10 @@ python -m phage_lab host-state \
 
 ## 下一步
 
-1. 用真实实验结果积累 LearningObservation，并建立独立训练/验证数据切分。
-2. 在数据量与 assay 可比性足够后接入可重现的模型拟合与 held-out calibration/evaluation。
-3. 在预测器经过验证后增加 prediction-driven cocktail optimization，再评估工程化升级。
+1. 接入有明确 provenance 的真实 feature extractors：宿主 receptor/capsule/LPS、defense systems，以及噬菌体 RBP/tail 和其他可验证特征。
+2. 建立 assay-aware 的真实 host–phage interaction dataset，积累足够独立宿主组的 LearningObservation 标签；当前模型模块没有随仓库捆绑训练数据。
+3. 在独立 host-group holdout 和外部数据集上评估，并单独实现概率校准/不确定性验证；通过前 raw score 不进入 InteractionPrediction。
+4. predictor 经验证后再做 prediction-driven cocktail optimization，之后才评估 engineering escalation。
 
 ## License
 

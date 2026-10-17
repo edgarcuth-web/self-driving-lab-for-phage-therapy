@@ -220,7 +220,61 @@ python -m phage_lab calibration-report \
 输出包含 sample count、mean predicted probability、observed rate、calibration gap、
 Brier score 和 log loss。该命令不拟合、不重校准、不替换模型，也不更新 H(t)。
 
-## 7. 用反馈选择下一轮
+## 7. 训练 InteractionModel v0 research baseline
+
+v0 只建模 productive_infection，输入必须是由上游分析生成、带 provenance
+的数值 InteractionFeatureVector，以及与同一 HostState/PhageProfile 精确匹配的
+LearningObservation。以下 feature-input.json 仅说明格式，feature_a 和数值均为
+占位示例，不能当作真实生物学特征或训练数据：
+
+    {
+      "features": {"feature_a": 1.0, "feature_b": null},
+      "feature_sources": {
+        "feature_a": {
+          "source": "YOUR_ANALYZER",
+          "version": "1",
+          "method": "documented-method",
+          "input_sha256": "REPLACE_WITH_REAL_64_CHAR_SHA256",
+          "reference": "YOUR_SOURCE_RECORD",
+          "evidence_ids": []
+        },
+        "feature_b": {
+          "source": "YOUR_ANALYZER",
+          "version": "1",
+          "method": "documented-method",
+          "input_sha256": "REPLACE_WITH_REAL_64_CHAR_SHA256",
+          "reference": "YOUR_SOURCE_RECORD",
+          "evidence_ids": []
+        }
+      },
+      "producer": {
+        "name": "YOUR_FEATURE_PIPELINE",
+        "version": "1",
+        "parameters": {},
+        "code_sha256": null
+      }
+    }
+
+包装真实提取结果：
+
+    python -m phage_lab interaction-feature-vector --host-state host-state.json --phage-profile phage-profile.json --feature-input feature-input.json --vector-id vector-001 --out feature-vector.json
+
+训练数据是一个 JSON 数组，每项包含完整的 feature_vector artifact 和
+LearningObservation artifact；后者必须来自已 admission 的物理/QC-valid phenotype，
+而不是 UI 合成结果。训练要求至少五个不同宿主基因组组，并要求 train/test
+两边都包含正负标签。
+
+    python -m phage_lab interaction-model-train --dataset training-examples.json --model-id productive-infection-baseline-v0 --test-fraction 0.25 --seed 17 --out interaction-model.json
+
+对新 feature vector 生成 research-only score：
+
+    python -m phage_lab interaction-model-score --model interaction-model.json --feature-vector feature-vector.json --prediction-id raw-score-001 --out research-prediction.json
+
+输出保存数据集指纹、模型参数、按宿主分组的 train/test 清单和 held-out 指标。
+ResearchPrediction 的分数未校准，不能转换成 estimated InteractionPrediction、
+不能进入 CandidateSet，也不能作为疗效或临床证据。v0 不含序列特征提取器或训练数据。
+
+## 8. 用反馈选择下一轮
 
 ```bash
 python -m phage_lab active-learn \
