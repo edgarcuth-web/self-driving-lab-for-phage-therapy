@@ -25,7 +25,7 @@ Measurement
         ↓
 Phenotype / FailureAttribution
         ↓
-Feedback / model update
+ActiveLearningDecision / next ExperimentSpec
         └────────────────────→ next cycle
 ```
 
@@ -49,6 +49,7 @@ Scientific components choose what to test. The orchestration layer executes a va
 | `Phenotype` | Biological interpretation of valid physical Measurements from exactly one ExperimentArm |
 | `PhenotypeComparison` | Explicit assessor-stated comparison between two admitted arm phenotypes |
 | `FailureAttribution` | Explicit arm-level review against a criterion, with unconfirmed mechanism hypotheses |
+| `ActiveLearningDecision` | Content-addressed feedback-screening decision in a fixed campaign/context, with full feedback history and next-experiment bridge |
 | model/analysis record | Tool/model identity, version, inputs and parameters |
 
 Target lineage:
@@ -65,8 +66,8 @@ HostProfile
   → arm-scoped Measurement
   → Phenotype
   → PhenotypeComparison / FailureAttribution
-  → Feedback
-  → next Design
+  → ActiveLearningDecision
+  → next ExperimentSpec
 ```
 
 Design versions already used in build/test are immutable.
@@ -315,7 +316,7 @@ Keep these outcomes distinct:
 
 The artifact preserves full ExperimentSpec, Measurement, Phenotype and optional PhenotypeComparison snapshots. Construction and loading re-admit every source Measurement through the existing physical/QC-valid Phenotype gate and verify host/phage/arm/material/spec lineage. Comparisons must involve the target arm and bind the exact supplied phenotype contents. All source Measurements must be referenced; other-arm phenotypes require a comparison with the target. Source timestamps must precede the assessments that use them.
 
-No hypotheses means `mechanism_status=unknown`. An assessor may attach adsorption / intracellular / kinetics / other hypotheses only to an observed failure, with exact reviewed-result references, rationale and limitations. These remain `hypothesized`, never automatically confirmed. The result remains scoped to the whole treatment arm, including a cocktail; there is no inferred member-level failure, host-state mutation, probability update, engineering recommendation or automatic next experiment. ActiveLearner is the next consumer, not part of this artifact.
+No hypotheses means `mechanism_status=unknown`. An assessor may attach adsorption / intracellular / kinetics / other hypotheses only to an observed failure, with exact reviewed-result references, rationale and limitations. These remain `hypothesized`, never automatically confirmed. The result remains scoped to the whole treatment arm, including a cocktail; there is no inferred member-level failure, host-state mutation, probability update, engineering recommendation or automatic next experiment. ActiveLearner is a separate consumer, not part of this artifact.
 
 Feedback creates a new design/version; it does not overwrite previous experimental lineage.
 
@@ -335,6 +336,7 @@ Feedback creates a new design/version; it does not overwrite previous experiment
 | `material_batch.py` | MaterialBatch v1 and test-ready material binding |
 | `measurement.py` | Measurement v2, arm-scoped run-report ingestion and arm-specific material lineage |
 | `phenotype.py` | Phenotype v2 plus explicit PhenotypeComparison v1 |
+| `active_learning.py` | Fixed-context feedback screening, cumulative decision history and next ExperimentSpec bridge |
 | `snapshots.py`, `candidates.py` | Reference snapshots and retrieved candidate records |
 | `sequences.py` | Accession-indexed sequences |
 | `ranking.py` | PHIST ranking compatibility layer and evidence producer |
@@ -346,9 +348,23 @@ Feedback creates a new design/version; it does not overwrite previous experiment
 
 Current implementation status belongs in [README.md](../README.md).
 
+## Feedback-driven screening
+
+`active_learning.py` implements ActiveLearner v1 as a bounded screening heuristic. It consumes an exact CandidateSet, its initial single-phage ExperimentSpec, an explicit criterion and admitted FailureAttribution snapshots. Matching host identity alone is insufficient: source CandidateSet hash, conditions, readouts, objective, abstract workflow and constraints must match the fixed campaign context. The initial spec must correspond to the original selected single-phage members and have one host-only control.
+
+A reviewed single-phage question leaves automatic screening regardless of whether failure was observed. Inconclusive or conflicting reviews become `needs_review`; absence of feedback remains unknown. A cocktail review remains arm-scoped and never changes individual member status. Remaining untested candidates use the existing comparable lower-bound / unresolved-exploration policy. Empty automatic selection is `abstained`, not a biological conclusion. Predictions, H(t), mechanisms and source CandidateSet dispositions are preserved rather than overwritten.
+
+The decision embeds the original pool, initial spec and cumulative feedback, with derived per-candidate states, dispositions, reasons, exact feedback references, selection, policy name/version/budget, timestamp and content hash. Construction/load re-admits physical/QC-valid feedback and checks result lineage, criterion and time causality. Competing revisions, duplicate reviews of one experiment arm, and same-ID/different-content specs are rejected. Construction detaches caller-owned nested data, and export checks that stored snapshots have not been mutated.
+
+`plan_next_screen(..., previous_decision=...)` revalidates the prior decision, verifies the exact campaign/criterion and temporal order, carries all previous feedback forward, and stores its exact ID/hash reference. The reference is a lineage pointer; standalone loading revalidates embedded cumulative inputs, while independent verification of the prior decision requires that referenced artifact. No background history lookup or last-write-wins revision resolution is performed.
+
+`experiment_spec_from_active_learning()` generates a new experiment ID with one host control and independent single-phage arms, copying the fixed context and workflow and referencing the CandidateSet, decision and initial spec. It refuses abstention and backward time. It never dispatches hardware or invents assay conditions. Multiple rounds therefore work without changing the orchestrator. Virtual execution can check the control path but never supplies feedback evidence.
+
+This closes the software feedback-selection path. It does not fit a model, update infection probabilities, establish causal mechanisms or demonstrate biological improvement. Matching declared assay context does not prove a physically unchanged host state. Human-resolved revisions, broader assay design, calibrated predictors and information-gain optimization remain separate scientific work.
+
 ## Build order
 
-1. consume explicit FailureAttribution/result feedback in active-learning decisions;
+1. validate the feedback-screening loop against admitted real experimental results when available;
 2. replace evidence-only unresolved records with calibrated predictors as training/evaluation data becomes available;
 3. introduce prediction-driven cocktail optimization when its evidence requirements are met;
 4. engineering escalation.

@@ -25,7 +25,7 @@ arm-scoped Measurement
         ↓
 Phenotype → PhenotypeComparison
         ↓
-FailureAttribution v1 → [next] ActiveLearner / model update
+FailureAttribution v1 → ActiveLearningDecision v1 → next ExperimentSpec
         └────────────────────→ next cycle
 ```
 
@@ -45,6 +45,7 @@ FailureAttribution v1 → [next] ActiveLearner / model update
 - Measurement v2：spec-bound 结果按 ExperimentArm 摄取并保留 arm-specific material lineage；
 - Phenotype v2 + PhenotypeComparison v1：单 arm interpretation 与显式 arm-vs-arm comparison；
 - FailureAttribution v1：显式失败判读、声明 criterion、复核物理/QC/arm lineage，并保留未证实的机制假设；
+- ActiveLearner v1：固定筛选上下文内消费显式反馈，保留历史和选择理由，并生成下一轮 ExperimentSpec；
 - 固定参考快照、候选检索、序列索引；
 - PHIST 排序及结构化 interaction evidence；
 - 调度、恢复、事件日志；
@@ -182,7 +183,7 @@ python -m phage_lab experiment-spec \
 
 `--expected-readout` 必须由调用方声明，可重复；可用 `--conditions conditions.json` 提供所有 arms 的共同条件，未提供时为空。ExperimentSpec 锁定 CandidateSet ID/hash 与精确入选 membership；该命令不把候选混成 cocktail，也不执行设备。
 
-推荐器目前不评估 material readiness、safety、receptor diversity、phage-phage compatibility 或 information gain；adsorption/resistance estimates 原样保留，不参与这个单目标 baseline 的排序。当前只有 unresolved predictions 时，实际能力是**可追溯的探索性实验选择**。结果现在可进入 FailureAttribution v1；下一步是 active learning。
+推荐器目前不评估 material readiness、safety、receptor diversity、phage-phage compatibility 或 information gain；adsorption/resistance estimates 原样保留，不参与这个单目标 baseline 的排序。当前只有 unresolved predictions 时，实际能力是**可追溯的探索性实验选择**。结果可经 FailureAttribution v1 进入反馈驱动的后续筛选；这不会训练或更新预测模型。
 
 ### FailureAttribution v1：显式结果判读
 
@@ -220,7 +221,46 @@ python -m phage_lab failure-attribution \
 
 outcome 可为 `failure_observed`、`failure_not_observed` 或 `inconclusive`。没有机制假设时，`mechanism_status=unknown`。只有 `failure_observed` 可附带 hypotheses，每条都必须有 category、rationale、supporting_phenotype_ids / supporting_comparison_ids 和非空 limitations；引用的是本次包含的确切结果 record ID。类别为 adsorption / intracellular / kinetics / other，状态始终是 **hypothesized**，不代表因果机制已证实。
 
-输出保存完整 spec、measurement、phenotype、comparison 快照及其内容 hash。判读绑定整个 treatment arm；cocktail 的结果不会拆成各成员的失败结论，也不会自动修改 H(t)、prediction、候选排名或产生工程方案。这里完成的是可追溯的结果反馈入口，ActiveLearner 仍待实现。
+输出保存完整 spec、measurement、phenotype、comparison 快照及其内容 hash。判读绑定整个 treatment arm；cocktail 的结果不会拆成各成员的失败结论，也不会自动修改 H(t)、prediction、候选排名或产生工程方案。这里完成的是可追溯的结果反馈入口，后续选择由独立的 ActiveLearner 消费。
+
+### ActiveLearner v1：反馈到下一轮筛选
+
+当前接通的闭环是：**CandidateSet → ExperimentSpec → admitted Measurement → Phenotype / Comparison → FailureAttribution → ActiveLearningDecision → next ExperimentSpec**。这是反馈驱动的筛选策略，不是经过训练的预测模型，也不声称最大化 information gain。
+
+v1 固定一个原始 CandidateSet 和由它生成的初始 single-phage screening spec。反馈必须引用该 CandidateSet 的精确 ID/hash，且 host、conditions、expected readouts、objective、workflow、execution constraints 与初始筛选相同；criterion 必须逐字匹配调用者声明。这里核对的是显式记录，不能证明实验中的真实 H(t) 一直不变。
+
+| 单噬菌体反馈 | 后续行为 |
+| --- | --- |
+| 没有反馈 | 保持 unknown，按原有 lower-bound / unresolved exploration 策略选择 |
+| `failure_observed` | 本上下文内的筛选问题已有判读，退出自动重复筛选；不推断永久抗性 |
+| `failure_not_observed` | 同样退出自动重复筛选；不等同于疗效成立 |
+| `inconclusive` 或不同实验间判读冲突 | `needs_review`，不自动重试、不改写成失败 |
+| cocktail 的整臂反馈 | 保留来源，但不改变任何成员的单独状态 |
+
+来源 CandidateSet 的 excluded 候选保持排除；剩余 untested 候选按原策略填补预算。缺失反馈不代表成功或失败。没有可自动筛选的组合时输出 `status=abstained`，不能转换成实验；这也不表示所有候选生物学上无效。没有反馈时为 `no_feedback`；只有整臂 cocktail 等无法用于单噬菌体筛选的反馈时为 `no_actionable_feedback`。
+
+```bash
+python -m phage_lab active-learn \
+  --candidate-set candidate-set.json \
+  --experiment-spec initial-screening-spec.json \
+  --failure-attribution failure-attribution.json \
+  --screening-criterion "Describe the objective and decision criterion used for this review." \
+  --decision-id screening-round-2 \
+  --out next-decision.json
+
+python -m phage_lab experiment-spec \
+  --active-learning-decision next-decision.json \
+  --experiment-id screening-round-2 \
+  --out next-experiment-spec.json
+```
+
+这里的 `initial-screening-spec.json` 必须是该 CandidateSet 的初始筛选；上节单独使用的 cocktail 示例不自动满足这个前提。`--failure-attribution` 可重复，必须提供已 admission 的实际反馈；未指定反馈时只生成明确标记的无反馈决策。决策保存完整输入快照、每个候选的反馈引用、状态、selected / deferred / withheld、选择原因、policy/version/budget 和 hash。
+
+下一轮 spec 保留初始 assay context 与 workflow，生成 host control 和入选候选的独立 single-phage arms，并引用精确 CandidateSet、ActiveLearningDecision 和初始 ExperimentSpec。不能同时传入 objective、conditions、readout 或 workflow 覆盖，也不会调用设备。真实执行仍需原有 material / QC / hardware 准入。
+
+继续第三轮时，仍传原始 CandidateSet 和初始 screening spec，添加 `--previous-decision next-decision.json`，同时提供新的 `--failure-attribution` 和新的 decision ID。旧反馈会自动带入；同一 record ID 不允许替换内容，不同 attribution revision 或同一实验 arm 的多份判读需先显式复核，v1 不自动选择“最新真相”。修改上下文、H(t) 或输入候选池需要创建新的科学意图，不能靠沿用旧反馈自动迁移。
+
+验证使用标明用途的 contract fixtures：覆盖两轮反馈、选择改变、历史保留、候选耗尽、冲突/未知、QC 拒绝、CLI 和虚拟执行来源传递。测试中的构造读数不是真实生物学证据；虚拟执行输出始终是 `evidence=none`。
 
 ### 2. 获取参考快照并检索候选
 

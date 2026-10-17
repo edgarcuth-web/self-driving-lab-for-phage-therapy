@@ -21,6 +21,7 @@ COMMANDS = (
     "host-state",
     "interaction-prediction",
     "recommend-phages",
+    "active-learn",
     "phage-profiles",
     "cocktail-design",
     "experiment-spec",
@@ -162,6 +163,16 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Optional ISO-8601 CandidateSet creation time; defaults to now.")
     parser.add_argument("--candidate-set", type=Path,
                         help="CandidateSet source for independent single-phage experimental arms.")
+    parser.add_argument("--failure-attribution", type=Path, action="append", default=[],
+                        help="Admitted feedback for active-learn; repeat for each reviewed arm.")
+    parser.add_argument("--screening-criterion", help="Exact declared criterion for feedback screening.")
+    parser.add_argument("--decision-id", help="Caller-owned ActiveLearningDecision identifier.")
+    parser.add_argument("--decision-revision", type=int, default=1)
+    parser.add_argument("--decision-at", help="Optional ISO-8601 decision creation time.")
+    parser.add_argument("--previous-decision", type=Path,
+                        help="Carry all feedback from this exact campaign decision forward.")
+    parser.add_argument("--active-learning-decision", type=Path,
+                        help="Feedback decision source for an ExperimentSpec in the fixed assay context.")
     parser.add_argument("--expected-readout", action="append", default=[],
                         help="Declared readout for CandidateSet-derived arms; repeat as needed.")
     parser.add_argument("--conditions", type=Path,
@@ -646,10 +657,15 @@ def _experiment_spec(args, parser) -> int:
     ]
     if missing:
         parser.error("experiment-spec requires " + ", ".join(missing))
-    if sum(bool(source) for source in (args.cocktail_design, args.arms, args.candidate_set)) != 1:
+    if sum(bool(source) for source in (args.cocktail_design, args.arms, args.candidate_set,
+                                       args.active_learning_decision)) != 1:
         parser.error(
-            "experiment-spec requires exactly one of --cocktail-design, --arms or --candidate-set"
+            "experiment-spec requires exactly one of --cocktail-design, --arms, --candidate-set or --active-learning-decision"
         )
+    if args.active_learning_decision and any((args.objective, args.workflow, args.conditions,
+                                              args.expected_readout, args.scientific_question,
+                                              args.execution_constraint)):
+        parser.error("Active-learning experiments preserve the recorded context; omit context overrides")
     if (args.arms or args.candidate_set) and not args.objective:
         parser.error("experiment-spec with --arms or --candidate-set requires --objective")
     if args.candidate_set and not args.expected_readout:
@@ -664,7 +680,15 @@ def _experiment_spec(args, parser) -> int:
 
     try:
         workflow = _load_workflow(args.workflow)
-        if args.cocktail_design:
+        if args.active_learning_decision:
+            from .active_learning import (
+                experiment_spec_from_active_learning, load_active_learning_decision,
+            )
+            spec = experiment_spec_from_active_learning(
+                load_active_learning_decision(args.active_learning_decision),
+                experiment_id=args.experiment_id,
+            )
+        elif args.cocktail_design:
             from .cocktail_design import load_cocktail_design
 
             design = load_cocktail_design(args.cocktail_design)
@@ -782,6 +806,38 @@ def _phenotype_comparison(args, parser) -> int:
         f"{comparison.baseline_arm_id} → {comparison.comparator_arm_id} → {args.out}",
         flush=True,
     )
+    return 0
+
+
+def _active_learn(args, parser) -> int:
+    missing = [name for name, value in (
+        ("--candidate-set", args.candidate_set), ("--experiment-spec", args.experiment_spec),
+        ("--screening-criterion", args.screening_criterion), ("--decision-id", args.decision_id),
+        ("--out", args.out),
+    ) if not value]
+    if missing:
+        parser.error("active-learn requires " + ", ".join(missing))
+    from .active_learning import (
+        plan_next_screen, load_active_learning_decision, write_active_learning_decision,
+    )
+    from .experiment_spec import load_experiment_spec
+    from .failure_attribution import load_failure_attribution
+    from .natural_phage_recommender import load_candidate_set
+    try:
+        decision = plan_next_screen(
+            load_candidate_set(args.candidate_set), load_experiment_spec(args.experiment_spec),
+            [load_failure_attribution(path) for path in args.failure_attribution],
+            decision_id=args.decision_id, criterion=args.screening_criterion,
+            previous_decision=(load_active_learning_decision(args.previous_decision)
+                               if args.previous_decision else None),
+            revision=args.decision_revision, created_at=args.decision_at,
+        )
+        write_active_learning_decision(decision, args.out)
+    except (OSError, ValueError) as exc:
+        print(f"ActiveLearningDecision 创建失败：{exc}", file=sys.stderr)
+        return 2
+    print(f"ActiveLearningDecision {decision.record_id}: {decision.status}; "
+          f"{len(decision.selected_phage_profile_ids)} 个后续筛选候选 → {args.out}", flush=True)
     return 0
 
 
@@ -1207,6 +1263,8 @@ def main(argv=None) -> int:
         return _interaction_prediction(args, parser)
     if args.command == "recommend-phages":
         return _recommend_phages(args, parser)
+    if args.command == "active-learn":
+        return _active_learn(args, parser)
     if args.command == "phage-profiles":
         return _phage_profiles(args, parser)
     if args.command == "cocktail-design":
