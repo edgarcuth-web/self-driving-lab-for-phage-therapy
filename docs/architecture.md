@@ -37,6 +37,7 @@ the tour's final report chapter and actual asynchronous report completion.
 | `phage_profile.py` | PhageProfile identity and retrieved / natural / engineered provenance |
 | `interaction_evidence.py`, `ranking.py` | Pairwise source signals and PHIST adapter |
 | `interaction_prediction.py` | Exact H(t)/phage predictions with uncertainty and model provenance |
+| `model_contract.py` | Versioned ModelRequest/ModelResult exchange and external-result admission |
 | `natural_phage_recommender.py` | CandidateSet, screening policy and single-phage spec conversion |
 | `cocktail_design.py` | CocktailDesign and conservative PHIST screening baseline |
 | `experiment_spec.py` | ExperimentSpec v2, arms, optional source references and abstract workflow |
@@ -83,6 +84,13 @@ producer/version/parameters, timestamp and input provenance. Current kinds are
 source annotation and computational evidence; physical results use Measurement.
 PHIST reported/no-signal statuses are neither susceptibility verdicts nor infection
 probabilities. Cohort-relative rank stays in ranking/design context.
+
+## External model boundary
+
+Model training, feature extraction, evaluation and calibration live in a separate
+repository. This repository owns only the content-addressed ModelRequest/ModelResult
+exchange and admission into InteractionPrediction. A matching hash proves lineage
+consistency, not scientific validity. See [model-interface](model-interface.md).
 
 ## Predictions and selection
 
