@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phage Lab · 临床工作流</title>
+  <meta name="description" content="从临床样本到并行候选匹配，再到实验与反馈的离线模拟工作台。">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/workflow-model.js" defer></script>
+  <script src="/report-ui.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/"><span class="brand-icon">✳</span><span>Phage Lab<small>SELF-DRIVING LAB</small></span></a>
+    <div class="workspace-label">WORKSPACE <span>01</span></div>
+    <div class="nav-current"><span>⌘</span> 临床工作流 <span class="nav-dot"></span></div>
+    <div class="sidebar-section"><span class="eyebrow">SIMULATED SAMPLES</span><span class="small-count">03</span></div>
+    <div id="case-list" class="case-list" role="group" aria-label="选择模拟样本"></div>
+    <section class="metadata-section">
+      <div class="sidebar-section"><h2>样本 metadata</h2><span class="tiny-label">本地</span></div>
+      <form id="metadata-form">
+        <label for="sample-id">样本编号</label><input id="sample-id" maxlength="80" required autocomplete="off">
+        <label for="sample-type">样本类型</label><input id="sample-type" maxlength="80" required autocomplete="off">
+        <label for="collected-at">采集时间</label><input id="collected-at" type="datetime-local" required>
+        <button type="submit" class="secondary full" id="apply-metadata">更新并重置流程 <span>↗</span></button>
+      </form>
+      <p class="sidebar-note">使用虚构样本演示。启用 AI 报告时，样本 metadata 与流程摘要将发送至 Kimi。</p>
+    </section>
+    <div class="sidebar-bottom"><span class="status-dot green"></span> 本地离线演示 <span class="mono">v1.0</span></div>
+  </aside>
+  <main>
+    <header class="topbar"><div class="breadcrumbs">工作空间 <span>/</span> <strong>临床工作流</strong></div><div class="topbar-actions"><span class="connection"><i class="status-dot green"></i> LOCAL WORKSPACE</span><button type="button" id="presentation-toggle" class="secondary" aria-pressed="false">⛶ 演示模式</button></div></header>
+    <div class="page-content">
+      <div class="page-heading"><div><p class="eyebrow">CLINICAL → DESIGN → TEST → LEARN</p><h1>从临床样本，到实验闭环<span class="heading-dot">.</span></h1><p class="subtitle">追踪每一次输入、匹配与交接，让两条路径同时向前。</p></div><span class="version-tag">WORKFLOW / 028</span></div>
+      <div class="simulation-banner"><span class="banner-symbol">◇</span><div><strong>模拟展示 · SYNTHETIC DATA</strong><span>无真实设备执行 · 无生物学证据 · 候选不代表临床建议或疗效</span></div><span class="banner-mode">presentation_only</span></div>
+      <section class="story-panel" aria-labelledby="story-title">
+        <div class="story-top"><span class="eyebrow" id="story-chapter">GUIDED DEMO / 约 2 分钟</span><label class="tour-case-label" for="tour-case">演示病例<select id="tour-case"><option value="mixed">混合菌样本 · 含待复核信号</option><option value="single">单菌样本 · 完整闭环</option><option value="unmatched">库内未匹配 · 阻断复核</option></select></label><span id="story-clock" class="mono">00:00 / 02:12</span></div>
+        <div class="story-body"><div><h2 id="story-title">一份样本，两条并行路径，一个实验闭环。</h2><p id="story-description">选择左侧虚构病例，一键播放完整故事。自动聚焦关键节点，并保留每一个需要人工复核的信号。</p></div><button type="button" id="tour-start" class="primary">▶ 一键导览此病例</button></div>
+        <progress id="story-progress" max="132" value="0" aria-label="病例导览进度"></progress>
+        <div class="tour-controls" id="tour-controls" hidden><button type="button" id="tour-pause" class="secondary">Ⅱ 暂停导览</button><button type="button" id="tour-next" class="secondary">下一章节 →</button><button type="button" id="tour-stop" class="text-button">结束导览，手动探索</button><span>自动聚焦 · 可随时暂停</span></div>
+      </section>
+      <section class="panel workflow-panel" aria-labelledby="workflow-title">
+        <div class="workflow-toolbar"><div class="toolbar-title"><span class="status-dot" id="run-dot"></span><h2 id="workflow-title">临床样本工作流</h2><span class="state-badge" id="run-state" role="status">等待开始</span></div><div class="run-actions"><button id="reset" class="secondary" type="button">↺ 重置</button><button id="step" class="secondary" type="button">下一步 →</button><button id="play" class="primary" type="button">▶ 开始演示</button></div></div>
+        <div class="workflow-summary"><span class="mono" id="active-sample"></span><span class="summary-divider"></span><span id="flow-caption">0 / 8 节点完成</span><span class="summary-clock">场景时间 <strong id="scenario-day">D+0.0</strong></span><label class="speed-label" for="speed">速度<select id="speed"><option value="1">1×</option><option value="3" selected>3×</option><option value="6">6×</option></select></label></div>
+        <div class="graph-scroll" tabindex="0" aria-label="工作流画布，可横向滚动查看全部节点">
+          <div class="workflow-graph" id="workflow-graph">
+            <div class="graph-label graph-label-intake"><span>01 — CLINICAL INTAKE</span><strong>临床样本接入</strong><small>身份登记 / metadata / 分离菌清单</small></div>
+            <div class="graph-label graph-label-parallel"><span>02 — PARALLEL MATCHING</span><strong>同一份细菌清单，分两路匹配</strong><small>抗生素分支独立完成，不等待噬菌体制备</small></div>
+            <svg id="connectors" aria-hidden="true"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"/></marker></defs><g id="edges"></g></svg>
+            <div id="nodes" class="node-grid"><button id="discovery-stage" class="stage discovery-stage" data-id="discovery" type="button" aria-label="查看发现未命名细菌"><div class="stage-top"><span class="stage-index">02B</span><span id="discovery-status" class="stage-state">待检测</span></div><h3><span class="node-icon">?</span><span>发现未命名细菌</span></h3><p id="discovery-summary">未分类片段 · 独立复核分支</p></button></div>
+          </div>
+        </div>
+        <div class="graph-footer"><div class="legend"><span><i class="status-dot green"></i>已完成</span><span><i class="status-dot cyan"></i>进行中</span><span><i class="status-dot amber"></i>待复核</span><span><i class="status-dot"></i>待开始</span></div><span>点击节点查看输入与输出 <span class="arrow-text">↗</span></span></div>
+      </section>
+      <section class="panel parallel-timeline" aria-labelledby="parallel-title">
+        <div class="section-heading"><div><p class="eyebrow">TWO PATHS / ONE SCENARIO CLOCK</p><h2 id="parallel-title">两路并行，无需等待</h2></div><span class="tiny-label">7天制备 · 时间压缩演示</span></div>
+        <div class="timeline-content"><div class="timeline-scale"><span>D+0</span><span>D+3</span><span>D+10</span><span>D+13</span></div>
+          <progress id="timeline-clock" max="13" value="0" aria-label="场景时间轴"></progress>
+          <div class="timeline-lane"><div class="lane-heading"><strong>抗生素路径</strong><span id="antibiotic-timing">等待细菌清单</span></div><div class="lane-track antibiotic-track"><span class="lane-intake">取样 · 检测</span><span class="lane-match">匹配</span><span class="lane-ready">候选已返回 · 仍需药敏验证</span></div></div>
+          <div class="timeline-lane"><div class="lane-heading"><strong>噬菌体路径</strong><span id="phage-timing">等待细菌清单</span></div><div class="lane-track phage-track"><span class="lane-intake">取样 · 检测</span><span class="lane-match">匹配</span><span class="lane-preparation">约7天制备 <progress id="preparation-progress" max="1" value="0" aria-label="模拟噬菌体制备进度"></progress></span><span class="lane-lab">实验闭环</span></div></div>
+          <p id="timeline-note" class="timeline-note">D+2 双路匹配 → D+3 抗生素候选返回 / 噬菌体开始制备 → D+10 制备结束。均为模拟节点。</p>
+        </div>
+      </section>
+      <div class="detail-grid">
+        <section class="panel isolates-panel" aria-labelledby="isolates-title"><div class="section-heading"><div><p class="eyebrow">FRAGMENT-BASED DETECTION</p><h2 id="isolates-title">细菌基因片段检测</h2></div><span class="tiny-label" id="isolate-count">等待检测</span></div><div id="isolate-output"></div><p class="panel-footnote">模拟置信度为未校准支持评分，不是临床确诊概率。人工片段不对应真实菌株基因或检测靶标。</p><section class="unknown-detection" id="unknown-detection" aria-labelledby="unknown-title"><div class="section-heading"><div><p class="eyebrow">UNCLASSIFIED SIGNAL / REVIEW</p><h2 id="unknown-title">发现未命名细菌</h2></div><span class="tiny-label" id="unknown-count">待检测</span></div><div id="unknown-output"></div></section></section>
+        <section class="panel node-detail" aria-labelledby="detail-title"><div class="section-heading"><div><p class="eyebrow" id="detail-eyebrow">NODE INSPECTOR / 01</p><h2 id="detail-title">病人取样</h2></div><span class="tiny-label" id="detail-status">待开始</span></div><div id="detail-content"></div></section>
+      </div>
+      <section class="panel clinical-report-panel" aria-labelledby="clinical-report-title">
+        <div class="section-heading report-heading"><div><p class="eyebrow">KIMI K3 / CLINICAL REPORT</p><h2 id="clinical-report-title">临床报告草稿 <span class="report-draft-tag">模拟数据 · 需医师复核</span></h2></div><span class="tiny-label" id="report-state" role="status">正在检查配置</span></div>
+        <div class="report-controls"><label class="auto-report-label"><input id="report-auto" type="checkbox" checked> 流程结束后自动生成</label><div class="report-buttons"><button id="generate-report" type="button" class="secondary" disabled>生成报告</button><button id="download-clinical-report" type="button" class="secondary" disabled>下载报告 .md ↗</button></div></div>
+        <details class="report-settings" id="report-settings"><summary><span>Kimi Code API 配置</span><span id="report-config-state">检查中</span></summary><form id="report-config-form" autocomplete="off"><div><label for="kimi-api-key">API Key（仅保存在本机服务内存）</label><input id="kimi-api-key" type="password" maxlength="4096" autocomplete="off" spellcheck="false" placeholder="输入 Kimi Code API Key"></div><div class="report-endpoint"><span class="eyebrow">MODEL / ENDPOINT</span><strong>k3</strong><span>api.kimi.com/coding/v1</span></div><div class="report-settings-actions"><button class="primary" id="save-report-config" type="submit">保存本次配置</button><button class="text-button" id="clear-report-config" type="button" disabled>清除配置</button></div></form><p id="report-config-message" role="status" hidden></p></details>
+        <p class="report-data-note">开启后由本机服务将样本 metadata、分离菌、候选匹配和流程状态发送至 Kimi；不发送原始 FASTA。密钥不写入文件，重启服务后需重新配置。</p>
+        <div id="clinical-report-output" class="clinical-report-output"><div class="report-placeholder"><span>▤</span><div><strong>等待流程结束</strong><p>报告将依据本次结构化数据整理；模型未配置时，离线工作流仍可运行。</p></div></div></div>
+      </section>
+      <section class="panel activity-panel"><div class="activity-heading"><h2>流程记录 <span class="mono" id="event-count">00</span></h2><button class="text-button" id="download" type="button">导出当前快照 JSON ↗</button></div><div id="events" class="events" role="log" aria-label="模拟流程事件" aria-live="polite"></div></section>
+      <footer class="page-footer"><span>PHAGE LAB <span class="footer-sep">/</span> 闭环噬菌体研发工作台</span><span>制备约 7 天为场景设定 · 所有概率保持 not_estimated</span></footer>
+      <p id="notice" class="notice" role="status" hidden></p>
+    </div>
+  </main>
+</body>
+</html>

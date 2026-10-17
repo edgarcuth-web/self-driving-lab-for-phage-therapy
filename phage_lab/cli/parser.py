@@ -89,6 +89,13 @@ def build_parser():
     parser = argparse.ArgumentParser(description="Closed-loop phage R&D tools and laboratory orchestration.", allow_abbrev=False)
     commands = parser.add_subparsers(dest="command", required=True)
 
+    from ..dashboard import dashboard
+    sub = commands.add_parser('dashboard', allow_abbrev=False,
+                              help="Offline clinical workflow presentation; synthetic data only.")
+    sub.set_defaults(handler=dashboard, command_parser=sub)
+    sub.add_argument('--port', type=int, default=8765)
+    sub.add_argument('--no-browser', action='store_true')
+
     sub = commands.add_parser('run', allow_abbrev=False)
     sub.set_defaults(handler=_run, command_parser=sub)
     _add_shared(sub, 'genome', 'candidates', 'snapshot', 'host', 'limit', 'sample_id', 'workflow', 'experiment_spec', 'skip_verify')
