@@ -19,6 +19,21 @@ own feature extraction, training, model selection or calibration.
 Neither repository imports the other's private Python modules. The boundary is
 versioned JSON.
 
+## Machine-readable v1 schemas
+
+The canonical schema files are maintained in the model repository and mirrored
+byte-for-byte in this repository:
+
+- [ModelRequest v1 JSON Schema](../schemas/model-request-v1.schema.json)
+- [ModelResult v1 JSON Schema](../schemas/model-result-v1.schema.json)
+- [Shared request fixture](../tests/fixtures/model_request_v1.json)
+- [Shared result fixture](../tests/fixtures/model_result_v1.json)
+
+Schema changes must be coordinated across both repositories. JSON Schema checks
+the wire shape and local field constraints; the Python contract below remains the
+authoritative gate for content hashes, record-ID equality, exact request/result
+lineage, timestamp ordering and requested-target admission.
+
 ## v1 exchange
 
 A ModelRequest binds one exact HostState content hash, one exact PhageProfile
