@@ -27,4 +27,4 @@ data: {"seq":7,"event":"plan_accepted","details":{...}}
 
 ## Port conflict
 
-If the requested port is already in use, the server MUST either select a free port or fail with a readable message. Silent binding failure is not acceptable (see `spec.md` edge cases).
+Not decided here. The behavior when the requested port is already in use is an open edge case in `spec.md`; resolve it via `/speckit.clarify` before freezing it into this contract.

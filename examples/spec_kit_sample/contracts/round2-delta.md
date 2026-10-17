@@ -27,6 +27,6 @@ The round-two plan MUST carry:
 - `based_on_run` MUST reference a real prior run.
 - `delta_from_previous.added` and `.removed` MUST be present (may be empty arrays, but must exist).
 - `reason_field` MUST point at the concrete evidence used for the decision.
-- When no candidate can be added, the round MUST express an explicit **abstain** rather than emitting an empty error.
+- When no candidate can be added, the behavior is **deferred to clarification**: see the `spec.md` edge cases. Do not freeze it here until `/speckit.clarify` decides.
 
 Without `delta_from_previous`, round two is indistinguishable from a pipeline and the closed loop is not demonstrated.
