@@ -69,16 +69,43 @@ the outcome. Keep the one-command offline demo working.
 - Keep the change scoped to that issue and keep the frozen domain contracts in
   this file and [docs/architecture.md](docs/architecture.md).
 - Match verification to the change scope. The full gate is
-  `python -m unittest discover -s tests -v`, which must be green before merge.
+  `python -m unittest discover -s tests -v` on the interpreter required by
+  `## Development`. Read `## Verification on this branch` before quoting a gate
+  result: this branch has no CI and its gate is red at the base commit.
 
 ## Change loop (SDD/TDD)
 
 - Every change starts from an issue number on a branch scoped to that issue.
 - Write the failing criterion or test first and confirm it goes red before implementing.
 - Implement the smallest change that turns the criterion green while keeping the frozen contracts above.
-- Run the full gate `python -m unittest discover -s tests -v`; it must be green before merge.
+- Run the full gate `python -m unittest discover -s tests -v` and compare the
+  failing test IDs with the base commit; the change must not add failures (see
+  `## Verification on this branch`).
 - Open one pull request per issue with `Refs #N`. Merge is not completion; the user closes the issue after acceptance.
 - This file is the source of truth for the change process. Do not restate this loop in other documents; keep one description.
+
+## Verification on this branch
+
+This is the demo branch, not `main`, and its verification facts differ:
+
+- **No CI.** `.github/workflows/` exists only on `main`. Nothing here is checked
+  by GitHub, so a pull request against this branch never reports a check status.
+  An absent check is neither pending nor passing; run the gate yourself.
+- **The gate is red at the base commit.** `python -m unittest discover -s tests -v`
+  runs 43 tests and fails before any change: 12 failures + 4 errors in
+  `test_workflow.RunTests`, `test_workflow.DeviceTests` and
+  `test_dashboard.DashboardTests`, plus a flaky dashboard test that adds a
+  thirteenth failure in some runs (measured 2026-10-17, Python 3.10.11, Windows).
+- **So the gate is differential.** Record the failing test IDs on the base commit
+  and on the change, and state the diff in the pull request. The requirement is
+  no new failures and no unexplained disappearance, not an absolute green.
+- **State the interpreter.** That measurement used Python 3.10.11, below the
+  3.11+ required by `## Development`. Report the version you used instead of
+  implying the supported one.
+- Green on `main` remains the merge gate there. Where a Spec Kit artifact's
+  merge gate cannot be met here (no `scripts/smoke.sh` on this branch,
+  pre-existing failures), say so in the pull request instead of restating it as
+  satisfied.
 
 ## Windows tooling
 
