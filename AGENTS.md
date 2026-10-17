@@ -48,6 +48,63 @@ the outcome. Keep the one-command offline demo working.
 - Render model output and report data as text, never HTML. Use the actual event
   stream for UI state; label offline and live modes accurately.
 
+## Issue rules
+
+- Open an issue only when the user asks. Treat a new report as feedback on
+  already-shipped behaviour and align it with the existing issue first.
+- Resolve what the repository can answer yourself; do not run a question loop
+  inside the issue. Ask one minimal question list only when the fact is outside
+  the repository (real instrument, live device, external network, missing data),
+  then stop and wait.
+- Get an issue number first, then create a branch scoped to that issue. Do not
+  edit `main` directly.
+- Merge is not completion. The user closes the issue after acceptance; agents
+  do not close it.
+
+## PR rules
+
+- Do not run `git add`, `git commit` or `git push` unless the user explicitly asks.
+- One issue per branch and pull request. Reference the issue with `Refs #N`;
+  never use `Closes` or `Fixes`.
+- Keep the change scoped to that issue and keep the frozen domain contracts in
+  this file and [docs/architecture.md](docs/architecture.md).
+- Match verification to the change scope. The full gate is
+  `python -m unittest discover -s tests -v`, which must be green before merge.
+
+## Change loop (SDD/TDD)
+
+- Every change starts from an issue number on a branch scoped to that issue.
+- Write the failing criterion or test first and confirm it goes red before implementing.
+- Implement the smallest change that turns the criterion green while keeping the frozen contracts above.
+- Run the full gate `python -m unittest discover -s tests -v`; it must be green before merge.
+- Open one pull request per issue with `Refs #N`. Merge is not completion; the user closes the issue after acceptance.
+- This file is the source of truth for the change process. Do not restate this loop in other documents; keep one description.
+
+## Windows tooling
+
+- On Windows, before the first GitHub operation, check `gh` and install it
+  when missing: `powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1`.
+  The script installs only what is absent — pinned `gh` from its official
+  release URL (SHA-256 verified) into `.tools/`, and pinned `specify-cli`
+  via `uv` when scaffold-level Spec Kit work needs it.
+- `deps/windows/README.md` holds download links and checksums, not binaries.
+  Keep extracted tools in `.tools/` (git-ignored). Never commit installers,
+  extracted binaries, tokens or credential files.
+- `gh auth login` is interactive. Never write tokens or credential files into the
+  repository.
+- Spec Kit SDD artifacts are checked in: `.specify/` (templates, scripts,
+  constitution), `.kilo/command/` (agent commands) and `examples/spec_kit_sample/`
+  (a frozen worked example, not an approved feature). Real features live under
+  `specs/NNN-<name>/`; `/speckit.specify` creates that directory and the
+  per-checkout `.specify/feature.json` pointer, which is git-ignored. To point the
+  tooling at an existing feature, set `SPECIFY_FEATURE_DIRECTORY` or write that
+  pointer.
+- The `specify` CLI is optional — the `/speckit*` commands run from the committed
+  `.specify/scripts/` helpers without it. Install it only for CLI-level work
+  (agent integrations, extensions, upgrades), using the version pinned in
+  `.specify/init-options.json`:
+  `uv tool install "specify-cli==1.2.1" --python 3.11`.
+
 ## Development
 
 Python 3.11+; standard library only for the first milestone. Avoid new services,
