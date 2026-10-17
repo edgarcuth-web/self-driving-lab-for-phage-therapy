@@ -1478,3 +1478,21 @@ select {
     bottom:14px;
   }
 }
+
+/* Reference resources share the canvas but never participate in execution. */
+.workflow-graph { height:640px; }
+.workflow-graph .node-grid { height:calc(100% - 170px); transform:translateY(170px); }
+.workflow-graph .graph-label { transform:translateY(170px); }
+.reference-resources { position:absolute; top:18px; left:22px; right:22px; z-index:1; }
+.reference-heading { display:flex; justify-content:space-between; gap:12px; margin-bottom:10px; font-size:12px; color:var(--cyan); }
+.reference-heading>span { color:var(--muted); font-size:11px; }
+.reference-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
+.reference-resource { display:flex; flex-direction:column; gap:7px; min-width:0; padding:12px; border:1px dashed #527380; border-radius:7px; background:#15232d; text-decoration:none; color:var(--text); }
+.reference-resource strong { font-size:13px; }
+.reference-resource span,.reference-resource small { font-size:10px; color:var(--muted); }
+.reference-resource:hover,.reference-resource:focus-visible { border-color:var(--cyan); }
+#reference-extension { display:block; width:24%; margin:20px 0 0 auto; text-align:center; font-size:10px; color:var(--muted); }
+.edge.reference-edge { stroke:#648795; stroke-dasharray:5 5; }
+.presentation-mode .workflow-graph { height:510px; }
+@media(min-width:1700px) { .workflow-graph { height:670px; } .presentation-mode .workflow-graph { height:510px; } }
+@media(max-width:1000px) { .presentation-mode .workflow-graph { height:535px; } }

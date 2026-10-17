@@ -45,6 +45,16 @@
         <div class="workflow-summary"><span class="mono" id="active-sample"></span><span class="summary-divider"></span><span id="flow-caption">0 / 8 节点完成</span><span class="summary-clock">场景时间 <strong id="scenario-day">D+0.0</strong></span><label class="speed-label" for="speed">速度<select id="speed"><option value="1">1×</option><option value="3" selected>3×</option><option value="6">6×</option></select></label></div>
         <div class="graph-scroll" tabindex="0" aria-label="工作流画布，可横向滚动查看全部节点">
           <div class="workflow-graph" id="workflow-graph">
+            <section class="reference-resources" aria-labelledby="reference-title">
+              <div class="reference-heading"><strong id="reference-title">参考数据库 / 知识资源</strong><span>规划参考资源 · 尚未接入 · 虚线仅表示参考关系</span></div>
+              <div class="reference-grid">
+                <a id="reference-bvbrc" class="reference-resource" data-reference-target="isolate" href="https://www.bv-brc.org/" target="_blank" rel="noopener noreferrer"><strong>BV-BRC（原 ViPR） ↗</strong><span>细菌表征 · 细菌与病毒参考信息</span><small>规划参考资源 · 尚未接入</small></a>
+                <a id="reference-ncbi" class="reference-resource" data-reference-target="phage" href="https://www.ncbi.nlm.nih.gov/labs/virus/vssi/" target="_blank" rel="noopener noreferrer"><strong>NCBI Virus ↗</strong><span>噬菌体匹配 · 参考序列与宿主记录</span><small>规划参考资源 · 尚未接入</small></a>
+                <a id="reference-viralzone" class="reference-resource" data-reference-target="design" href="https://viralzone.expasy.org/" target="_blank" rel="noopener noreferrer"><strong>ViralZone ↗</strong><span>候选背景知识 · 分类与分子机制</span><small>规划参考资源 · 尚未接入</small></a>
+                <a id="reference-gisaid" class="reference-resource" data-reference-target="reference-extension" href="https://gisaid.org/" target="_blank" rel="noopener noreferrer"><strong>GISAID ↗</strong><span>扩展病毒监测 · 非噬菌体筛选主线</span><small>规划参考资源 · 尚未接入</small></a>
+              </div>
+              <span id="reference-extension">扩展病毒监测（规划）</span>
+            </section>
             <div class="graph-label graph-label-intake"><span>01 — CLINICAL INTAKE</span><strong>临床样本接入</strong><small>身份登记 / metadata / 分离菌清单</small></div>
             <div class="graph-label graph-label-parallel"><span>02 — PARALLEL MATCHING</span><strong>同一份细菌清单，分两路匹配</strong><small>抗生素分支独立完成，不等待噬菌体制备</small></div>
             <svg id="connectors" aria-hidden="true"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"/></marker></defs><g id="edges"></g></svg>
