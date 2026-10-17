@@ -20,7 +20,7 @@ Every deliverable MUST be demonstrable with zero network, zero API keys and zero
 
 ### V. Testable Delivery (NON-NEGOTIABLE)
 
-Every task MUST carry one runnable command as its acceptance criterion. A criterion that is always green is no criterion. The merge gate is: `python -m unittest discover -s tests -v` green AND `scripts/smoke.sh` passing. A summary is input, never a decision.
+Every task MUST carry an acceptance criterion a reviewer can verify without trusting the author. Prefer one runnable command; when the outcome is inherently visual, use a **named manual check plus an archived screenshot artifact** stored with the feature. An unrecorded visual glance, or any criterion that is always green, is no criterion. The merge gate is: `python -m unittest discover -s tests -v` green AND `scripts/smoke.sh` passing. A summary is input, never a decision.
 
 ## Additional Constraints
 
