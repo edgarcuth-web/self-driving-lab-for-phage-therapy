@@ -185,7 +185,42 @@ python -m phage_lab failure-attribution \
 单 arm 判读可省略 comparison 和其他 arm 的 Phenotype。必须提供所有引用的 Measurement。
 支持的 outcome 与 hypotheses 契约见 architecture。
 
-## 6. 用反馈选择下一轮
+## 6. 记录 prediction-vs-outcome 并评估 calibration
+
+LearningObservation 要求 single-phage treatment Phenotype，并由 assessor 明确声明某个
+prediction target 的 binary observed label。Phenotype 的 positive/negative/graded 不会自动
+映射成标签。
+
+```bash
+python -m phage_lab learning-observation \
+  --interaction-prediction prediction-a.json \
+  --experiment-spec experiment-spec.json \
+  --phenotype phenotype-treatment.json \
+  --observation-id learning-001 --target productive_infection --observed true \
+  --interpretation "Assessor-declared target label from the admitted phenotype." \
+  --assessor manual-review --assessor-version 1 \
+  --limitation "Assay-specific label; external generalization not established." \
+  --out learning-001.json
+```
+
+如果原 prediction 对该 target 是 `not_estimated`，记录仍会保存为 `label_only`，
+可作为后续训练证据，但不能进入 CalibrationReport。
+
+对相同 target、相同 PredictionProducer 配置和相同 uncertainty method 的 scorable
+observations 做描述性评估：
+
+```bash
+python -m phage_lab calibration-report \
+  --learning-observation learning-001.json \
+  --learning-observation learning-002.json \
+  --report-id calibration-001 --target productive_infection \
+  --out calibration-report.json
+```
+
+输出包含 sample count、mean predicted probability、observed rate、calibration gap、
+Brier score 和 log loss。该命令不拟合、不重校准、不替换模型，也不更新 H(t)。
+
+## 7. 用反馈选择下一轮
 
 ```bash
 python -m phage_lab active-learn \

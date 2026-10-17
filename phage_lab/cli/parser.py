@@ -19,6 +19,8 @@ from .results import (
     _phenotype,
     _phenotype_comparison,
     _failure_attribution,
+    _learning_observation,
+    _calibration_report,
 )
 from .reference import _fetch_snapshot, _retrieve_candidates, _rank
 from .run import _run
@@ -275,6 +277,36 @@ def build_parser():
     sub.add_argument("--attribution-revision", type=int, default=1)
     sub.add_argument("--attribution-input", type=Path,
                         help="Explicit review JSON: outcome, criterion, interpretation, limitations, hypotheses.")
+
+    sub = commands.add_parser('learning-observation', allow_abbrev=False)
+    sub.set_defaults(handler=_learning_observation, command_parser=sub)
+    _add_shared(sub, 'out', 'experiment_spec', 'interpretation', 'assessor', 'assessor_version')
+    sub.add_argument("--interaction-prediction", type=Path,
+                        help="Exact InteractionPrediction JSON to compare with physical evidence.")
+    sub.add_argument("--phenotype", type=Path,
+                        help="Physical single-phage treatment Phenotype used for the explicit label.")
+    sub.add_argument("--observation-id", help="Caller-owned LearningObservation identifier.")
+    sub.add_argument("--target",
+                        choices=["adsorption", "productive_infection", "resistance_emergence"],
+                        help="InteractionPrediction target being explicitly labeled.")
+    sub.add_argument("--observed", choices=["true", "false"],
+                        help="Assessor-declared binary outcome; never inferred from Phenotype polarity.")
+    sub.add_argument("--limitation", action="append", default=[],
+                        help="Learning-label limitation; repeat as needed and provide at least one.")
+    sub.add_argument("--assessed-at",
+                        help="Optional ISO-8601 label assessment time; defaults to now.")
+
+    sub = commands.add_parser('calibration-report', allow_abbrev=False)
+    sub.set_defaults(handler=_calibration_report, command_parser=sub)
+    _add_shared(sub, 'out')
+    sub.add_argument("--learning-observation", action="append", type=Path, default=[],
+                        help="Scorable LearningObservation JSON; repeat for one comparable cohort.")
+    sub.add_argument("--report-id", help="Caller-owned CalibrationReport identifier.")
+    sub.add_argument("--target",
+                        choices=["adsorption", "productive_infection", "resistance_emergence"],
+                        help="Prediction target scored by the report.")
+    sub.add_argument("--created-at",
+                        help="Optional ISO-8601 report creation time; defaults to now.")
 
     sub = commands.add_parser('fetch-snapshot', allow_abbrev=False)
     sub.set_defaults(handler=_fetch_snapshot, command_parser=sub)

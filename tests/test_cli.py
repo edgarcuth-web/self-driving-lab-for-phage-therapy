@@ -8,6 +8,11 @@ import tempfile
 import unittest
 
 from phage_lab.__main__ import main
+from phage_lab.experiment_spec import write_experiment_spec
+from phage_lab.interaction_prediction import write_interaction_prediction
+from phage_lab.phenotype import write_phenotype
+from fixtures_feedback import review, screen
+from fixtures_screening import phage, prediction, recommend
 from support import CANDIDATES
 
 
@@ -62,3 +67,49 @@ class CliBoundaryTests(unittest.TestCase):
             self.assertEqual(report["status"], "succeeded")
             self.assertFalse(report["physical_execution"])
             self.assertFalse(report["scientific_membership_locked"])
+
+    def test_learning_and_calibration_commands_round_trip(self):
+        profile = phage("cli-learning-phage")
+        model_prediction = prediction(profile, lower=0.6, point=0.7, upper=0.8)
+        spec = screen(recommend([profile], [model_prediction]))
+        phenotype = next(
+            item for item in review(spec, name="cli-learning-review").phenotypes
+            if item.experiment_arm_id == "single-phage-1"
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            prediction_path = root / "prediction.json"
+            spec_path = root / "spec.json"
+            phenotype_path = root / "phenotype.json"
+            observation_path = root / "observation.json"
+            report_path = root / "calibration.json"
+            write_interaction_prediction(model_prediction, prediction_path)
+            write_experiment_spec(spec, spec_path)
+            write_phenotype(phenotype, phenotype_path)
+
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(main([
+                    "learning-observation",
+                    "--interaction-prediction", str(prediction_path),
+                    "--experiment-spec", str(spec_path),
+                    "--phenotype", str(phenotype_path),
+                    "--observation-id", "cli-learning-observation",
+                    "--target", "productive_infection",
+                    "--observed", "true",
+                    "--interpretation", "Explicit CLI fixture label.",
+                    "--assessor", "fixture-reviewer",
+                    "--limitation", "CLI contract fixture only.",
+                    "--out", str(observation_path),
+                ]), 0)
+                self.assertEqual(main([
+                    "calibration-report",
+                    "--learning-observation", str(observation_path),
+                    "--report-id", "cli-calibration",
+                    "--target", "productive_infection",
+                    "--out", str(report_path),
+                ]), 0)
+
+            report = json.loads(report_path.read_text())
+            self.assertEqual(report["metrics"]["sample_count"], 1)
+            self.assertAlmostEqual(report["metrics"]["brier_score"], 0.09)

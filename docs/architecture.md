@@ -20,6 +20,7 @@ belong in [README](../README.md); commands belong in [usage](usage.md).
 | `measurement.py` | Arm-scoped device results and explicit QC admission |
 | `phenotype.py` | Single-arm Phenotype and explicit PhenotypeComparison |
 | `failure_attribution.py` | Assessor review against a declared criterion; mechanism hypotheses |
+| `learning.py` | Explicit prediction-vs-phenotype labels and descriptive calibration reports |
 | `active_learning.py` | Fixed-context feedback screening and next-spec conversion |
 | `biology.py`, `snapshots.py`, `candidates.py`, `sequences.py` | Local FASTA, reference snapshots and retrieval |
 | `workflow.py`, `agents.py` | Input validation, device assignment, scheduling and recovery |
@@ -137,6 +138,24 @@ Only observed failure may carry mechanism hypotheses, with exact reviewed-result
 references, rationale and limitations. Empty hypotheses mean unknown; hypotheses
 are never confirmed causes. Cocktail reviews stay whole-arm, with no automatic
 member attribution, HostState mutation or probability update.
+
+## Learning and calibration
+
+LearningObservation links one exact InteractionPrediction to one physical,
+QC-admitted Phenotype from a single-phage treatment arm. The target
+(adsorption / productive infection / resistance emergence) and binary observed
+label are assessor-declared; phenotype polarity, value or FailureAttribution is
+never converted automatically into a training label. Exact host/profile lineage
+and prediction/spec/result time order are revalidated. An unresolved prediction
+may still produce a label-only observation for later model fitting.
+
+CalibrationReport accepts only scorable observations for one target whose
+PredictionProducer configuration and uncertainty method are identical. It reports
+descriptive sample count, mean predicted probability, observed rate, calibration
+gap, Brier score and log loss. It does not fit or recalibrate a model, establish
+assay comparability, create confidence intervals, update H(t), or replace any
+InteractionPrediction. Training/validation splitting and model fitting remain a
+separate future boundary.
 
 ## Feedback screening
 

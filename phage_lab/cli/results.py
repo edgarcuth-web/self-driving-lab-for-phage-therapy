@@ -268,3 +268,99 @@ def _failure_attribution(args, parser) -> int:
     print(f"FailureAttribution {attribution.record_id}: {attribution.outcome}; "
           f"mechanism={attribution.mechanism_status} → {args.out}", flush=True)
     return 0
+
+
+def _learning_observation(args, parser) -> int:
+    """Record an explicit prediction-target label from physical Phenotype evidence."""
+
+    required = (
+        ("--interaction-prediction", args.interaction_prediction),
+        ("--experiment-spec", args.experiment_spec),
+        ("--phenotype", args.phenotype),
+        ("--observation-id", args.observation_id),
+        ("--target", args.target),
+        ("--observed", args.observed),
+        ("--interpretation", args.interpretation),
+        ("--assessor", args.assessor),
+        ("--limitation", args.limitation),
+        ("--out", args.out),
+    )
+    missing = [name for name, value in required if not value]
+    if missing:
+        parser.error("learning-observation requires " + ", ".join(missing))
+
+    from ..experiment_spec import load_experiment_spec
+    from ..interaction_prediction import load_interaction_prediction
+    from ..learning import new_learning_observation, write_learning_observation
+    from ..phenotype import load_phenotype
+
+    try:
+        observation = new_learning_observation(
+            load_interaction_prediction(args.interaction_prediction),
+            load_experiment_spec(args.experiment_spec),
+            load_phenotype(args.phenotype),
+            observation_id=args.observation_id,
+            target=args.target,
+            observed=args.observed == "true",
+            interpretation=args.interpretation,
+            assessor_name=args.assessor,
+            assessor_version=args.assessor_version,
+            limitations=tuple(args.limitation),
+            assessed_at=args.assessed_at,
+        )
+        write_learning_observation(observation, args.out)
+    except (OSError, ValueError) as exc:
+        print(f"LearningObservation 创建失败：{exc}", file=sys.stderr)
+        return 2
+
+    print(
+        f"LearningObservation {observation.record_id}: {observation.target} / "
+        f"{observation.learning_status} → {args.out}",
+        flush=True,
+    )
+    if observation.learning_status == "label_only":
+        print(
+            "该 prediction 未估计此 target；标签可保留用于后续学习，但不能进入 calibration report。",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def _calibration_report(args, parser) -> int:
+    """Score one exact comparable prediction cohort without fitting a model."""
+
+    missing = [name for name, value in (
+        ("--learning-observation", args.learning_observation),
+        ("--report-id", args.report_id),
+        ("--target", args.target),
+        ("--out", args.out),
+    ) if not value]
+    if missing:
+        parser.error("calibration-report requires " + ", ".join(missing))
+
+    from ..learning import (
+        calibration_report_from_observations,
+        load_learning_observation,
+        write_calibration_report,
+    )
+
+    try:
+        report = calibration_report_from_observations(
+            [load_learning_observation(path) for path in args.learning_observation],
+            report_id=args.report_id,
+            target=args.target,
+            created_at=args.created_at,
+        )
+        write_calibration_report(report, args.out)
+    except (OSError, ValueError) as exc:
+        print(f"CalibrationReport 创建失败：{exc}", file=sys.stderr)
+        return 2
+
+    metrics = report.metrics
+    print(
+        f"CalibrationReport {report.record_id}: n={metrics['sample_count']} / "
+        f"Brier={metrics['brier_score']:.6g} / log-loss={metrics['log_loss']:.6g} → {args.out}",
+        flush=True,
+    )
+    print("这是描述性评估，不会自动拟合、校准或替换模型。", file=sys.stderr)
+    return 0
