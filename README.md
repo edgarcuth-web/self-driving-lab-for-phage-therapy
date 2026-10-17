@@ -112,6 +112,7 @@ python -m phage_lab host-state \
 
 - [CLI 操作指南](docs/usage.md)：各阶段命令、输入要求与后续轮次。
 - [架构与领域契约](docs/architecture.md)：对象关系、证据语义和校验边界。
+- [外部模型接口](docs/model-interface.md)：独立模型仓库与实验闭环之间的版本化 JSON 契约。
 - [设备接口](docs/hardware.md)：驱动、safe-state 和 HTTP adapter。
 - [OpenRouter 配置](docs/openrouter.md)：可选的受限编排决策。
 - [开发约束](AGENTS.md)：修改代码时必须保持的规则。
@@ -125,7 +126,7 @@ python -m phage_lab host-state \
 ## 下一步
 
 1. 用真实实验结果积累 LearningObservation，并建立独立训练/验证数据切分。
-2. 在数据量与 assay 可比性足够后接入可重现的模型拟合与 held-out calibration/evaluation。
+2. 在独立模型仓库中完成可重现的模型拟合、held-out evaluation 与 calibration；本仓库只接收通过模型接口绑定的结果。
 3. 在预测器经过验证后增加 prediction-driven cocktail optimization，再评估工程化升级。
 
 ## License
