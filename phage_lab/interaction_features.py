@@ -66,6 +66,7 @@ class FeatureSource:
     version: str
     method: str
     input_sha256: str
+    available_at: str
     reference: str | None = None
     evidence_ids: tuple[str, ...] = ()
 
@@ -73,6 +74,7 @@ class FeatureSource:
         for name in ("source", "version", "method"):
             require_text(getattr(self, name), name)
         validate_digest(self.input_sha256, "feature source input_sha256")
+        parse_timestamp(self.available_at, "feature source available_at")
         if self.reference is not None:
             require_text(self.reference, "feature source reference")
         _text_tuple(self.evidence_ids, "feature source evidence_id")
@@ -83,6 +85,7 @@ class FeatureSource:
             "version": self.version,
             "method": self.method,
             "input_sha256": self.input_sha256,
+            "available_at": self.available_at,
             "reference": self.reference,
             "evidence_ids": list(self.evidence_ids),
         }
@@ -237,7 +240,7 @@ def new_interaction_feature_vector(
 
 
 def feature_source_from_dict(data):
-    expected = {"source", "version", "method", "input_sha256", "reference", "evidence_ids"}
+    expected = {"source", "version", "method", "input_sha256", "available_at", "reference", "evidence_ids"}
     if not isinstance(data, dict) or set(data) != expected:
         raise ValueError("FeatureSource has missing or unknown fields.")
     if not isinstance(data["evidence_ids"], list):
@@ -247,6 +250,7 @@ def feature_source_from_dict(data):
         version=data["version"],
         method=data["method"],
         input_sha256=data["input_sha256"],
+        available_at=data["available_at"],
         reference=data["reference"],
         evidence_ids=tuple(data["evidence_ids"]),
     )

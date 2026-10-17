@@ -235,6 +235,7 @@ LearningObservation。以下 feature-input.json 仅说明格式，feature_a 和�
           "version": "1",
           "method": "documented-method",
           "input_sha256": "REPLACE_WITH_REAL_64_CHAR_SHA256",
+          "available_at": "REPLACE_WITH_ISO8601_AVAILABILITY_TIME",
           "reference": "YOUR_SOURCE_RECORD",
           "evidence_ids": []
         },
@@ -243,6 +244,7 @@ LearningObservation。以下 feature-input.json 仅说明格式，feature_a 和�
           "version": "1",
           "method": "documented-method",
           "input_sha256": "REPLACE_WITH_REAL_64_CHAR_SHA256",
+          "available_at": "REPLACE_WITH_ISO8601_AVAILABILITY_TIME",
           "reference": "YOUR_SOURCE_RECORD",
           "evidence_ids": []
         }

@@ -9,7 +9,7 @@ Keep the core dependency-free. Add a focused feature-contract module and a separ
 1. **Feature contract**
    - Define FeatureProducer and FeatureSource.
    - Define content-addressed InteractionFeatureVector with exact HostState and PhageProfile lineage.
-   - Validate missingness, finite numeric values, source provenance, and serialization integrity.
+   - Validate missingness, finite numeric values, source provenance, source availability time, and serialization integrity.
 
 2. **Training admission and split**
    - Join feature vectors to LearningObservation labels.

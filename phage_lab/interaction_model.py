@@ -114,6 +114,13 @@ class ModelTrainingExample:
             raise ValueError("feature vector PhageProfile ID does not match LearningObservation prediction.")
         if self.feature_vector.phage_profile_sha256 != prediction.phage_profile_sha256:
             raise ValueError("feature vector PhageProfile fingerprint does not match LearningObservation prediction.")
+        prediction_time = parse_timestamp(prediction.predicted_at, "prediction predicted_at")
+        for name, source in self.feature_vector.feature_sources.items():
+            if parse_timestamp(source.available_at, f"feature {name} available_at") > prediction_time:
+                raise ValueError(
+                    f"feature {name!r} source became available after the prediction; "
+                    "training would leak future information."
+                )
 
     @property
     def label(self):

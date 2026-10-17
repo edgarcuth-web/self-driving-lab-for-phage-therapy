@@ -117,6 +117,7 @@ def make_example(host_index, phage_suffix, observed):
             version="1",
             method="contract-only",
             input_sha256=source_digest,
+            available_at=T1,
             reference=f"fixture://{name}",
             evidence_ids=(),
         )
@@ -174,6 +175,15 @@ class InteractionFeatureVectorTests(unittest.TestCase):
                 example.feature_vector,
                 features={**example.feature_vector.features, "fixture_signal": float("nan")},
             )
+
+
+    def test_feature_source_available_after_prediction_is_rejected(self):
+        example = make_example(1, "future", True)
+        sources = dict(example.feature_vector.feature_sources)
+        sources["fixture_signal"] = replace(sources["fixture_signal"], available_at=T3)
+        vector = replace(example.feature_vector, feature_sources=sources)
+        with self.assertRaisesRegex(ValueError, "after the prediction|future information"):
+            ModelTrainingExample(feature_vector=vector, observation=example.observation)
 
     def test_vector_must_match_observation_lineage(self):
         first = make_example(1, "one", True)
@@ -355,6 +365,7 @@ class InteractionModelCliTests(unittest.TestCase):
             version="1",
             method="contract-test",
             input_sha256="d" * 64,
+            available_at=T1,
             reference="fixture://cli",
             evidence_ids=(),
         )
