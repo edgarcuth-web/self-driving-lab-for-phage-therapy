@@ -7,45 +7,25 @@ Virtual outputs remain non-evidence.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from hashlib import sha256
-import json
 import math
 from pathlib import Path
+
+from .artifacts import (
+    atomic_write_json,
+    content_hash,
+    parse_timestamp as _validate_timestamp,
+    read_json,
+    require_text as _require_text,
+    utc_now,
+    validate_digest as _validate_digest,
+    with_content_hash,
+)
 
 from .experiment_spec import ExperimentArm, experiment_spec_from_dict
 
 SCHEMA_VERSION = 2
 ORIGINS = ("physical_run", "virtual_run")
 QC_STATUSES = ("pending", "valid", "invalid")
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _require_text(value: str, field_name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field_name} must be a nonempty string.")
-    return value.strip()
-
-
-def _validate_timestamp(value: str, field_name: str) -> None:
-    try:
-        parsed = datetime.fromisoformat(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{field_name} must be an ISO-8601 timestamp.") from None
-    if parsed.tzinfo is None:
-        raise ValueError(f"{field_name} must include a timezone.")
-
-
-def _validate_digest(value: str, field_name: str) -> None:
-    if (
-        not isinstance(value, str)
-        or len(value) != 64
-        or any(char not in "0123456789abcdef" for char in value)
-    ):
-        raise ValueError(f"{field_name} must be a SHA-256 digest.")
 
 
 def _validate_text_tuple(values: tuple[str, ...], field_name: str) -> None:
@@ -200,16 +180,10 @@ class Measurement:
 
     @property
     def content_sha256(self) -> str:
-        canonical = json.dumps(
-            self._content_dict(),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return sha256(canonical).hexdigest()
+        return content_hash(self._content_dict())
 
     def to_dict(self) -> dict:
-        return {"content_sha256": self.content_sha256, **self._content_dict()}
+        return with_content_hash(self._content_dict())
 
 
 def _arm_by_id(spec, arm_id: str) -> ExperimentArm:
@@ -478,18 +452,9 @@ def measurement_from_dict(data: dict) -> Measurement:
 def write_measurement(measurement: Measurement, path: Path) -> None:
     if not isinstance(measurement, Measurement):
         raise ValueError("measurement must be a Measurement.")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(
-        json.dumps(measurement.to_dict(), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    atomic_write_json(measurement.to_dict(), path)
 
 
 def load_measurement(path: Path) -> Measurement:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise ValueError(f"Measurement could not be loaded: {exc}") from None
+    data = read_json(path, 'Measurement')
     return measurement_from_dict(data)

@@ -582,6 +582,53 @@ class Scheduler:
         raise WorkflowError("Attempt limit reached.")
 
 
+async def _plan_for_run(agent, *, spec, genome, candidates, devices, workflow,
+                        execution_mode, selection_size, records):
+    """Resolve a plan once; the scheduler executes the same shape for both entries."""
+    if spec is None:
+        from .legacy import request_candidate_plan
+        return await request_candidate_plan(
+            agent, genome=genome, candidates=candidates, devices=devices,
+            workflow=workflow, execution_mode=execution_mode,
+            selection_size=selection_size, records=records,
+        )
+    experiment_spec = spec
+    manifests = [device.describe() for device in devices.values()]
+    operations = tuple(workflow)
+    physical_execution = execution_mode == "real_hardware"
+    assign = getattr(agent, "assign_devices", None)
+    if not callable(assign):
+        raise WorkflowError(
+            "Spec-bound execution requires an agent with assign_devices()."
+        )
+    records.emit(
+        "device_assignment_requested",
+        agent=getattr(agent, "name", type(agent).__name__),
+        spec_id=experiment_spec.spec_id,
+    )
+    decision = await assign({
+        "experiment_spec": experiment_spec.to_dict(),
+        "devices": manifests,
+        "workflow": experiment_spec.workflow_dict(),
+        "execution_mode": execution_mode,
+        "physical_execution": physical_execution,
+    })
+    validate_device_assignment(decision, devices, operations)
+    locked_ids = [candidate["id"] for candidate in candidates]
+    plan = {
+        "candidate_ids": locked_ids,
+        "device_assignments": decision["device_assignments"],
+        "reason": decision["reason"],
+    }
+    records.emit(
+        "device_assignment_accepted",
+        agent=getattr(agent, "name", type(agent).__name__),
+        spec_id=experiment_spec.spec_id,
+        **decision,
+    )
+    return plan
+
+
 async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str,
                          candidates: list[dict], devices: dict | None, workflow: dict, agent,
                          execution_mode: str, selection_size: tuple[int, int] = DEFAULT_SELECTION_SIZE,
@@ -737,47 +784,11 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
              for candidate in candidates if candidate.get("snapshot_version")})
         manifests = [device.describe() for device in devices.values()]
         records.emit("devices_discovered", count=len(manifests), execution_mode=execution_mode)
-        if experiment_spec is not None:
-            assign = getattr(agent, "assign_devices", None)
-            if not callable(assign):
-                raise WorkflowError(
-                    "Spec-bound execution requires an agent with assign_devices()."
-                )
-            records.emit(
-                "device_assignment_requested",
-                agent=report["agent"],
-                spec_id=experiment_spec.spec_id,
-            )
-            decision = await assign({
-                "experiment_spec": experiment_spec.to_dict(),
-                "devices": manifests,
-                "workflow": experiment_spec.workflow_dict(),
-                "execution_mode": execution_mode,
-                "physical_execution": physical_execution,
-            })
-            validate_device_assignment(decision, devices, operations)
-            locked_ids = [candidate["id"] for candidate in candidates]
-            plan = {
-                "candidate_ids": locked_ids,
-                "device_assignments": decision["device_assignments"],
-                "reason": decision["reason"],
-            }
-            records.emit(
-                "device_assignment_accepted",
-                agent=report["agent"],
-                spec_id=experiment_spec.spec_id,
-                **decision,
-            )
-        else:
-            records.emit("planning_requested", agent=report["agent"])
-            plan = await agent.plan({"genome": genome.public_metadata(), "candidates": candidates,
-                                    "devices": manifests, "workflow": workflow,
-                                    "execution_mode": execution_mode,
-                                    "physical_execution": physical_execution,
-                                    "selection_size": list(selection_size)})
-            validate_plan(plan, candidates, devices, operations=operations,
-                          selection_size=selection_size)
-            records.emit("plan_accepted", agent=report["agent"], **plan)
+        plan = await _plan_for_run(
+            agent, spec=experiment_spec, genome=genome, candidates=candidates,
+            devices=devices, workflow=workflow, execution_mode=execution_mode,
+            selection_size=selection_size, records=records,
+        )
         report["plan"] = plan
         report["plan_ranking"] = _plan_ranking(plan["candidate_ids"], candidates)
         if report["plan_ranking"].get("selected_without_tool_support"):

@@ -11,11 +11,21 @@ InteractionEvidence, but that absence is explicit rather than silently filled.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from hashlib import sha256
 import json
 import math
 from pathlib import Path
+
+from .artifacts import (
+    atomic_write_json,
+    content_hash,
+    parse_timestamp as _parse_timestamp,
+    read_json,
+    require_text as _require_text,
+    utc_now,
+    validate_digest as _validate_digest,
+    with_content_hash,
+)
 
 from .host_state import HostState, HostStateReference, host_state_reference
 from .interaction_evidence import InteractionEvidence
@@ -23,35 +33,6 @@ from .phage_profile import PhageProfile
 
 SCHEMA_VERSION = 1
 ESTIMATE_STATUSES = ("estimated", "not_estimated")
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _require_text(value: str, field_name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field_name} must be a nonempty string.")
-    return value.strip()
-
-
-def _parse_timestamp(value: str, field_name: str) -> datetime:
-    try:
-        parsed = datetime.fromisoformat(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{field_name} must be an ISO-8601 timestamp.") from None
-    if parsed.tzinfo is None:
-        raise ValueError(f"{field_name} must include a timezone.")
-    return parsed
-
-
-def _validate_digest(value: str, field_name: str) -> None:
-    if (
-        not isinstance(value, str)
-        or len(value) != 64
-        or any(char not in "0123456789abcdef" for char in value)
-    ):
-        raise ValueError(f"{field_name} must be a SHA-256 digest.")
 
 
 def _validate_probability(value: float, field_name: str) -> None:
@@ -284,16 +265,10 @@ class InteractionPrediction:
 
     @property
     def content_sha256(self) -> str:
-        canonical = json.dumps(
-            self._content_dict(),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return sha256(canonical).hexdigest()
+        return content_hash(self._content_dict())
 
     def to_dict(self) -> dict:
-        return {"content_sha256": self.content_sha256, **self._content_dict()}
+        return with_content_hash(self._content_dict())
 
 
 def _validate_supporting_evidence(
@@ -553,20 +528,9 @@ def write_interaction_prediction(
 ) -> None:
     if not isinstance(prediction, InteractionPrediction):
         raise ValueError("prediction must be an InteractionPrediction.")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(
-        json.dumps(prediction.to_dict(), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    atomic_write_json(prediction.to_dict(), path)
 
 
 def load_interaction_prediction(path: Path) -> InteractionPrediction:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise ValueError(
-            f"InteractionPrediction could not be loaded: {exc}"
-        ) from None
+    data = read_json(path, 'InteractionPrediction')
     return interaction_prediction_from_dict(data)

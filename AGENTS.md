@@ -1,185 +1,46 @@
 # Working agreements
 
-## Goal
-
 Build a traceable Design–Build/Acquire–Test–Learn loop for phage R&D.
+Read [docs/architecture.md](docs/architecture.md) for the domain contracts and
+[docs/usage.md](docs/usage.md) for CLI inputs. Keep those contracts when refactoring.
 
-Scientific components decide what to test and why. The lab layer executes validated experiments and records what happened.
+## Required boundaries
 
-## Hard boundaries
+- Scientific components choose what to test; orchestration assigns devices and executes frozen intent. Never change ExperimentSpec arms, membership or workflow during execution/recovery.
+- Preserve versioned artifact IDs, hashes, provenance and time ordering. Changes to built/tested designs create new versions; do not silently replace same-ID content.
+- Keep source annotation, prediction, physical measurement and assessor interpretation distinct. Unknown is not negative; workflow success is not biological success; PHIST statistics are not infection probabilities.
+- Missing calibrated predictions remain `not_estimated`. Estimated probabilities require uncertainty bounds/method and exact model/input provenance.
+- Preserve CandidateSet exclusions, deferred candidates, prediction snapshots and selection reasons. Do not compare incompatible model cohorts or assign efficacy meaning to profile-ID ordering.
+- HostState components require explicit evidence. New states never inherit dynamic components implicitly; lineage adapters do not infer biological state.
+- Physical execution requires test-ready MaterialBatch binding. QC admission is explicit, independent of execution success. Phenotype requires physical, QC-valid, same-arm/spec/material Measurements.
+- Failure review remains arm-scoped and criterion-based. Mechanism hypotheses are not confirmed causes; cocktail outcomes are not member outcomes.
+- Feedback screening preserves its fixed campaign/context, criterion and history. Conflicts/inconclusive reviews require review; empty selection abstains. No automatic model, probability or HostState update.
+- Prefer evaluating natural phages, then cocktails; engineering requires an explicit evidence gap. Retrieved record provenance alone does not establish natural origin.
 
-### Scientific decisions vs orchestration
+## Execution and data
 
-Scientific components may produce:
-
-- `HostProfile`
-- `HostState`
-- `PhageProfile`
-- `InteractionEvidence`
-- `InteractionPrediction`
-- `CandidateSet`
-- `CocktailDesign`
-- `ExperimentSpec`
-- `ExperimentArm`
-- `FailureAttribution`
-- `ActiveLearningDecision`
-- engineering proposals
-
-The orchestrator handles:
-
-- task dependencies;
-- device assignment;
-- dispatch;
-- timeout reconciliation;
-- cancellation/recovery;
-- safe-state;
-- execution records.
-
-Do not let the orchestration agent invent biological conclusions or bypass `ExperimentSpec`.
-
-### Domain objects and lineage
-
-Treat the following as versioned objects, not anonymous dicts:
-
-- `HostProfile`
-- `HostState`
-- `PhageProfile`
-- `InteractionEvidence`
-- `InteractionPrediction`
-- `CandidateSet`
-- `CocktailDesign`
-- `ExperimentSpec`
-- `ExperimentArm`
-- `MaterialBatch`
-- `Measurement`
-- `Phenotype`
-- `FailureAttribution`
-- `ActiveLearningDecision`
-
-Preserve lineage. If a design has been built or tested, later changes create a new version.
-
-### Natural-first escalation
-
-Default path:
-
-1. evaluate natural phages;
-2. optimize cocktail composition;
-3. identify unresolved coverage/resistance gaps;
-4. escalate to host-range engineering only when supported by evidence;
-5. use deeper defense/counter-defense or genome-level design only when needed.
-
-Do not treat engineering as the default entry point.
-
-### Evidence semantics
-
-Keep source annotation, prediction and physical measurement distinct.
-
-- `unknown` is not an assessed negative.
-- workflow success is not biological success.
-- build/device failure is not a negative phenotype.
-- PHIST shared-k-mer statistics are not infection probabilities.
-- no PHIST match is not evidence that infection is impossible.
-
-Every model/tool output needs tool/model identity, version, inputs and parameters.
-
-`InteractionEvidence` is an evidence record, not a susceptibility verdict. It links a host identity and a versioned PhageProfile to one source signal. Evidence objects must remain content-addressed and reject probability-shaped fields that are not actually emitted by the source. Cohort-relative ordering such as rank belongs to ranking/design context, not pairwise InteractionEvidence.
-
-`InteractionPrediction` is the probability-bearing layer. It must bind an exact HostState ID/hash, an exact PhageProfile ID/content fingerprint, exact supporting InteractionEvidence IDs and exact producer/model provenance. Estimated probabilities require explicit uncertainty intervals and methods. A missing calibrated model must be represented as `not_estimated`, never by translating PHIST or another weak source signal into an invented probability. Supporting pairwise evidence may be empty for unseen-pair prediction, but that absence must remain explicit.
-
-`CocktailDesign` is a scientific design artifact, not an execution plan. Every member must reference supporting InteractionEvidence; objectives, assumptions and unresolved gaps must be explicit. A baseline may prioritize weak computational evidence, but must not relabel it as mechanistic complementarity, cross-resistance protection or efficacy.
-
-`CandidateSet` is a screening decision, not a cocktail or a susceptibility verdict. Consume exact HostState-bound InteractionPredictions rather than raw PHIST rank. Preserve all inputs, exclusions, deferred candidates, source prediction snapshots, policy/version/budget and reasons. Never turn not_estimated into a numeric score. The v1 policy ranks comparable productive-infection lower bounds and reserves unresolved exploration; profile-ID ordering is not biological ranking or active learning. Engineered profiles are excluded; retrieved origin remains unverified. Do not rank different model/configuration/uncertainty cohorts together or claim that matching provenance proves calibration.
-
-`ExperimentSpec` is the scientific-to-orchestration boundary. It locks optional exact scientific source references (including CocktailDesign or CandidateSet), arm definitions, target HostProfile, member PhageProfiles and abstract workflow before device assignment. CandidateSet conversion creates independent single-phage arms plus a host control, with caller-declared readouts. In spec-bound execution, orchestration may assign/recover devices but must never add, drop or replace scientific members or alter the workflow.
-
-`MaterialBatch` represents tracked physical material, not a database candidate or accession. A batch may exist while QC is pending; test-ready binding requires `quality_status=released`, usable availability, and explicit quality evidence. ExperimentSpec-bound real-hardware execution requires one unambiguous host batch and one unambiguous phage batch per member.
-
-`Measurement` preserves run/device/spec/material lineage and raw device output. Its QC status is explicit and must never be inferred from workflow success. `valid` and `invalid` Measurements require one or more QC evidence references; only `pending` may omit them. Virtual run output may be ingested as Measurement only with `evidence_class=none`.
-
-`Phenotype` is an interpretation of admitted physical evidence. It may be created only from physical, QC-valid Measurements bound to the same ExperimentSpec and material set. Invalid, pending or virtual Measurements must never become positive, negative or graded biological phenotypes.
-
-`HostState` is a time-indexed scientific state artifact, not a mutable field bag on HostProfile. It must bind one exact HostProfile ID/genome, one `as_of` time, explicit state components and the evidence supporting each component. Missing components are unknown. A later HostState may reference an earlier state but must not inherit its dynamic components implicitly. Measurement/Phenotype-to-HostState adapters may copy artifact lineage only; they must not invent a state interpretation.
-
-`FailureAttribution` v1 records explicit assessor review of one phage-containing treatment arm against a declared criterion. Outcomes are failure_observed, failure_not_observed or inconclusive; negative Phenotype is not automatically failure. Preserve full source snapshots and re-admit physical/QC-valid Measurements, exact Phenotype/Comparison lineage and temporal order on construction/load. Mechanism entries are unconfirmed hypotheses with result references and limitations; an empty hypothesis set means unknown. Do not promote hypothesis to causal fact, split cocktail failure among members, update H(t)/predictions automatically, or treat this review artifact as an ActiveLearner.
-
-`ActiveLearningDecision` v1 is a feedback-screening heuristic, not a fitted model or an information-gain optimizer. Bind the exact source CandidateSet and initial single-phage screening spec, an explicit criterion, full admitted feedback snapshots, policy/version/budget and decision time. Preserve source exclusions and prediction snapshots. Feedback must match the fixed declared assay context and source pool. Conclusive single-phage reviews retire a screening question only in that context; inconclusive/conflicting reviews require human review. Cocktail feedback must not be assigned to members. Missing feedback is unknown. Empty selection must abstain and cannot create an experiment. Carry previous feedback forward explicitly via previous_decision; reject silent same-ID content replacement and competing review revisions. Next ExperimentSpec copies the fixed context/workflow, binds exact decision lineage and never dispatches hardware. No automatic H(t), mechanism or probability update. Matching declared context is not proof of a physically unchanged host state.
-
-### Virtual hardware
-
-Virtual hardware may simulate job lifecycle, timeout, cancellation, failover, safe-state and artifact handoff.
-
-It must not create biological evidence. A virtual run may carry MaterialBatch IDs for lineage testing and may be ingested as a Measurement, but it must remain `evidence_class=none` and must never imply material consumption or support Phenotype.
-
-### Sequence and external models
-
-Raw FASTA and headers are not sent to external models by default. Local bioinformatics tools may consume sequence; external reasoning components receive structured data unless explicitly required otherwise.
-
-`PhageProfile` provenance kinds are `retrieved`, `natural`, and `engineered`.
-`retrieved` describes record provenance and must not be treated as proof of natural biological origin.
-`natural` requires local collection/isolate lineage. `engineered` requires design identity and parent profile lineage.
-Never invent database accessions for designed candidates.
-
-## Hardware execution
-
-`execution_mode` is explicit:
-
-- `real_hardware`: devices declare `simulated=False`;
-- `virtual_hardware`: devices declare `simulated=True`.
-
-Never mix or silently fall back between modes.
-
-A timeout means outcome unknown. Reconcile the original job before retrying. Retry/fail over only after cancellation is confirmed.
-
-Real drivers declare `safe_state`. If the device cannot confirm its physical state, record it as `unknown`.
-
-Never execute model-generated code directly on devices.
-
-For an ExperimentSpec-bound run, the agent interface is limited to `assign_devices()` and recovery. Legacy `plan()` candidate selection is permitted only on the compatibility path without an ExperimentSpec.
-
-## Current code map
-
-- `biology.py`: FASTA validation and sequence summary.
-- `host_profile.py`: HostProfile v1.
-- `host_state.py`: HostState H(t) v1, explicit dynamic components/evidence and previous-state lineage.
-- `phage_profile.py`: PhageProfile v1 and provenance variants.
-- `interaction_evidence.py`: InteractionEvidence v1 and PHIST evidence adapter.
-- `interaction_prediction.py`: InteractionPrediction v1, exact H(t)/phage/evidence/model lineage and calibrated probability/uncertainty contract.
-- `natural_phage_recommender.py`: CandidateSet v1, prediction-aware screening/exploration and independent single-phage ExperimentSpec conversion.
-- `cocktail_design.py`: CocktailDesign v1 and conservative PHIST screening baseline.
-- `experiment_spec.py`: ExperimentSpec v2, ExperimentArm, generic scientific intent and optional CocktailDesign source binding.
-- `material_batch.py`: MaterialBatch v1 and test-ready ExperimentSpec binding.
-- `measurement.py`: Measurement v2, arm-scoped run-report ingestion and arm-specific material lineage.
-- `phenotype.py`: Phenotype v2 and explicit PhenotypeComparison v1.
-- `failure_attribution.py`: FailureAttribution v1, criterion-based explicit review and unconfirmed mechanism hypotheses over re-admitted physical results.
-- `active_learning.py`: ActiveLearningDecision v1, fixed-context feedback screening, cumulative feedback history and next ExperimentSpec bridge.
-- `snapshots.py`, `candidates.py`, `sequences.py`: reference data and retrieved candidates.
-- `ranking.py`: PHIST integration; emits legacy ranking plus InteractionEvidence.
-- `agents.py`: bounded orchestration decisions.
-- `workflow.py`: validation, scheduling and recovery.
-- `devices.py`, `virtual_hardware.py`: device interface and twins.
-- `records.py`, `provenance.py`: run records and provenance.
-
-## Next work
-
-Priority order:
-
-1. validate the feedback-screening loop against admitted real experimental results when available;
-2. add calibrated prediction models when suitable training/evaluation data are available;
-3. introduce prediction-driven cocktail optimization when evidence supports it;
-4. engineering escalation.
-
-Freeze provenance, MaterialBatch, device abstraction and robot/simulator detail unless a scientific-layer requirement forces a change.
+- Require explicit `real_hardware` or `virtual_hardware`; never mix or silently fall back. Driver `simulated` flags must match.
+- Virtual hardware tests lifecycle and lineage only: `evidence_class=none`, no material consumption, no Phenotype support.
+- Reconcile timed-out jobs before retrying. Retry/fail over only after confirmed cancellation or completion. Record unconfirmed physical state as unknown and preserve safe-state handling.
+- Never execute model-generated code directly on devices. Raw FASTA and headers stay local by default; external reasoning receives structured data.
+- Keep legacy candidate selection isolated from spec execution. New execution integrations use ExperimentSpec.
+- Do not commit credentials, raw user genomes or generated run directories.
 
 ## Development
 
-Python 3.11+.
+Python 3.11+, standard library. Run from the repository root:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-Keep README for user-facing scope/status, `docs/architecture.md` for domain architecture, and this file for implementation constraints.
+Keep shared mechanics small; retain domain validation in domain modules. Do not add
+new frameworks, schema migrations or compatibility aliases without a concrete need.
 
-Do not commit credentials, raw user genomes or generated run directories.
+README owns current capability/status and a runnable local check. Architecture owns
+domain contracts and module relationships. Usage owns command examples. This file
+owns development constraints; do not duplicate the other documents here.
 
-Before GitHub writes, inspect the current branch head and diff. Preserve concurrent work and never force-push over another contributor's changes.
+Freeze material/provenance/device/simulator scope unless a scientific requirement
+forces a change. Before GitHub writes, inspect the current branch head and diff.
+Preserve concurrent work and never force-push over another contributor's changes.
