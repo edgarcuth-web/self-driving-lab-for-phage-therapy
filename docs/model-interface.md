@@ -44,6 +44,22 @@ fingerprints, all three prediction target slots, producer identity, immutable mo
 artifact SHA-256, limitations, explanation and prediction time. Targets that were
 not requested must remain not_estimated.
 
+## Sequence fingerprint semantics
+
+The HostState `host_genome_sha256` and a PhageProfile `sequence.sha256`, when
+present, use the normalized-contig digest implemented by
+`phage_lab.biology.read_fasta`: uppercase IUPAC DNA bases, FASTA headers and
+whitespace omitted, and a NUL byte before each contig. This is not the raw FASTA
+file-byte SHA-256; sequence registries record both hashes separately.
+
+A retrieved PhageProfile may currently carry an accession and pinned
+`provenance.snapshot_sha256` without a sequence digest. In that case, sequence
+resolution requires the local sequence registry to bind the exact accession and
+snapshot digest to the extracted FASTA asset. The ingestion process must verify
+the original snapshot digest before creating that binding. An accession without
+either a normalized sequence digest or a pinned retrieved-source snapshot is
+insufficient for exact resolution.
+
 The lab repository re-admits ModelResult before it becomes InteractionPrediction.
 Admission rejects request/result hash mismatch, different host/phage lineage,
 results timestamped before the request, estimated unrequested targets, and
