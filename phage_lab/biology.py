@@ -19,7 +19,13 @@ class GenomeSummary:
 
 
 def read_fasta(path: Path) -> GenomeSummary:
-    """Hash normalized contigs without retaining DNA or header text."""
+    """Hash normalized contigs without retaining DNA or header text.
+
+    The digest receives one NUL byte before each contig, followed by that
+    contig's uppercase IUPAC DNA bases. Headers and whitespace are excluded.
+    This is the normalized sequence digest used by PhageProfile SequenceRef;
+    it is distinct from a digest of the original FASTA file bytes.
+    """
     if path.stat().st_size > MAX_BASES * 2:
         raise ValueError("FASTA file exceeds the 40 MB input limit.")
     digest = sha256()
