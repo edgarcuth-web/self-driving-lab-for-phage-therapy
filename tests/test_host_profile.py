@@ -1,9 +1,11 @@
+import hashlib
 import json
 from pathlib import Path
 import tempfile
 import unittest
 
-from phage_lab.biology import GenomeSummary
+from phage_lab.biology import GenomeSummary, read_fasta
+from phage_lab.phage_profile import SequenceRef
 from phage_lab.host_profile import (
     AnalysisRun,
     FEATURE_GROUPS,
@@ -24,6 +26,24 @@ CREATED_AT = "2026-10-16T12:00:00+00:00"
 class HostProfileTests(unittest.TestCase):
     def setUp(self):
         self.genome = GenomeSummary(sha256=DIGEST, bases=5_000_000, contigs=1)
+
+    def test_host_and_phage_sequence_fingerprints_share_normalization(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fasta = Path(directory) / "multi-contig.fna"
+            fasta.write_bytes(
+                b"\xef\xbb\xbf>first contig\r\nacgt\r\n>second contig\r\nnry\r\n"
+            )
+            genome = read_fasta(fasta)
+
+        expected = hashlib.sha256(b"\0ACGT\0NRY").hexdigest()
+        self.assertEqual(genome.sha256, expected)
+        self.assertEqual(genome.bases, 7)
+        self.assertEqual(genome.contigs, 2)
+        sequence_ref = SequenceRef(sha256=genome.sha256, length=genome.bases)
+        self.assertEqual(
+            sequence_ref.to_dict(),
+            {"sha256": expected, "length": 7},
+        )
 
     def test_new_profile_starts_unknown_without_sequence_content(self):
         profile = new_host_profile(

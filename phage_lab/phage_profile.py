@@ -30,7 +30,13 @@ def _validate_sha256(value: str, field_name: str) -> None:
 
 @dataclass(frozen=True)
 class SequenceRef:
-    """Sequence identity without embedding sequence content in the profile."""
+    """Sequence identity without embedding sequence content in the profile.
+
+    When present, `sha256` is the normalized sequence digest used by
+    `phage_lab.biology.read_fasta`: uppercase IUPAC DNA bases with FASTA
+    headers and whitespace omitted and one NUL byte before each contig. It is
+    not the SHA-256 of the raw FASTA file bytes.
+    """
 
     accession: str | None = None
     sha256: str | None = None
