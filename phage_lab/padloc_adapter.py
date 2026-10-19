@@ -508,7 +508,7 @@ def run_padloc_host_defense(
     }
     system_names = sorted({row["system"] for row in records})
     run_stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    artifact_id = f"padloc-host-defense:{host_state['record_id']}:{run_stamp}"
+    artifact_id = f"padloc-host-defense:{host_state.record_id}:{run_stamp}"
     native_output_relative = (
         native_csv.relative_to(artifact_root).as_posix() if native_csv.is_file() else None
     )
