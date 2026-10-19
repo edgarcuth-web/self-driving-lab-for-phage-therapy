@@ -87,9 +87,12 @@ probabilities. Cohort-relative rank stays in ranking/design context.
 
 ## External model boundary
 
-Model training, feature extraction, evaluation and calibration live in a separate
-repository. This repository owns only the content-addressed ModelRequest/ModelResult
-exchange and admission into InteractionPrediction. A matching hash proves lineage
+Model training, model-specific preprocessing/embeddings, evaluation and calibration
+live in a separate repository. This repository owns biological characterization
+pipelines (including sequence-resource resolution and PADLOC), their FeatureArtifact
+provenance, experimental state, and the content-addressed ModelRequest/ModelResult
+exchange and prediction-admission gate. A scientific annotation remains useful if
+model architecture or weights are replaced. A matching hash proves lineage
 consistency, not scientific validity. See [model-interface](model-interface.md).
 
 ## Predictions and selection
