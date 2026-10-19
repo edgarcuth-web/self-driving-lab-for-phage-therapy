@@ -62,3 +62,49 @@ def read_json(path: Path, label: str):
         return json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise ValueError(f"{label} could not be loaded: {exc}") from None
+
+def read_json_object_with_digest(
+    path: str | Path,
+    *,
+    label: str = "JSON artifact",
+) -> tuple[dict, str]:
+    """Read one JSON object and hash the exact bytes that were parsed."""
+    source = Path(path)
+
+    def reject_constant(value: str):
+        raise ValueError(f"non-standard JSON constant {value!r} is not allowed")
+
+    try:
+        raw = source.read_bytes()
+        digest = sha256(raw).hexdigest()
+        data = json.loads(raw.decode("utf-8-sig"), parse_constant=reject_constant)
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"{label} could not be loaded from {source}: {exc}") from None
+    if not isinstance(data, dict):
+        raise ValueError(f"{label} at {source} must contain a JSON object.")
+    return data, digest
+
+
+def read_json_object(path: str | Path, *, label: str = "JSON artifact") -> dict:
+    """Read one strict JSON object."""
+    document, _ = read_json_object_with_digest(path, label=label)
+    return document
+
+
+def canonical_content_sha256(document: dict) -> str:
+    """Hash canonical content while excluding an optional content_sha256 field."""
+    if not isinstance(document, dict):
+        raise ValueError("content to hash must be a JSON object.")
+    content = dict(document)
+    content.pop("content_sha256", None)
+    return content_hash(content)
+
+
+def sha256_file(path: str | Path) -> str:
+    """Hash exact file bytes without loading the complete file into memory."""
+    digest = sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+

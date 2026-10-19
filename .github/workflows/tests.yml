@@ -12,5 +12,56 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Install analysis-artifact validation dependency
+        run: python -m pip install "jsonschema>=4.23,<5"
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
+
+  padloc-integration:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pinned PADLOC environment
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: envs/padloc.yml
+          environment-name: phage-padloc
+          cache-environment: true
+
+      - name: Run complete SDL test suite
+        shell: bash -el {0}
+        run: python -m unittest discover -s tests -v
+
+      - name: Install pinned PADLOC-DB release
+        shell: bash -el {0}
+        env:
+          PADLOC_DATA: ${{ runner.temp }}/padloc-db-v2.0.0
+        run: padloc --data "$PADLOC_DATA" --db-install v2.0.0
+
+      - name: Download pinned upstream bacterial genome
+        shell: bash
+        env:
+          INPUT_DIR: ${{ runner.temp }}/padloc-inputs
+        run: |
+          mkdir -p "$INPUT_DIR"
+          curl --fail --location --silent --show-error \
+            https://raw.githubusercontent.com/padlocbio/padloc/2afd1d8a730aa899f5c3178c881b697fa3bb5279/test/GCF_004358345.1.fna \
+            --output "$INPUT_DIR/host.fna"
+          test -s "$INPUT_DIR/host.fna"
+
+      - name: Run real PADLOC and verify FeatureArtifact
+        shell: bash -el {0}
+        env:
+          INPUT_DIR: ${{ runner.temp }}/padloc-inputs
+          PADLOC_DATA: ${{ runner.temp }}/padloc-db-v2.0.0
+          PADLOC_OUTPUT: ${{ runner.temp }}/padloc-artifact
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python tests/integration/run_padloc_smoke.py \
+            --fasta "$INPUT_DIR/host.fna" \
+            --database "$PADLOC_DATA" \
+            --outdir "$PADLOC_OUTPUT"

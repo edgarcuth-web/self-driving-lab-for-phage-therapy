@@ -11,6 +11,9 @@ from .science import (
     _recommend_phages,
     _phage_profiles,
     _cocktail_design,
+    _annotate_host_defense_padloc,
+    _verify_feature_artifact,
+    _create_sequence_registry,
 )
 from .experiments import _experiment_spec, _active_learn
 from .results import (
@@ -132,6 +135,45 @@ def build_parser():
                         help="Optional JSON object with components/evidence/limitations.")
     sub.add_argument("--previous-host-state", type=Path,
                         help="Optional previous HostState snapshot for temporal lineage.")
+
+    sub = commands.add_parser('create-sequence-registry', allow_abbrev=False,
+                              help="Register one local FASTA with raw and normalized fingerprints.")
+    sub.set_defaults(handler=_create_sequence_registry, command_parser=sub)
+    sub.add_argument("--fasta", required=True, type=Path,
+                     help="Local FASTA file; it must be under the registry root.")
+    sub.add_argument("--registry-id", required=True,
+                     help="Caller-owned registry identifier.")
+    sub.add_argument("--out", required=True, type=Path,
+                     help="New sequence-registry JSON path; existing files are never overwritten.")
+    sub.add_argument("--kind", choices=("host_genome", "phage_sequence"),
+                     default="host_genome")
+    sub.add_argument("--accession",
+                     help="Optional accession for a phage-sequence entry.")
+    sub.add_argument("--source-snapshot-sha256",
+                     help="Pinned source-snapshot SHA-256; requires --accession.")
+
+    sub = commands.add_parser('annotate-host-defense-padloc', allow_abbrev=False,
+                              help="Run real PADLOC v2.0.0 host-defense annotation.")
+    sub.set_defaults(handler=_annotate_host_defense_padloc, command_parser=sub)
+    sub.add_argument("--host-state", required=True, type=Path,
+                     help="Validated HostState v1 JSON record.")
+    sub.add_argument("--sequence-registry", required=True, type=Path,
+                     help="Local sequence registry containing the exact host FASTA.")
+    sub.add_argument("--padloc-data", required=True, type=Path,
+                     help="Dedicated pre-installed PADLOC-DB v2.0.0 directory.")
+    sub.add_argument("--outdir", required=True, type=Path,
+                     help="New or empty directory for this run's FeatureArtifact.")
+    sub.add_argument("--padloc-executable", default="padloc",
+                     help="PADLOC executable path or PATH command.")
+    sub.add_argument("--cpu", type=int, default=1,
+                     help="CPU count passed to PADLOC/HMMER.")
+    sub.add_argument("--timeout-seconds", type=int, default=7200,
+                     help="Maximum PADLOC runtime in seconds.")
+
+    sub = commands.add_parser('verify-feature-artifact', allow_abbrev=False,
+                              help="Validate a FeatureArtifact and re-hash all outputs.")
+    sub.set_defaults(handler=_verify_feature_artifact, command_parser=sub)
+    sub.add_argument("artifact", type=Path)
 
     sub = commands.add_parser('interaction-prediction', allow_abbrev=False)
     sub.set_defaults(handler=_interaction_prediction, command_parser=sub)

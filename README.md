@@ -2,7 +2,7 @@
 
 把科学决策、实验执行和结果判读连接成可追溯的 Design–Build/Acquire–Test–Learn 流程。
 
-当前实现的是**反馈驱动的筛选软件闭环**：记录输入与预测，生成冻结的实验设计，摄取经过 QC 的结果，形成显式 prediction-vs-outcome 学习记录，并选择下一轮尚未解决的筛选问题。可对同一预测 cohort 做描述性 calibration 评估；尚无自动模型训练、自动重校准或真实仪器运行验证。
+当前实现的是**反馈驱动的筛选软件闭环**：记录输入与预测，生成冻结的实验设计，摄取经过 QC 的结果，形成显式 prediction-vs-outcome 学习记录，并选择下一轮尚未解决的筛选问题。生物学表征分析（首个真实分析器为 PADLOC）及其来源追踪也归本仓库所有；模型专属 embedding、训练、校准和推理留在独立模型仓库。可对同一预测 cohort 做描述性 calibration 评估；尚无自动模型训练、自动重校准或真实仪器运行验证。
 
 ## 当前能力
 
@@ -85,7 +85,7 @@ Windows 可双击 `start-dashboard.bat`。浏览器打开 `http://127.0.0.1:8765
 
 ### 核心 CLI 检查
 
-需要 Python 3.11+；核心代码只使用标准库。从仓库根目录运行：
+需要 Python 3.11+。核心编排使用标准库；序列登记与 FeatureArtifact 校验需要 `jsonschema`，真实 PADLOC 分析使用 `envs/padloc.yml` 中固定的外部工具环境。从仓库根目录运行：
 
 ```bash
 python -m phage_lab version
@@ -107,6 +107,25 @@ python -m phage_lab host-state \
 ```
 
 生成的 profile 没有已评估的生物学特征；空 HostState 不表示阴性。
+
+## 真实生物学表征分析：PADLOC
+
+本仓库拥有序列资源登记、FeatureArtifact v1 和首个真实分析器 PADLOC v2.0.0。
+它对已登记且与 HostState 基因组指纹一致的 FASTA 执行实际分析，固定
+PADLOC-DB v2.0.0，保存原生输出、日志、数据库树指纹和来源记录。没有命中只表示
+该数据库和这次运行范围内未检出，不证明细菌不存在防御系统；当前结果尚未自动提升为
+HostProfile 的已评估阴性。安装、运行和限制见
+[`docs/padloc-adapter.md`](docs/padloc-adapter.md)。
+
+```bash
+conda env create -f envs/padloc.yml
+conda activate phage-padloc
+python -m phage_lab annotate-host-defense-padloc --help
+```
+
+跨仓库边界的目标是由 SDL 输出冻结的 ModelInputBundle，包含获准的科学注释、
+筛查状态和来源信息；模型仓库只负责模型专属表示、训练、评估、权重和推理。
+当前 ModelRequest/ModelResult v1 仍是过渡接口，尚未实现 ModelInputBundle v1。
 
 ## 使用与开发
 
