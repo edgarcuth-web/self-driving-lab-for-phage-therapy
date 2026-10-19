@@ -352,7 +352,7 @@ class PadlocAdapterTests(unittest.TestCase):
             changed = copy.deepcopy(fixture["host_state"])
             changed["limitations"] = ["tampered"]
             write_json(fixture["host_state_path"], changed)
-            with self.assertRaisesRegex(ValueError, "HostState content_sha256 mismatch"):
+            with self.assertRaisesRegex(ValueError, "content_sha256 does not match the HostState content"):
                 self.run_adapter(fixture, database, executable, root / "run-output")
 
     def test_host_genome_must_match_host_state_fingerprint(self):
