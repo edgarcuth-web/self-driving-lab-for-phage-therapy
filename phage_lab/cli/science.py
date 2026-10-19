@@ -361,3 +361,53 @@ def _cocktail_design(args, parser) -> int:
         file=sys.stderr,
     )
     return 0
+
+def _annotate_host_defense_padloc(args, parser) -> int:
+    """Run the pinned real PADLOC analyzer on a registry-verified host genome."""
+    from ..padloc_adapter import run_padloc_host_defense
+
+    try:
+        result = run_padloc_host_defense(
+            host_state_path=args.host_state,
+            sequence_registry_path=args.sequence_registry,
+            padloc_data_dir=args.padloc_data,
+            output_dir=args.outdir,
+            padloc_executable=args.padloc_executable,
+            cpu=args.cpu,
+            timeout_seconds=args.timeout_seconds,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"PADLOC host-defense analysis failed: {exc}", file=sys.stderr)
+        return 2
+
+    summary = result["summary"]
+    print(json.dumps({
+        "manifest_path": str(result["manifest_path"]),
+        "summary_path": str(result["summary_path"]),
+        "artifact_sha256": result["artifact"]["content_sha256"],
+        "outcome": summary["outcome"],
+        "systems_detected": summary["systems_detected"],
+        "gene_hit_count": summary["gene_hit_count"],
+        "padloc_version": summary["analyzer"]["version"],
+        "padloc_db_version": summary["analyzer"]["database"]["version"],
+        "padloc_db_tree_sha256": summary["analyzer"]["database"]["tree_sha256"],
+    }, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _verify_feature_artifact(args, parser) -> int:
+    """Validate a FeatureArtifact manifest and all referenced output bytes."""
+    from ..feature_artifact import load_feature_artifact
+
+    try:
+        artifact = load_feature_artifact(args.artifact, verify_outputs=True)
+    except (OSError, ValueError) as exc:
+        print(f"FeatureArtifact verification failed: {exc}", file=sys.stderr)
+        return 2
+    print(
+        f"valid FeatureArtifact v{artifact['schema_version']}: "
+        f"{artifact['artifact_id']} sha256={artifact['content_sha256']} "
+        f"status={artifact['status']} outputs={len(artifact['outputs'])}"
+    )
+    return 0
+
