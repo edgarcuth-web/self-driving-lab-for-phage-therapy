@@ -20,7 +20,7 @@ from pathlib import Path, PurePosixPath
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from .artifacts import atomic_write_json, read_json_object, read_json_object_with_digest
+from .artifacts import atomic_write_json, read_json_object, read_json_object_with_digest, sha256_file
 
 SCHEMA_VERSION = 1
 SEQUENCE_KINDS = ("host_genome", "phage_sequence")
@@ -514,18 +514,9 @@ def create_sequence_registry(
     return {
         "path": manifest_path,
         "registry_id": document["registry_id"],
-        "registry_file_sha256": _file_sha256(manifest_path),
+        "registry_file_sha256": sha256_file(manifest_path),
         "asset": asset,
     }
-
-
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
 
 
 def resolve_registered_host_genome(
