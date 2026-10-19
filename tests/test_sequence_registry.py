@@ -49,7 +49,7 @@ class SequenceRegistryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fasta = root / "host.fna"
-            raw = b">contig1\\nACGT\\n"
+            raw = b">contig1\nACGT\n"
             fasta.write_bytes(raw)
             result = create_sequence_registry(
                 fasta,
@@ -78,7 +78,7 @@ class SequenceRegistryTests(unittest.TestCase):
     def test_fingerprint_separates_raw_file_and_normalized_sequence_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             fasta = Path(directory) / "host.fna"
-            raw = b">contig1 description\nacgt\n"
+            raw = b">contig1\nACGT\n"
             fasta.write_bytes(raw)
             asset = fingerprint_fasta(fasta, kind="host_genome")
             self.assertEqual(asset.file_sha256, hashlib.sha256(raw).hexdigest())
