@@ -110,7 +110,7 @@ analysis software:
 ```python
 from pathlib import Path
 
-from phage_cocktail.feature_artifact import (
+from phage_lab.feature_artifact import (
     build_feature_artifact,
     write_feature_artifact,
 )
@@ -154,7 +154,7 @@ and output files created by that tool.
 Verify an existing manifest and all referenced output files:
 
 ```bash
-phage-model-interface verify-feature-artifact path/to/feature-artifact.v1.json
+python -m phage_lab verify-feature-artifact path/to/feature-artifact.v1.json
 ```
 
 The CLI prints only the artifact ID, manifest digest, computational status and
