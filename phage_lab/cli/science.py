@@ -411,3 +411,33 @@ def _verify_feature_artifact(args, parser) -> int:
     )
     return 0
 
+def _create_sequence_registry(args, parser) -> int:
+    """Register the exact local FASTA bytes and normalized sequence identity."""
+    from ..sequence_registry import create_sequence_registry
+
+    try:
+        result = create_sequence_registry(
+            args.fasta,
+            args.out,
+            registry_id=args.registry_id,
+            kind=args.kind,
+            accession=args.accession,
+            source_snapshot_sha256=args.source_snapshot_sha256,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"Sequence registry creation failed: {exc}", file=sys.stderr)
+        return 2
+
+    asset = result["asset"]
+    print(json.dumps({
+        "registry_path": str(result["path"]),
+        "registry_id": result["registry_id"],
+        "registry_file_sha256": result["registry_file_sha256"],
+        "kind": asset.kind,
+        "sequence_sha256": asset.sequence_sha256,
+        "file_sha256": asset.file_sha256,
+        "bases": asset.bases,
+        "contigs": asset.contigs,
+    }, ensure_ascii=False, indent=2))
+    return 0
+
