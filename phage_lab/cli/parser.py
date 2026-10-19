@@ -13,6 +13,7 @@ from .science import (
     _cocktail_design,
     _annotate_host_defense_padloc,
     _verify_feature_artifact,
+    _create_sequence_registry,
 )
 from .experiments import _experiment_spec, _active_learn
 from .results import (
@@ -134,6 +135,22 @@ def build_parser():
                         help="Optional JSON object with components/evidence/limitations.")
     sub.add_argument("--previous-host-state", type=Path,
                         help="Optional previous HostState snapshot for temporal lineage.")
+
+    sub = commands.add_parser('create-sequence-registry', allow_abbrev=False,
+                              help="Register one local FASTA with raw and normalized fingerprints.")
+    sub.set_defaults(handler=_create_sequence_registry, command_parser=sub)
+    sub.add_argument("--fasta", required=True, type=Path,
+                     help="Local FASTA file; it must be under the registry root.")
+    sub.add_argument("--registry-id", required=True,
+                     help="Caller-owned registry identifier.")
+    sub.add_argument("--out", required=True, type=Path,
+                     help="New sequence-registry JSON path; existing files are never overwritten.")
+    sub.add_argument("--kind", choices=("host_genome", "phage_sequence"),
+                     default="host_genome")
+    sub.add_argument("--accession",
+                     help="Optional accession for a phage-sequence entry.")
+    sub.add_argument("--source-snapshot-sha256",
+                     help="Pinned source-snapshot SHA-256; requires --accession.")
 
     sub = commands.add_parser('annotate-host-defense-padloc', allow_abbrev=False,
                               help="Run real PADLOC v2.0.0 host-defense annotation.")
