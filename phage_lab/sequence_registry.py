@@ -20,7 +20,7 @@ from pathlib import Path, PurePosixPath
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from .artifacts import read_json_object, read_json_object_with_digest
+from .artifacts import atomic_write_json, read_json_object, read_json_object_with_digest
 
 SCHEMA_VERSION = 1
 SEQUENCE_KINDS = ("host_genome", "phage_sequence")
@@ -445,6 +445,88 @@ def _resolve_sequence(
         accession=entry.get("accession"),
         source_snapshot_sha256=entry.get("source_snapshot_sha256"),
     )
+
+
+def create_sequence_registry(
+    fasta_path: str | Path,
+    output_path: str | Path,
+    *,
+    registry_id: str,
+    kind: str = "host_genome",
+    accession: str | None = None,
+    source_snapshot_sha256: str | None = None,
+) -> dict:
+    """Create a new one-entry registry for a local FASTA already under its root.
+
+    The registry is created beside the source tree and never copies or modifies
+    the original sequence. The manifest must not already exist.
+    """
+    if kind not in SEQUENCE_KINDS:
+        raise ValueError(f"unsupported sequence kind: {kind!r}.")
+    if not isinstance(registry_id, str) or not registry_id.strip():
+        raise ValueError("registry_id must be a non-empty string.")
+    if kind == "host_genome" and (accession is not None or source_snapshot_sha256 is not None):
+        raise ValueError("host_genome entries cannot declare phage accession/snapshot metadata.")
+    if source_snapshot_sha256 is not None and not _is_sha256(source_snapshot_sha256):
+        raise ValueError("source_snapshot_sha256 must be a SHA-256 digest.")
+    if source_snapshot_sha256 is not None and not accession:
+        raise ValueError("source_snapshot_sha256 requires an accession.")
+    if accession is not None and (not isinstance(accession, str) or not accession.strip()):
+        raise ValueError("accession must be a non-empty string.")
+
+    source = Path(fasta_path).expanduser().resolve(strict=True)
+    if not source.is_file():
+        raise ValueError(f"FASTA path is not a file: {source}")
+    manifest_path = Path(output_path).expanduser().resolve(strict=False)
+    if manifest_path.exists():
+        raise ValueError(f"sequence registry already exists; refusing to overwrite: {manifest_path}")
+    if manifest_path == source:
+        raise ValueError("sequence registry output path must differ from the FASTA path.")
+    root = manifest_path.parent.resolve(strict=True)
+    if not root.is_dir():
+        raise ValueError(f"sequence registry root is not a directory: {root}")
+    if not source.is_relative_to(root):
+        raise ValueError(
+            "FASTA must be inside the sequence registry root; choose an output path "
+            "in the FASTA directory or one of its parent directories."
+        )
+
+    asset = fingerprint_fasta(source, kind=kind)
+    entry = {
+        "kind": kind,
+        "sequence_sha256": asset.sequence_sha256,
+        "file_sha256": asset.file_sha256,
+        "path": source.relative_to(root).as_posix(),
+        "status": "available",
+    }
+    if accession is not None:
+        entry["accession"] = accession.strip()
+    if source_snapshot_sha256 is not None:
+        entry["source_snapshot_sha256"] = source_snapshot_sha256
+    document = {
+        "schema_version": SCHEMA_VERSION,
+        "registry_id": registry_id.strip(),
+        "entries": [entry],
+    }
+    atomic_write_json(document, manifest_path)
+    # Validate the exact manifest that will be consumed downstream.
+    load_sequence_registry(manifest_path)
+    return {
+        "path": manifest_path,
+        "registry_id": document["registry_id"],
+        "registry_file_sha256": _file_sha256(manifest_path),
+        "asset": asset,
+    }
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 
 def resolve_registered_host_genome(
     sequence_registry_path: str | Path,
