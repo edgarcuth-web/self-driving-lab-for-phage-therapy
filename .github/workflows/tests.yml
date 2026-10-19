@@ -59,6 +59,7 @@ jobs:
           INPUT_DIR: ${{ runner.temp }}/padloc-inputs
           PADLOC_DATA: ${{ runner.temp }}/padloc-db-v2.0.0
           PADLOC_OUTPUT: ${{ runner.temp }}/padloc-artifact
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           python tests/integration/run_padloc_smoke.py \
             --fasta "$INPUT_DIR/host.fna" \
