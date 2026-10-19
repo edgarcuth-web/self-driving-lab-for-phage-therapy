@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from phage_lab.sequence_registry import (
+    create_sequence_registry,
     fingerprint_fasta,
     load_sequence_registry,
     resolve_registered_host_genome,
@@ -44,6 +45,36 @@ def make_registry(root, fasta_path, *, status="available", registry_path_value=N
 
 
 class SequenceRegistryTests(unittest.TestCase):
+    def test_create_registry_writes_a_valid_manifest_without_mutating_fasta(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fasta = root / "host.fna"
+            raw = b">contig1\\nACGT\\n"
+            fasta.write_bytes(raw)
+            result = create_sequence_registry(
+                fasta,
+                root / "sequence-registry.v1.json",
+                registry_id="host-fixture-registry-v1",
+            )
+            loaded = load_sequence_registry(result["path"])
+            self.assertEqual(loaded.registry_id, "host-fixture-registry-v1")
+            self.assertEqual(result["asset"].file_sha256, hashlib.sha256(raw).hexdigest())
+            self.assertEqual(fasta.read_bytes(), raw)
+            self.assertEqual(len(loaded.entries), 1)
+
+    def test_create_registry_refuses_to_overwrite_existing_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fasta = root / "host.fna"
+            fasta.write_text(">contig1\\nACGT\\n", encoding="utf-8")
+            manifest = root / "sequence-registry.v1.json"
+            manifest.write_text("preserve me", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "refusing to overwrite"):
+                create_sequence_registry(
+                    fasta, manifest, registry_id="host-fixture-registry-v1"
+                )
+            self.assertEqual(manifest.read_text(encoding="utf-8"), "preserve me")
+
     def test_fingerprint_separates_raw_file_and_normalized_sequence_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             fasta = Path(directory) / "host.fna"
