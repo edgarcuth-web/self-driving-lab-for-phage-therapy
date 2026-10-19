@@ -2,9 +2,11 @@
 
 ## Purpose and boundary
 
-The resource resolver validates exact HostState and PhageProfile JSON records.
-This layer resolves the raw FASTA assets identified by those records and verifies
-both the file bytes and the normalized sequence content.
+The SDL sequence registry binds exact local FASTA files to normalized sequence
+fingerprints. PADLOC and other scientific analyzers use this registry to ensure
+they analyze the exact host genome named by HostState. HostState/PhageProfile
+identity and model-request resolution remain SDL domain responsibilities; the
+model repository does not read this local registry.
 
 Sequence resolution is an integrity and identity check only. It does not confirm
 that the source database annotation is correct, that a sequence belongs to the
@@ -75,57 +77,47 @@ managed registry.
 
 ## Resolution rules
 
-The resolver first validates the ModelRequest and resolves its exact HostState
-and PhageProfile records using the resource registry. For retrieved profiles,
-the sequence accession must agree with provenance, and snapshot version/hash must
-be supplied together. It then:
+For the current host-only PADLOC path, the resolver:
 
-1. resolves the HostState's `host_genome_sha256` as a `host_genome` asset;
-2. requires the PhageProfile to have a sequence reference with an explicit
-   `sha256`;
-3. resolves that fingerprint as a `phage_sequence` asset;
-4. checks an optional profile accession against the registered accession;
-5. verifies original file bytes and recomputes the normalized sequence digest
-   from the same bounded byte buffer;
-6. checks the profile's optional sequence length against the observed base count.
+1. matches the HostState `host_genome_sha256` to one `host_genome` entry;
+2. rejects missing, withdrawn or ambiguous entries;
+3. resolves the registry-relative path and rejects traversal or escaping symlinks;
+4. checks the exact file-byte digest and recomputes the normalized sequence digest;
+5. checks base count and contig count from the same verified file.
 
-A phage reference with a normalized sequence SHA-256 resolves by content digest,
-and any accession/snapshot fields present must match. If the profile has only an
-accession, resolution is allowed only for a `retrieved` profile with a pinned
-`provenance.snapshot_sha256`; the registry must bind that exact accession and
-snapshot digest to one FASTA asset. The resolver checks the profile's accession
-against its retrieved provenance. An accession alone is not sufficient.
+The registry also supports `phage_sequence` entries with optional accession and
+pinned source-snapshot provenance. Those fields are intended for future SDL phage
+annotation pipelines; they are not a model-side resource-resolution mechanism.
 
-The resolver does not independently re-hash the full upstream snapshot. The
-trusted ingestion process that creates the sequence registry must verify the
-snapshot against its recorded digest before extracting the accession-specific
-FASTA. The registry records that provenance binding alongside the extracted
-file's own byte and normalized sequence hashes. A missing PhageProfile sequence
-reference is not treated as a negative or a successful resolution.
-
-The audit summary reports both digests, normalized base counts, contig counts,
-accession when present, and registry-relative paths. It never includes the raw
-sequence content. It explicitly records that features have not been derived and
-biological validity has not been established.
+The audit summary reports both digests, base/contig counts, and registry-relative
+paths. It never includes raw sequence content. Successful resolution establishes
+local identity and integrity only, not organism identity, annotation correctness,
+or biological validity.
 
 ## Usage
 
-After installing the project, prepare a sequence registry only from reviewed
-FASTA assets. The values for `sequence_sha256` must use the normalized digest
-convention above; `file_sha256` must hash the exact file bytes.
-
-Run:
+Create a one-entry registry for a FASTA file. Keep the manifest in the same
+directory as the FASTA, or in a parent directory that contains it:
 
 ```bash
-phage-model-interface resolve-request-sequences \
-  path/to/model-request.json \
-  --registry path/to/resource-registry.v1.json \
-  --sequence-registry path/to/sequence-registry.v1.json
+python -m phage_lab create-sequence-registry \
+  --fasta data/host/host.fna \
+  --registry-id host-isolate-001-sequences-v1 \
+  --out data/host/sequence-registry.v1.json
 ```
 
-The command prints an audit summary for the request, both record registries and
-the two resolved sequence assets. It does not copy or print FASTA sequences.
+This command never overwrites an existing registry or modifies/copies the FASTA.
+It emits both the raw-file and normalized-sequence digests. To run PADLOC, the
+HostState `host_genome_sha256` must match the normalized digest in this registry:
+
+```bash
+python -m phage_lab annotate-host-defense-padloc \
+  --host-state data/host/host-state.v1.json \
+  --sequence-registry data/host/sequence-registry.v1.json \
+  --padloc-data "$PADLOC_DATA" \
+  --outdir runs/padloc-host-001
+```
 
 ## Next boundary
 
-The provenance manifest is now defined in [FeatureArtifact v1](feature-artifact.md). It records normalized and raw input digests, tool/version/parameters, reference snapshots, output digests and limitations. No analyzer is wired into this contract yet. The next step is a narrow adapter around one reviewed real tool, after checking the intended feature class, pinned database release and license.
+The sequence registry is consumed by the real [PADLOC host-defense adapter](padloc-adapter.md). Each successful analysis produces a [FeatureArtifact v1](feature-artifact.md) with exact input, tool, database, output and limitation provenance.
