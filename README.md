@@ -85,7 +85,7 @@ Windows 可双击 `start-dashboard.bat`。浏览器打开 `http://127.0.0.1:8765
 
 ### 核心 CLI 检查
 
-需要 Python 3.11+；核心代码只使用标准库。从仓库根目录运行：
+需要 Python 3.11+。核心编排使用标准库；序列登记与 FeatureArtifact 校验需要 `jsonschema`，真实 PADLOC 分析使用 `envs/padloc.yml` 中固定的外部工具环境。从仓库根目录运行：
 
 ```bash
 python -m phage_lab version
