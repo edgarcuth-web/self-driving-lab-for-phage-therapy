@@ -156,7 +156,7 @@ class SequenceRegistryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fasta = Path(directory) / "host.fna"
             fasta.write_text(">contig1\nACGTZ\n", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "Invalid DNA characters"):
+            with self.assertRaisesRegex(ValueError, "invalid DNA characters"):
                 fingerprint_fasta(fasta, kind="host_genome")
 
 
