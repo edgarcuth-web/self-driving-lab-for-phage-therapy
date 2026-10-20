@@ -11,38 +11,19 @@ candidate and cocktail design, experimental execution, phenotype interpretation,
 failure analysis, and feedback into one traceable loop.
 
 Engineering is an escalation path — not the default. The fast path evaluates
-existing natural phages and cocktails first; engineering is considered when the
-available evidence shows that natural candidates are inadequate and identifies a
-mechanistic gap worth addressing.
+existing natural phages and cocktails first; engineering requires an explicit
+evidence gap. Mechanistic attribution should guide the engineering hypothesis
+when the available evidence can support it.
 
 ## System overview
 
 ```text
-                              SCIENTIFIC CONTROL
-                                      │
-                                      ▼
-
-Host / phage evidence
-        │
-        ▼
-     OBSERVE
-        │
-        ▼
-      MODEL
-        │
-        ▼
-     DESIGN
-        │
-        ▼
-      TEST
-        │
-        ▼
-      LEARN
-        │
-        ▼
-      ADAPT
-        │
-        └──────────────────────────────────────────────↺
+                         SCIENTIFIC CONTROL
+                                │
+                                ▼
+Host / phage evidence → OBSERVE → MODEL → DESIGN → TEST → LEARN → ADAPT
+                          ▲                                      │
+                          └──────────────────────────────────────┘
 
 experimental failure / ambiguity
         │
