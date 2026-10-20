@@ -86,7 +86,7 @@ outputs. See SDL `docs/usage.md` for an export example.
 Cross-check both repositories from SDL:
 
 ```bash
-python tests/integration/check_model_bundle.py --model-repo ../model
+python tests/integration/check_model_bundle.py --model-repo ../phage-host-interaction-predictor
 ```
 
 ## Legacy mechanistic interface
