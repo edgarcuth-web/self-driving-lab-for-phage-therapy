@@ -1,8 +1,294 @@
 # Architecture
 
-Scientific components choose what to test. Orchestration executes a frozen
-ExperimentSpec and records what happened. Current capabilities and planned work
-belong in [README](../README.md); commands belong in [usage](usage.md).
+This repository implements a closed-loop phage R&D system around the scientific
+cycle:
+
+```text
+Observe → Model → Design → Test → Learn → Adapt
+```
+
+The system goal is to learn the evolving phage–host arms race, convert
+experimental evidence into the next decision, and update models and decision
+policy as new outcomes arrive.
+
+Scientific control, scientific inference/decision, and workflow execution are
+separate responsibilities. Orchestration executes frozen scientific intent; it
+does not silently replace domain models or mutate an ExperimentSpec.
+
+Current capabilities and planned work belong in [README](../README.md); commands
+belong in [usage](usage.md).
+
+## 1. System overview
+
+```text
+                         SCIENTIFIC CONTROL
+                                │
+                                ▼
+
+Host / Phage ──► OBSERVE ──► MODEL ──► DESIGN ──► TEST ──► LEARN ──► ADAPT
+                    ▲                                                │
+                    └────────────────────────────────────────────────┘
+
+                                 failure / ambiguity
+                                        │
+                                        ▼
+                              mechanism attribution
+                                        │
+                                        ▼
+                              engineering escalation
+                                        │
+                                        └──────────────► DESIGN
+```
+
+Engineering is an escalation path — not the default.
+
+The main operational loop remains prediction → CandidateSet → ExperimentSpec →
+execution → results → review → next selection. CocktailDesign is an alternative
+ExperimentSpec source, not a required parent of single-phage screening.
+
+## 2. Scientific control and review
+
+The control plane coordinates scientific work without becoming a substitute for
+scientific models.
+
+```text
+                         HUMAN INTENT
+                              │
+                              ▼
+                    SCIENTIFIC ORCHESTRATOR
+                              │
+                decomposes / delegates / integrates
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        ▼                     ▼                     ▼
+      host                  phage                prior/new
+ characterization        evaluation          experimental evidence
+        │                     │                     │
+        ▼                     ▼                     ▼
+   HostProfile           PhageProfile        failure diagnosis
+        │                     │               when triggered
+        └──────────────┬──────┘                     │
+                       ▼                            │
+                interaction modeling ◄─────────────┘
+                       │
+              scientific decisions
+                       │
+                       ▼
+               Experiment Planner
+                       │
+                       ▼
+                ExperimentSpec
+```
+
+A Scientific Reviewer is a cross-cutting quality role, not a serial stage:
+
+```text
+Scientific Reviewer
+  ├─ methodology
+  ├─ evidence quality
+  ├─ unsupported claims
+  ├─ uncertainty
+  └─ reproducibility
+        │
+        └──► request revision of characterization, modeling,
+             failure analysis, design or interpretation
+```
+
+This control-plane concept does not create a new domain artifact by itself. Any
+future implementation must preserve the existing versioned contracts and the
+frozen-intent boundary.
+
+## 3. Scientific decision architecture
+
+```text
+Host characterization ──► HostProfile
+                               │
+                               ├────────┐
+                               │        │
+Phage evaluation ───────► PhageProfile │
+                               │        │
+                               └───┬────┘
+                                   ▼
+                         InteractionPrediction
+                                   │
+                     ┌─────────────┴─────────────┐
+                     ▼                           ▼
+             natural-phage ranking       mechanism / risk
+                     │                      hypotheses
+                     ▼
+              CocktailDesign /
+               CandidateSet
+                     │
+                     ▼
+               ExperimentSpec
+```
+
+InteractionPrediction binds one exact HostState and PhageProfile pair and can
+carry the three mechanistic targets already defined by the contract:
+
+- adsorption
+- productive infection
+- resistance emergence
+
+Estimated probabilities require explicit uncertainty and model provenance;
+unresolved targets remain `not_estimated`.
+
+Pairwise prediction is not cocktail-effect prediction. Cocktail decisions may
+also require evidence about member compatibility, cross-resistance, functional
+redundancy, host-population diversity, evolutionary pressure and feasibility.
+Those quantities must not be silently inferred from pairwise scores.
+
+A future cocktail optimizer should keep the existing design principle that the
+objective is multi-criteria rather than a single hidden score. Expected coverage,
+receptor diversity, defense complementarity and evolutionary steering are
+potential benefits; cross-resistance, functional redundancy, phage–phage
+conflict, uncertainty and production burden are potential costs. The policy must
+make trade-offs and constraints explicit.
+
+## 4. Experimental closed loop
+
+```text
+CandidateSet / CocktailDesign
+            │
+            ▼
+      ExperimentSpec
+            │
+            ▼
+       MaterialBatch
+            │
+            ▼
+ Scheduler / workflow orchestration
+            │
+            ▼
+   Device Abstraction Layer
+       ┌────┴────┐
+       ▼         ▼
+ Real Device   Simulator
+       └────┬────┘
+            ▼
+         Raw Data
+            │
+            ▼
+      QC / Analysis
+            │
+            ▼
+ Measurement / Phenotype
+            │
+            ▼
+     ExperimentResult
+            │
+       ┌────┴────────────┐
+       ▼                 ▼
+ failure review      learning records
+       │                 │
+       └────────┬────────┘
+                ▼
+          next decision
+                │
+                └──────────────↺
+```
+
+Virtual hardware tests orchestration, lifecycle and lineage only. It does not
+produce biological evidence.
+
+SIMULATE HARDWARE BEHAVIOR WHEN NECESSARY. NEVER INVENT BIOLOGICAL EVIDENCE.
+
+## 5. Failure to engineering escalation
+
+Failure analysis has two distinct scientific roles:
+
+1. before an experiment, models may provide mechanism/risk hypotheses;
+2. after physical evidence arrives, FailureAttribution reviews observed outcomes
+   against a declared criterion and may rank mechanism hypotheses.
+
+Observed failure or ambiguity can trigger engineering escalation, but engineering
+is not the default path.
+
+```text
+Experimental failure / ambiguity
+              │
+              ▼
+       FailureAttribution
+              │
+      ┌───────┼───────────┐
+      ▼       ▼           ▼
+ adsorption intracellular kinetics / other
+      │       │
+      ▼       ▼
+ Tier 1    Tier 2
+ RBP       defense–counterdefense-aware
+ design    engineering
+      │       │
+      └───┬───┘
+          ▼
+  engineered candidate
+          │
+          ▼
+     PhageProfile
+          │
+          └──► re-enter prediction → design → test
+```
+
+Escalation tiers:
+
+```text
+TIER 0  Existing natural phage
+TIER 1  Adsorption / RBP engineering
+TIER 2  Defense–counterdefense-aware engineering
+TIER 3  Whole-genome generative design
+```
+
+Tier 3 is a mature-platform capability, not a starting point. Engineering
+requires an explicit evidence gap or mechanism rationale. An engineered
+candidate must re-enter the same profile, prediction, review and experimental
+path as any other candidate.
+
+## 6. Data contracts and software planes
+
+Core artifacts remain versioned contracts:
+
+```text
+HostProfile
+HostState
+PhageProfile
+InteractionPrediction
+CandidateSet / CocktailDesign
+ExperimentSpec
+MaterialBatch
+Measurement
+Phenotype / PhenotypeComparison
+FailureAttribution
+LearningObservation
+CalibrationReport
+ActiveLearningDecision
+```
+
+Stable contracts allow models, algorithms, workflows and devices to evolve
+without silently changing scientific meaning.
+
+The implementation spans separate software planes:
+
+```text
+Scientific control / review
+────────────────────────────────────────
+Scientific characterization and decision logic
+────────────────────────────────────────
+External model exchange boundary
+────────────────────────────────────────
+Experiment specification
+────────────────────────────────────────
+Workflow orchestration
+────────────────────────────────────────
+Device abstraction
+────────────────────────────────────────
+Real device │ Simulator
+────────────────────────────────────────
+Records / provenance / local data
+```
+
+The scientific control plane must not be confused with `workflow.py` /
+`agents.py`, which assign devices, schedule work and recover execution. Likewise,
+an external predictor is one scientific component, not the whole decision system.
 
 ## Objects and ownership
 
@@ -104,7 +390,6 @@ binary outcome for one existing host–phage pair; batch calls form a pair matri
 Source-label scores cannot feed the productive-infection policy without reviewed
 endpoint mapping. Pair-matrix coverage is not mixture efficacy. Inverse feature
 requirements and engineering hypotheses remain later system capabilities.
-
 
 Model training, model-specific preprocessing/embeddings, evaluation and calibration
 live in a separate repository. This repository owns biological characterization
