@@ -1,8 +1,234 @@
 # Architecture
 
-Scientific components choose what to test. Orchestration executes a frozen
-ExperimentSpec and records what happened. Current capabilities and planned work
-belong in [README](../README.md); commands belong in [usage](usage.md).
+The system is organized as a closed scientific loop:
+
+```text
+Observe → Model → Design → Test → Learn → Adapt
+   ▲                                      │
+   └──────────────────────────────────────┘
+```
+
+Scientific components choose what to test. Workflow orchestration executes a
+frozen ExperimentSpec and records what happened. Current capabilities and planned
+work belong in [README](../README.md); commands belong in [usage](usage.md).
+
+The diagrams below are architectural views, not new artifact contracts. They
+clarify responsibilities already represented by the domain objects and software.
+Formal object semantics remain defined by the later sections of this document.
+
+## System overview
+
+The project has a fast natural-phage path and an evidence-gated engineering
+escalation path.
+
+```text
+FAST LOOP
+host / phage evidence
+        │
+        ▼
+ characterize → predict → select natural phage / cocktail → test → learn
+        ▲                                                    │
+        └────────────────────────────────────────────────────┘
+
+ESCALATION LOOP
+failed or ambiguous result
+        │
+        ▼
+failure attribution → mechanistic gap → engineering hypothesis
+        │                                      │
+        └──────────────────────────────────────┘
+                           re-enter prediction / test
+```
+
+Engineering is an escalation path, not the default. A lack of natural candidates
+does not by itself justify an engineered design; the system should preserve the
+evidence gap and, where possible, identify a mechanism that motivates the
+engineering hypothesis.
+
+## Scientific control and review
+
+Scientific control coordinates work; it is not itself the phage–host prediction
+model, cocktail optimizer or failure model.
+
+```text
+                         Human objective
+                               │
+                               ▼
+                    SCIENTIFIC ORCHESTRATOR
+                  decompose / delegate / integrate
+                               │
+          ┌────────────────────┼────────────────────┐
+          ▼                    ▼                    ▼
+ host characterization   phage evaluation   failure/mechanism review
+          │                    │                    │
+          └────────────────────┼────────────────────┘
+                               ▼
+                    scientific decision modules
+                               │
+                               ▼
+                        ExperimentSpec
+```
+
+A scientific reviewer is a cross-cutting quality role rather than a step that
+silently rewrites scientific outputs:
+
+```text
+SCIENTIFIC REVIEWER
+  ├─ evidence quality
+  ├─ methodology
+  ├─ uncertainty / missingness
+  ├─ unsupported claims
+  └─ reproducibility
+          │
+          └── request revision of the relevant scientific task
+```
+
+This control-plane view is distinct from `workflow.py` / `agents.py`, which
+assign devices, schedule steps and recover execution of already-frozen intent.
+Scientific orchestration may propose or coordinate a new ExperimentSpec; workflow
+orchestration must not mutate an approved one.
+
+## Scientific decision architecture
+
+The pairwise interaction layer and the set-level cocktail decision layer are
+different scientific problems.
+
+```text
+HostProfile / HostState                  PhageProfile
+          │                                  │
+          └──────────────┬───────────────────┘
+                         ▼
+               InteractionPrediction
+       adsorption / productive infection /
+       resistance emergence / uncertainty
+                         │
+              ┌──────────┴──────────┐
+              ▼                     ▼
+     natural-phage ranking     mechanism / risk hypotheses
+              │
+              └──────────┬──────────┘
+                         ▼
+                  CandidateSet
+                         │
+                         ▼
+                 CocktailDesign
+          pairwise evidence + set-level
+       compatibility / diversity / constraints
+                         │
+                         ▼
+                  ExperimentSpec
+```
+
+Pairwise coverage is not cocktail efficacy. Set-level design may consume pairwise
+predictions, but it must separately represent cocktail assumptions, unresolved
+gaps, compatibility, diversity and other objectives. The current PHIST cocktail
+baseline is deliberately conservative and does not establish these properties.
+
+Mechanism/risk hypotheses before an experiment are also distinct from
+post-experiment FailureAttribution. A predicted risk is not an observed cause.
+
+## Experimental closed loop
+
+```text
+ExperimentSpec
+     │
+     ▼
+MaterialBatch binding
+     │
+     ▼
+workflow / scheduler
+     │
+     ▼
+device abstraction
+  ┌──┴─────────────┐
+  ▼                ▼
+real device    virtual hardware
+  │                │
+  └──────┬─────────┘
+         ▼
+      Raw Data
+         │
+         ▼
+Measurement + QC
+         │
+         ▼
+Phenotype / Comparison
+         │
+         ▼
+ExperimentResult / review
+         │
+    ┌────┴───────────────┐
+    ▼                    ▼
+FailureAttribution   LearningObservation
+    │                    │
+    └──────────┬─────────┘
+               ▼
+      next scientific decision
+               │
+               └──────────────────────────────↺
+```
+
+Virtual hardware tests control flow and lineage only. It must never create
+biological evidence. Physical observations enter learning only through explicit
+QC admission and assessor-declared semantics.
+
+## Failure to engineering escalation
+
+```text
+experimental failure / ambiguity
+              │
+              ▼
+       FailureAttribution
+              │
+      ranked mechanism hypotheses
+              │
+      ┌───────┼───────────────┐
+      ▼       ▼               ▼
+ adsorption  intracellular   kinetics / resistance / unknown
+      │       │
+      ▼       ▼
+ Tier 1      Tier 2
+ RBP /       defense–counterdefense-aware
+ adsorption  engineering
+ engineering
+      │       │
+      └───┬───┘
+          ▼
+ engineered PhageProfile
+          │
+          └──► re-enter prediction → design → test
+
+Tier 0  existing natural phage
+Tier 1  adsorption / RBP engineering
+Tier 2  defense–counterdefense-aware engineering
+Tier 3  whole-genome generative design
+```
+
+Tier 3 is a mature-platform capability, not a starting point. Engineered candidates
+must re-enter the same profile, prediction, review and experimental evidence path
+as natural candidates rather than bypassing it.
+
+## System planes
+
+```text
+Scientific control / review
+────────────────────────────────────────
+Scientific characterization, models and decisions
+────────────────────────────────────────
+Experiment specification
+────────────────────────────────────────
+Workflow orchestration
+────────────────────────────────────────
+Device abstraction
+────────────────────────────────────────
+Real device │ Virtual hardware
+────────────────────────────────────────
+Data / provenance / model and artifact records
+```
+
+Stable contracts between these planes allow models, decision policies, workflows
+and hardware integrations to evolve independently without collapsing their
+responsibilities into one "model" or one "orchestrator."
 
 ## Objects and ownership
 
