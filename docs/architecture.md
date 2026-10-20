@@ -14,7 +14,9 @@ work belong in [README](../README.md); commands belong in [usage](usage.md).
 
 The diagrams below are architectural views, not new artifact contracts. They
 clarify responsibilities already represented by the domain objects and software.
-Formal object semantics remain defined by the later sections of this document.
+They do not claim that every control-plane role is already implemented as a
+dedicated agent class. Formal object semantics remain defined by the later
+sections of this document.
 
 ## System overview
 
@@ -105,7 +107,7 @@ HostProfile / HostState                  PhageProfile
               ┌──────────┴──────────┐
               ▼                     ▼
      natural-phage ranking     mechanism / risk hypotheses
-              │
+              │                     │
               └──────────┬──────────┘
                          ▼
                   CandidateSet
@@ -155,7 +157,7 @@ Measurement + QC
 Phenotype / Comparison
          │
          ▼
-ExperimentResult / review
+admitted results / review
          │
     ┌────┴───────────────┐
     ▼                    ▼
