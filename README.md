@@ -1,28 +1,66 @@
-# Closed-loop phage R&D platform
+# SELF-DRIVING PHAGE THERAPY
+### Observe → Model → Design → Test → Learn → Adapt
 
-把科学决策、实验执行和结果判读连接成可追溯的 Design–Build/Acquire–Test–Learn 流程。
+A closed-loop system that:
+- learns the evolving phage–host arms race
+- converts experimental evidence into the next decision
+- updates its models and decision policy as new experimental outcomes arrive
 
-当前实现的是**反馈驱动的筛选软件闭环**：记录输入与预测，生成冻结的实验设计，摄取经过 QC 的结果，形成显式 prediction-vs-outcome 学习记录，并选择下一轮尚未解决的筛选问题。生物学表征分析（首个真实分析器为 PADLOC）及其来源追踪也归本仓库所有；模型专属 embedding、训练、校准和推理留在独立模型仓库。可对同一预测 cohort 做描述性 calibration 评估；尚无自动模型训练、自动重校准或真实仪器运行验证。
+## System overview
 
+```text
+                         SCIENTIFIC CONTROL
+                                │
+                                ▼
 
-The first model integration now uses **ModelInputBundle v1 → PairPrediction v1**:
+Host / Phage ──► OBSERVE ──► MODEL ──► DESIGN ──► TEST ──► LEARN ──► ADAPT
+                    ▲                                                │
+                    └────────────────────────────────────────────────┘
+
+                                 failure / ambiguity
+                                        │
+                                        ▼
+                              mechanism attribution
+                                        │
+                                        ▼
+                              engineering escalation
+                                        │
+                                        └──────────────► DESIGN
+```
+
+Engineering is an escalation path — not the default.
+
+The repository owns the experimental decision loop, biological characterization,
+evidence/provenance, experiment specification and execution boundary. Model-specific
+embeddings, training, calibration and inference live in the separate
+`phage-host-interaction-predictor` repository and communicate through versioned
+exchange contracts.
+
+The current implementation is a **feedback-driven screening software loop**:
+it records inputs and predictions, freezes experiment intent, ingests QC-admitted
+results, creates explicit prediction-vs-outcome learning records, and selects the
+next unresolved screening question. Biological characterization also belongs here
+(the first real analyzer is PADLOC). There is not yet automatic model training,
+automatic recalibration, or validated real-instrument execution.
+
+The first model integration uses **ModelInputBundle v1 → PairPrediction v1**:
 SDL exports complete pair snapshots, explicit source-label/context semantics and
 selected local sequence/annotation payloads; model-side consumers verify actual
 bytes. This implements exchange and abstention, not trained inference. Source
 scores cannot enter the existing productive-infection screening policy by renaming
 fields. See [model boundary](docs/model-interface.md).
 
-## 当前能力
+## Current capabilities
 
-| 部分 | 已实现 | 限制 |
+| Part | Implemented | Current boundary |
 | --- | --- | --- |
-| 输入与证据 | HostProfile、HostState、PhageProfile、参考快照、PHIST evidence | 未运行 analyzer 的特征保持 unknown；PHIST 不是感染概率 |
-| 科学决策 | InteractionPrediction 输入契约、CandidateSet、PHIST cocktail baseline | unresolved prediction 不填占位概率；尚无疗效优化器 |
-| 实验设计 | ExperimentSpec v2、control/treatment arms、MaterialBatch binding | 记录意图与材料来源；不替用户定义实验方法 |
-| 执行 | 调度、日志、超时核对、取消恢复、虚拟设备、HTTP adapter 示例 | CLI 默认不配置真实驱动；虚拟设备不产生生物学证据 |
-| 反馈与学习 | Measurement、Phenotype、Comparison、FailureAttribution、LearningObservation、CalibrationReport、下一轮选择 | label 必须显式声明；calibration 仅描述评估，不训练模型或更新 H(t) |
+| Inputs and evidence | HostProfile, HostState, PhageProfile, reference snapshots, PHIST evidence | Unassessed analyzer features remain unknown; PHIST is not an infection probability |
+| Scientific decision | InteractionPrediction contract, CandidateSet, PHIST cocktail baseline | Unresolved predictions stay unresolved; no validated efficacy optimizer yet |
+| Experiment design | ExperimentSpec v2, control/treatment arms, MaterialBatch binding | Records intent and material provenance; does not define laboratory methods for the user |
+| Execution | Scheduling, logging, timeout reconciliation, cancellation recovery, virtual device, HTTP adapter example | CLI does not configure real drivers by default; virtual devices create no biological evidence |
+| Feedback and learning | Measurement, Phenotype, Comparison, FailureAttribution, LearningObservation, CalibrationReport, next-round selection | Labels are explicit; calibration is descriptive only and does not train a model or update H(t) |
 
-主路径：
+Main implemented path:
 
 ```text
 HostState + PhageProfile + InteractionEvidence
@@ -33,74 +71,30 @@ HostState + PhageProfile + InteractionEvidence
   └→ feedback-screening decision → next ExperimentSpec
 ```
 
-CocktailDesign 是 ExperimentSpec 的另一种可选来源；单噬菌体筛选不需要先组成 cocktail。
+CocktailDesign is an alternative source for ExperimentSpec. Single-phage screening
+does not need to form a cocktail first.
 
-## 本地检查
+For the full architecture, including scientific control/review, decision modules,
+the experimental loop, engineering escalation and software/data planes, see
+[docs/architecture.md](docs/architecture.md).
 
-### 临床工作流前端（离线模拟）
+## Local checks
 
-```bash
-python -m phage_lab dashboard
-```
+### Core CLI
 
-Windows 可双击 `start-dashboard.bat`。浏览器打开 `http://127.0.0.1:8765`；
-端口占用时加 `--port 8766`，不自动打开浏览器时加 `--no-browser`。
+Python 3.11+ is required. Core orchestration uses the standard library; sequence
+registration and FeatureArtifact validation require `jsonschema`; real PADLOC
+analysis uses the pinned external-tool environment in `envs/padloc.yml`.
 
-深色工作流界面演示：**病人取样 → 样本 metadata → 模拟细菌分离库 →
-全部模拟分离菌 → 并行噬菌体 / 抗生素匹配**。噬菌体分支继续模拟约 7 天制备，
-随后展示 main 的筛选、实验设计、测试、反馈概念。可切换样本、编辑 metadata、
-暂停/继续、查看节点输入输出和导出 JSON 快照。画布较宽时可横向滚动。
-
-点击「一键导览此病例」进入演示模式：隐藏配置侧栏，放大工作流文字，
-自动聚焦取样、检测、信号复核、双路匹配、制备、实验闭环与报告。
-混合/单菌病例在 1× 下导览约 2 分 12 秒；未匹配病例约 1 分 10 秒并在复核处停止。
-讲解条支持暂停/继续、下一章节和病例切换；「结束导览」保留当前结果供手动探索，
-「退出演示模式」或 Esc 返回工作台并停止自动推进。速度可在工作流工具栏调整。
-时间轴分别展示 D+3 返回的抗生素候选与 D+3–10 的噬菌体制备；这里的天数为
-模拟场景时间，导览压缩播放。主流程完成仍显示低支持候选及未分类信号的复核数量。
-导览结束与实际报告生成状态独立，报告未返回时仍显示等待/生成状态。
-
-细菌检测按 mNGS 片段比对路径模拟：展示代表性人工 DNA 片段、唯一读段数、
-人工参考窗覆盖率、比对一致性、样本/阴性对照比和未校准的 0–100 检测置信评分。
-评分权重及分档仅为演示设定，不是临床确诊概率、验证阈值或置信区间。
-在工作流检测节点下方及检测结果下方均有「发现未命名细菌」复核模块。
-默认混合样本保留未分类细菌样信号；它不表示已发现新菌种，也不自动匹配候选药物。
-单菌场景无未分类信号，未匹配场景保留低支持的待复核条目。
-基因片段与参考窗均为人工序列，不是真实菌株序列或 PCR 引物。
-
-该界面使用本地合成数据，未接入真实分离库、药敏分析、科学模块或设备，
-不会创建领域实验对象。`ABX-DEMO` / `PHG-DEMO` 为虚构编号；制备约 7 天是
-演示场景设定，候选不代表临床建议或疗效。
-
-流程结束后可自动生成 **Kimi K3 临床格式报告草稿**：展开页面中的「Kimi Code API 配置」，
-输入 Kimi Code 密钥并保存。模型固定为 `k3`，调用官方 `https://api.kimi.com/coding/v1`；
-也可在启动服务前设置 `KIMI_CODE_API_KEY`。密钥只保存在服务进程内存，不写入项目、
-浏览器存储或导出报告；关闭服务后重新配置。未配置 API 时离线演示照常工作。
-
-启用报告后，本机服务会发送本次样本 metadata、模拟分离菌、候选匹配及流程状态到 Kimi，
-不发送原始 FASTA。生成失败会明确显示原因，不伪造模型报告；可手动重试。
-检测置信评分、指标及未分类信号会进入报告摘要；人工片段碱基及参考碱基不发送给 Kimi。
-报告支持 Markdown 下载，并标注来源模型、生成时间、输入指纹、模拟数据及医师复核要求。
-模拟分离菌、噬菌体候选、抗生素候选分别用表格列出；各模块右上角可复制该模块，
-总报告右上角可复制完整报告。模块复制使用制表符分列，便于粘贴到表格软件。
-未匹配的流程会生成待复核草稿，不宣称实验完成、实测药敏、诊断或疗效。
-
-前端验收：`python -m unittest discover -s tests -p test_dashboard.py -v`；
-流程模型验收：`node --test tests/test_dashboard_model.cjs`（仅测试需要 Node 18+）。
-导览与时间轴验收：`node --test tests/test_presentation.cjs`。
-报告验收：`python -m unittest discover -s tests -p test_clinical_reports.py -v`（mock 接口，不消耗 API）。
-`sh scripts/smoke.sh` 运行上述检查及 JS 语法检查，可用 `NODE_BIN` 指定测试用的 Node。
-
-### 核心 CLI 检查
-
-需要 Python 3.11+。核心编排使用标准库；序列登记与 FeatureArtifact 校验需要 `jsonschema`，真实 PADLOC 分析使用 `envs/padloc.yml` 中固定的外部工具环境。从仓库根目录运行：
+From the repository root:
 
 ```bash
 python -m phage_lab version
 python -m unittest discover -s tests -v
 ```
 
-以下仅检查文件流转，使用仓库内的 toy FASTA，不执行设备或生成实验结果：
+The following checks only file flow with the repository's toy FASTA. They do not
+run devices or generate experimental results:
 
 ```bash
 python -m phage_lab host-profile \
@@ -114,16 +108,21 @@ python -m phage_lab host-state \
   --out local-data/local-check/host-state.json
 ```
 
-生成的 profile 没有已评估的生物学特征；空 HostState 不表示阴性。
+Generated profiles do not imply assessed biological features; an empty HostState
+does not mean a biological negative.
 
-## 真实生物学表征分析：PADLOC
+## Real biological characterization: PADLOC
 
-本仓库拥有序列资源登记、FeatureArtifact v1 和首个真实分析器 PADLOC v2.0.0。
-它对已登记且与 HostState 基因组指纹一致的 FASTA 执行实际分析，固定
-PADLOC-DB v2.0.0，保存原生输出、日志、数据库树指纹和来源记录。没有命中只表示
-该数据库和这次运行范围内未检出，不证明细菌不存在防御系统；当前结果尚未自动提升为
-HostProfile 的已评估阴性。安装、运行和限制见
-[`docs/padloc-adapter.md`](docs/padloc-adapter.md)。
+This repository owns sequence-asset registration, FeatureArtifact v1, and the first
+real analyzer, PADLOC v2.0.0. It runs real analysis on registered FASTA files whose
+genome fingerprint matches the HostState, pins PADLOC-DB v2.0.0, and preserves
+native outputs, logs, database-tree fingerprints and provenance.
+
+No hit means only that the pinned database and this run did not detect a defense
+system. It does not prove that the bacterium has no defense system. Current PADLOC
+results are not automatically promoted to an assessed-negative HostProfile.
+
+See [docs/padloc-adapter.md](docs/padloc-adapter.md).
 
 ```bash
 conda env create -f envs/padloc.yml
@@ -131,32 +130,80 @@ conda activate phage-padloc
 python -m phage_lab annotate-host-defense-padloc --help
 ```
 
-跨仓库边界的目标是由 SDL 输出冻结的 ModelInputBundle，包含获准的科学注释、
-筛查状态和来源信息；模型仓库只负责模型专属表示、训练、评估、权重和推理。
-ModelInputBundle v1 已支持完整快照、显式终点与上下文、可读取的本地序列和注释输出。
-新 PairPrediction v1 绑定整个输入包；旧 ModelRequest/ModelResult v1 保留给既有机制终点，
-两条路径之间不会自动转换。当前尚无已训练、已校准的推理实现。
+Across the repository boundary, SDL exports frozen ModelInputBundle records with
+approved scientific annotations, screening state and provenance. The model
+repository owns model-specific representations, training, evaluation, weights and
+inference. ModelInputBundle v1 supports full snapshots, explicit endpoint/context
+semantics, readable local sequence payloads and annotation outputs. PairPrediction
+v1 binds the entire bundle. Legacy ModelRequest/ModelResult v1 remains for existing
+mechanistic endpoints; the two paths are not silently converted. There is not yet
+a trained, calibrated inference implementation in this repository.
 
-## 使用与开发
+## Clinical workflow presentation (offline simulation)
 
-- [CLI 操作指南](docs/usage.md)：各阶段命令、输入要求与后续轮次。
-- [架构与领域契约](docs/architecture.md)：对象关系、证据语义和校验边界。
-- [外部模型接口](docs/model-interface.md)：独立模型仓库与实验闭环之间的版本化 JSON 契约。
-- [设备接口](docs/hardware.md)：驱动、safe-state 和 HTTP adapter。
-- [OpenRouter 配置](docs/openrouter.md)：可选的受限编排决策。
-- [开发约束](AGENTS.md)：修改代码时必须保持的规则。
+```bash
+python -m phage_lab dashboard
+```
 
-`python -m phage_lab <command> --help` 只显示该命令的参数。
+On Windows, `start-dashboard.bat` starts the local presentation. Open
+`http://127.0.0.1:8765`; use `--port 8766` if needed and `--no-browser` to
+disable automatic browser launch.
 
-正式执行以冻结的 ExperimentSpec 为入口。旧 candidate-based run 保留为兼容入口；新集成应使用 spec。真实执行需要显式配置驱动和 test-ready MaterialBatch，不会从虚拟模式自动切换。
+This browser workflow is a presentation layer built on synthetic local data. It
+illustrates patient sampling, metadata capture, simulated isolate detection,
+parallel phage/antibiotic matching, simulated preparation and the screening /
+experiment / feedback concepts. It does **not** call the scientific modules,
+create domain experiment objects, run real devices, or create biological evidence.
 
-每次运行在 `runs/<run-id>/` 写入 `report.json`、`report.md` 和 `events.jsonl`。原始 FASTA 和标题默认不发送给外部模型。
+`ABX-DEMO` / `PHG-DEMO`, the approximately seven-day preparation interval,
+artificial DNA fragments, confidence scores and reference windows are presentation
+fixtures, not clinical claims, validated thresholds, real sequences, PCR primers,
+or efficacy evidence. Unclassified bacterial-like signals remain review items and
+do not establish a novel species or enter candidate matching automatically.
 
-## 下一步
+The optional Kimi K3 report path produces a clinical-format draft from the terminal
+presentation state. Credentials stay in process memory; raw FASTA is not sent.
+A failed model response remains a failure. Generated reports are drafts requiring
+review, not diagnoses, prescriptions, susceptibility results, or scientific
+domain artifacts.
 
-1. 用真实实验结果积累 LearningObservation，并建立独立训练/验证数据切分。
-2. 在独立模型仓库中完成可重现的模型拟合、held-out evaluation 与 calibration；本仓库只接收通过模型接口绑定的结果。
-3. 在预测器经过验证后增加 prediction-driven cocktail optimization，再评估工程化升级。
+Presentation checks:
+
+```bash
+python -m unittest discover -s tests -p test_dashboard.py -v
+node --test tests/test_dashboard_model.cjs
+node --test tests/test_presentation.cjs
+python -m unittest discover -s tests -p test_clinical_reports.py -v
+sh scripts/smoke.sh
+```
+
+Node 18+ is only required for the JavaScript presentation tests.
+
+## Use and development
+
+- [CLI usage](docs/usage.md): stage-by-stage commands, inputs and later rounds.
+- [Architecture and domain contracts](docs/architecture.md): system planes, object relationships, evidence semantics and validation boundaries.
+- [External model interface](docs/model-interface.md): versioned JSON contracts between the SDL and `phage-host-interaction-predictor`.
+- [Device interface](docs/hardware.md): drivers, safe-state behavior and HTTP adapter.
+- [OpenRouter configuration](docs/openrouter.md): optional constrained orchestration decisions.
+- [Development constraints](AGENTS.md): invariants for code and documentation changes.
+
+`python -m phage_lab <command> --help` shows command-specific options.
+
+Formal execution starts from a frozen ExperimentSpec. The legacy candidate-based
+run remains a compatibility entry; new integrations use specs. Real execution
+requires an explicit driver and test-ready MaterialBatch binding and never falls
+back silently from virtual mode.
+
+Each run writes `report.json`, `report.md` and `events.jsonl` under
+`runs/<run-id>/`. Raw FASTA and headers are not sent to external models by
+default.
+
+## Next steps
+
+1. Accumulate real LearningObservation records from physical experiments with independent training/validation splits.
+2. Complete reproducible fitting, held-out evaluation and calibration in `phage-host-interaction-predictor`; this repository admits only versioned outputs through the model boundary.
+3. After validated prediction, add prediction-driven cocktail optimization and then evaluate evidence-gated engineering escalation.
 
 ## License
 
