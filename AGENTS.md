@@ -6,6 +6,7 @@ Read [docs/architecture.md](docs/architecture.md) for the domain contracts and
 
 ## Required boundaries
 
+- Keep scientific control, scientific inference/decision, and workflow execution separate. A scientific orchestrator may decompose, delegate, review and integrate work, but it must not silently replace domain models or mutate frozen scientific intent. Workflow orchestration assigns devices and executes an approved ExperimentSpec; it does not make scientific selections.
 - Scientific components choose what to test; orchestration assigns devices and executes frozen intent. Never change ExperimentSpec arms, membership or workflow during execution/recovery.
 - Preserve versioned artifact IDs, hashes, provenance and time ordering. Changes to built/tested designs create new versions; do not silently replace same-ID content.
 - Keep source annotation, prediction, physical measurement and assessor interpretation distinct. Unknown is not negative; workflow success is not biological success; PHIST statistics are not infection probabilities.
