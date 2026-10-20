@@ -27,6 +27,7 @@ from .results import (
 )
 from .reference import _fetch_snapshot, _retrieve_candidates, _rank
 from .run import _run
+from .model_exchange import _export_bundle, _validate_bundle, _validate_pair_prediction
 
 
 def _add_shared(parser, *names):
@@ -91,6 +92,28 @@ def _add_shared(parser, *names):
 def build_parser():
     parser = argparse.ArgumentParser(description="Closed-loop phage R&D tools and laboratory orchestration.", allow_abbrev=False)
     commands = parser.add_subparsers(dest="command", required=True)
+
+    sub = commands.add_parser("export-model-bundle", allow_abbrev=False,
+                              help="Export frozen pair inputs and explicitly selected local resources.")
+    sub.set_defaults(handler=_export_bundle, command_parser=sub)
+    for flag in ("host-state", "phage-profile", "endpoint", "assay-context"):
+        sub.add_argument(f"--{flag}", type=Path, required=True)
+    sub.add_argument("--bundle-id", required=True)
+    sub.add_argument("--outdir", type=Path, required=True)
+    sub.add_argument("--created-at")
+    sub.add_argument("--sequence-registry", type=Path)
+    sub.add_argument("--include-sequence", choices=("host", "phage"), action="append", default=[])
+    sub.add_argument("--feature-artifact", type=Path, action="append", default=[])
+
+    sub = commands.add_parser("validate-model-bundle", allow_abbrev=False)
+    sub.set_defaults(handler=_validate_bundle, command_parser=sub)
+    sub.add_argument("bundle", type=Path)
+    sub.add_argument("--require-sequence", choices=("host", "phage"), action="append", default=[])
+
+    sub = commands.add_parser("validate-pair-prediction", allow_abbrev=False)
+    sub.set_defaults(handler=_validate_pair_prediction, command_parser=sub)
+    sub.add_argument("result", type=Path)
+    sub.add_argument("--bundle", type=Path, required=True)
 
     from ..dashboard import dashboard
     sub = commands.add_parser('dashboard', allow_abbrev=False,

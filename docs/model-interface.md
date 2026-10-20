@@ -1,96 +1,113 @@
-# External model boundary
+# Model exchange boundary
 
-The interaction model is developed in a separate repository. This repository owns
-experimental state, evidence, sequence identity, biological characterization,
-execution and prediction admission. The model repository owns model-specific
-representations, datasets, training, evaluation, calibration and inference.
+SDL owns scientific characterization, source resolution, experimental state,
+retrieval, decisions, execution and feedback. Each model repository owns its
+model-specific preprocessing, training, evaluation, calibration and inference.
 
-## Ownership
+Neither side imports the other's private implementation. The exchange is
+versioned files with mirrored JSON Schemas and shared software fixtures.
 
-| SDL repository | Model repository |
+## Current first-task interface
+
+**ModelInputBundle v1 → PairPrediction v1** supports one existing host–phage pair
+and one explicitly source-defined binary endpoint. This is a research interface;
+it does not implement inference, inverse design or cocktail-effect prediction.
+
+| Bundle field | Meaning |
 | --- | --- |
-| HostProfile / HostState identity | model-ready datasets and versioning |
-| PhageProfile identity and provenance | model-specific embeddings and encodings |
-| Sequence registry and raw sequence fingerprints | tokenizers, feature transforms and tensors |
-| PADLOC, receptor/surface annotation and FeatureArtifact provenance | architecture, training and checkpoints |
-| InteractionEvidence and physical Phenotype | held-out evaluation, calibration and model cards |
-| ModelRequest / ModelResult exchange | inference implementation |
-| InteractionPrediction admission | model artifacts and uncertainty estimation |
-| CandidateSet / ExperimentSpec / execution | no laboratory state ownership |
+| `host_state` | Full frozen HostState, components, evidence and missingness, with its own hash |
+| `phage_profile` / `phage_profile_sha256` | Full profile, sequence reference, annotations and natural/retrieved/engineered provenance |
+| `endpoint` | Named binary source label, dataset version/digest, original label column, assay-definition review status and evidence |
+| `assay_context` | `unknown` with empty conditions/evidence, or declared conditions with evidence; never invented defaults |
+| `sequence_status` | Explicit `available` or `not_provided` for host and phage |
+| `resources` | Explicitly exported local DNA FASTA files, bundle-relative path, byte SHA-256/size, normalized sequence identity and registry provenance |
+| `feature_artifacts` | Unchanged scientific manifests plus copied outputs under a bundle-relative directory; partial status, limitations, analyzer/reference versions and output hashes are retained |
 
-Neither repository imports the other's private Python modules. The boundary is
-versioned data. Scientific annotations describe biological objects and remain
-useful independently of any one model. Embeddings, tensor layouts, normalizers
-and other model-specific representations belong with the model that consumes them.
+All resources live below the export directory. Paths cannot escape through `..`,
+absolute paths or symlinks. The consumer verifies every supplied resource and
+fails when a model-required sequence is missing. This revision has no network
+fetcher or automatic external-service upload. The user must explicitly select
+sequences to export; a profile hash alone never implies sequence availability.
 
-## Machine-readable v1 schemas
+`feature_artifacts=[]` means no supplied annotation artifact, not a negative
+result. Likewise an absent HostState component remains unknown. Feature
+provenance is carried by its unchanged manifest and output location; no feature
+values or evidence are synthesized. A genome-derived annotation may have been
+computed after HostState `as_of`, but must exist before bundle creation. It does
+not mutate H(t) or establish a contemporaneous dynamic state.
 
-The ModelRequest and ModelResult v1 schemas are mirrored byte-for-byte in both
-repositories because both sides validate the exchange. They are wire contracts,
-not a place to store analyzer implementations or model-specific feature tensors:
+`content_sha256` hashes canonical JSON (UTF-8, sorted keys, compact separators),
+excluding only the outer hash field. Embedded snapshots and resource byte hashes
+are covered. PhageProfile is hashed in full. Sequence normalized hashes use SDL's
+uppercase DNA contigs, ignoring headers/whitespace, with a NUL before each contig;
+raw file hashes cover exact bytes including headers. These are different digests.
+Existing export directories cannot be overwritten. New inputs require a new
+bundle identity/export. Relocating the whole directory preserves validity.
 
-- [ModelRequest v1 JSON Schema](../schemas/model-request-v1.schema.json)
-- [ModelResult v1 JSON Schema](../schemas/model-result-v1.schema.json)
-- [Shared request fixture](../tests/fixtures/model_request_v1.json)
-- [Shared result fixture](../tests/fixtures/model_result_v1.json)
+## Results
 
-Schema changes must be coordinated across both repositories. JSON Schema checks
-the wire shape; the Python contract additionally checks content hashes, record-ID
-equality, exact request/result lineage, timestamp ordering and requested-target
-admission.
+PairPrediction echoes exact `bundle_id` and `bundle_sha256`. The endpoint, pair,
+context and all inputs are thereby bound together. Results cannot predate the
+bundle. Model output is one of:
 
-## Current v1 exchange
+- `not_estimated`: null value and uncertainty, with an explicit reason.
+- `uncalibrated_score`: a bounded score; model and preprocessing artifact digests
+  are mandatory. It is not a calibrated infection probability.
+- `probability`: additionally requires a verified source assay definition,
+  calibration artifact digest, containing uncertainty interval and named method.
 
-ModelRequest v1 binds one exact HostState content hash, one exact PhageProfile
-content fingerprint and the prediction targets being requested. ModelResult v1
-echoes the exact request ID and SHA-256, the same host/phage fingerprints, all
-three target slots, producer identity, immutable model artifact SHA-256,
-limitations, explanation and prediction time. Targets that were not requested
-must remain `not_estimated`.
+These checks establish consistency, not scientific verification of a calibration
+claim. Model promotion requires the separate evidence and evaluation review.
+Unresolved outputs never become training negatives.
 
-This is a transitional interface. The next boundary revision should be
-`ModelInputBundle v1`: an immutable, content-addressed export produced by SDL
-that contains admitted scientific annotations, screening/missingness states and
-field-level provenance. The model repository should not resolve HostState,
-PhageProfile or raw FASTA paths and should not run PADLOC or other biological
-annotation tools. It should transform the frozen bundle into model-specific
-representations and return a result tied to the exact bundle digest.
+## Runnable round trip
 
-## Sequence fingerprint semantics
+With SDL and model checkouts installed in the same Python environment, start in
+SDL. The checked-in bundle is a tiny software-only fixture, not experimental data:
 
-The HostState `host_genome_sha256` and a PhageProfile `sequence.sha256`, when
-present, use the normalized-contig digest implemented by
-`phage_lab.biology.read_fasta`: uppercase IUPAC DNA bases, FASTA headers and
-whitespace omitted, and a NUL byte before each contig. This is distinct from the
-raw FASTA file-byte SHA-256. SDL sequence registries retain both values.
+```bash
+python -m phage_lab validate-model-bundle tests/fixtures/input_bundle/bundle.json --require-sequence host
+phage-model-interface validate-bundle tests/fixtures/input_bundle/bundle.json --require-sequence host
+phage-model-interface create-unresolved-pair-prediction tests/fixtures/input_bundle/bundle.json /tmp/pair-unresolved.json --prediction-id interface-check
+python -m phage_lab validate-pair-prediction /tmp/pair-unresolved.json --bundle tests/fixtures/input_bundle/bundle.json
+```
 
-A retrieved PhageProfile may carry an accession and pinned
-`provenance.snapshot_sha256` without a sequence digest. Resolving that accession
-against an exact source snapshot and FASTA asset is an SDL ingestion task. The
-model-side contract receives stable identifiers and fingerprints, not paths into
-the lab's local registry.
+The output path must be new and outside the frozen bundle directory. This round
+trip runs no inference. A model implementation uses `load_input_bundle`, performs
+its own preprocessing/inference, and calls `build_pair_prediction` with explicit
+outputs and version digests. `read_sequence_bytes` returns verified FASTA bytes.
 
-## Admission and transport
+For real inputs SDL's `export-model-bundle` takes `--host-state`, `--phage-profile`,
+`--endpoint`, `--assay-context`, `--bundle-id` and `--outdir`. Optional
+`--sequence-registry` plus repeated `--include-sequence host|phage` explicitly
+copies sequences. Repeated `--feature-artifact` includes validated annotation
+outputs. See SDL `docs/usage.md` for an export example.
 
-SDL re-admits ModelResult before it becomes InteractionPrediction. Admission
-rejects request/result hash mismatch, different host/phage lineage, results
-timestamped before the request, estimated unrequested targets, and estimated
-outputs without a model artifact digest.
+Cross-check both repositories from SDL:
 
-Passing admission means only that the exchange is internally consistent. It does
-not establish biological validity, calibration, assay comparability or clinical
-utility.
+```bash
+python tests/integration/check_model_bundle.py --model-repo ../model
+```
 
-Start with files and CLI orchestration rather than a service:
+## Legacy mechanistic interface
 
-1. SDL writes a versioned model-input exchange artifact.
-2. The model repository applies its own versioned preprocessing and model.
-3. The model repository writes a ModelResult bound to the exact input digest.
-4. SDL validates and admits that result.
-5. Only the admitted InteractionPrediction may enter CandidateSet.
+ModelRequest v1 / ModelResult v1 and their existing fixtures remain supported.
+They request adsorption, productive infection and resistance emergence and bind
+identities, rather than carrying usable input data. Existing admission into
+InteractionPrediction and CandidateSet is unchanged.
 
-LearningObservation remains the SDL-side record of an explicit label tied to an
-exact prediction, ExperimentSpec and physical QC-admitted Phenotype. Exporting
-curated training datasets is a separate interface. The model repository must not
-interpret missing observations as negative labels or treat virtual-hardware output
-as biological evidence.
+**A source-interaction PairPrediction is not automatically converted to a legacy
+mechanistic target or admitted to the productive-infection CandidateSet policy.**
+That needs a reviewed endpoint mapping and an endpoint-specific policy. The first
+label remains unverified, so this revision deliberately provides no such mapping.
+Do not copy a source score into a mechanistic probability slot.
+
+## Training and feedback
+
+SDL owns QC-admitted physical results and explicit assessor labels. Curated
+training-data export is separate from inference-input export. Training pipelines
+must exclude target outcomes and future evidence from features, group duplicate
+isolates/genomes, and keep preprocessing/calibration off the held-out evaluation
+partition. A frozen input hash alone does not prove freedom from label leakage.
+Retraining and promotion are explicit model-side actions, never automatic
+consequences of a new laboratory result.

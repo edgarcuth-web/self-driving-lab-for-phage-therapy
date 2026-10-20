@@ -11,3 +11,12 @@ The ModelRequest v1 and ModelResult v1 schemas are mirrored with
 Biological analyzer outputs, source registries and FeatureArtifact records remain
 SDL-owned; model-specific embeddings, tensors, preprocessing and checkpoints do
 not belong in this directory.
+
+
+`model-input-bundle-v1.schema.json` and `pair-prediction-v1.schema.json` define
+the current source-endpoint exchange. Bundle resources carry readable payloads;
+legacy request hashes alone do not. These schemas and
+`tests/fixtures/input_bundle/` are mirrored in both repositories. Embedded
+FeatureArtifact definitions mirror SDL's owned v1 schema; no analyzer code moves
+into the model repository. The cross-repository check is documented in
+`docs/model-interface.md`.
