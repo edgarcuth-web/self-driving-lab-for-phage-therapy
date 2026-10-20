@@ -525,8 +525,8 @@ def resolve_registered_host_genome(
 ) -> ResolvedRegisteredHostGenome:
     """Resolve one exact host-genome asset from a validated local sequence registry.
 
-    Unlike resolve_request_sequences, this host-only boundary does not require a
-    PhageProfile or ModelRequest. It still verifies registry integrity, exact
+    This host-only boundary does not require a PhageProfile or ModelRequest.
+    It verifies registry integrity, exact
     sequence identity, original file bytes, normalized sequence digest and
     FASTA structure.
     """
@@ -541,4 +541,20 @@ def resolve_registered_host_genome(
         sequence_registry_file_sha256=registry.file_sha256,
         sequence_registry_root=registry.root,
         asset=asset,
+    )
+
+
+def resolve_registered_phage_sequence(sequence_registry_path, phage_profile):
+    """Resolve an exact PhageProfile through the same registry integrity checks."""
+    from .phage_profile import PhageProfile
+
+    if not isinstance(phage_profile, PhageProfile) or phage_profile.sequence is None:
+        raise ValueError("phage sequence export requires a PhageProfile sequence reference")
+    registry = load_sequence_registry(sequence_registry_path)
+    return _resolve_sequence(
+        registry, kind="phage_sequence",
+        expected_sequence_sha256=phage_profile.sequence.sha256,
+        expected_accession=phage_profile.sequence.accession,
+        expected_snapshot_sha256=getattr(phage_profile.provenance, "snapshot_sha256", None),
+        expected_length=phage_profile.sequence.length,
     )

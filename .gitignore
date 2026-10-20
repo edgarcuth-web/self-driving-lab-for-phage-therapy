@@ -21,6 +21,8 @@ data/snapshots/
 *.fa
 *.fna
 !examples/toy_genome.fasta
+# Tiny synthetic sequence used by the portable input contract fixture.
+!tests/fixtures/input_bundle/sequences/host.fasta
 *.fastq
 *.fq
 

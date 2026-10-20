@@ -4,6 +4,14 @@
 
 当前实现的是**反馈驱动的筛选软件闭环**：记录输入与预测，生成冻结的实验设计，摄取经过 QC 的结果，形成显式 prediction-vs-outcome 学习记录，并选择下一轮尚未解决的筛选问题。生物学表征分析（首个真实分析器为 PADLOC）及其来源追踪也归本仓库所有；模型专属 embedding、训练、校准和推理留在独立模型仓库。可对同一预测 cohort 做描述性 calibration 评估；尚无自动模型训练、自动重校准或真实仪器运行验证。
 
+
+The first model integration now uses **ModelInputBundle v1 → PairPrediction v1**:
+SDL exports complete pair snapshots, explicit source-label/context semantics and
+selected local sequence/annotation payloads; model-side consumers verify actual
+bytes. This implements exchange and abstention, not trained inference. Source
+scores cannot enter the existing productive-infection screening policy by renaming
+fields. See [model boundary](docs/model-interface.md).
+
 ## 当前能力
 
 | 部分 | 已实现 | 限制 |
@@ -125,7 +133,9 @@ python -m phage_lab annotate-host-defense-padloc --help
 
 跨仓库边界的目标是由 SDL 输出冻结的 ModelInputBundle，包含获准的科学注释、
 筛查状态和来源信息；模型仓库只负责模型专属表示、训练、评估、权重和推理。
-当前 ModelRequest/ModelResult v1 仍是过渡接口，尚未实现 ModelInputBundle v1。
+ModelInputBundle v1 已支持完整快照、显式终点与上下文、可读取的本地序列和注释输出。
+新 PairPrediction v1 绑定整个输入包；旧 ModelRequest/ModelResult v1 保留给既有机制终点，
+两条路径之间不会自动转换。当前尚无已训练、已校准的推理实现。
 
 ## 使用与开发
 

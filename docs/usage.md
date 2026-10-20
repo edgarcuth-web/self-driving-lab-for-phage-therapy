@@ -240,3 +240,38 @@ criterion 要与反馈中的声明逐字匹配。`--failure-attribution` 可重�
 新的 attribution 和 decision ID。旧反馈会带入；冲突或竞争 revision 需先复核。
 候选耗尽会 abstain，不能生成实验。后续 spec 不接受 objective / conditions / readout / workflow 覆盖。
 改变 H(t)、上下文或候选池时要创建新的科学意图，不能自动迁移旧反馈。
+
+
+## Frozen source-endpoint model exchange
+
+Prepare the endpoint JSON from the model repository's versioned
+`data/endpoints/genophi_ecoli_source_interaction.v1.json`. Its assay definition is
+still unverified. An unknown context file contains exactly:
+
+```json
+{"status": "unknown", "conditions": {}, "evidence": []}
+```
+
+Export an admitted pair into a new directory (paths below refer to your records):
+
+```bash
+python -m phage_lab export-model-bundle \
+  --host-state host-state.json --phage-profile phage-profile.json \
+  --endpoint source-endpoint.json --assay-context assay-context.json \
+  --bundle-id pair-input-001 --outdir exports/pair-input-001 \
+  --sequence-registry sequence-registry.json --include-sequence host \
+  --feature-artifact annotations/feature-artifact.v1.json
+```
+
+Omit optional sequence/annotation arguments when those resources are unavailable;
+missing inputs remain explicit. Add `--include-sequence phage` only when its exact
+sequence is registered too. Exported raw sequences stay local. FASTQ ingestion and
+assembly are not implemented by this command.
+
+```bash
+python -m phage_lab validate-model-bundle exports/pair-input-001/bundle.json --require-sequence host
+python -m phage_lab validate-pair-prediction pair-result.json --bundle exports/pair-input-001/bundle.json
+```
+
+See [model-interface](model-interface.md) for the software-fixture round trip,
+result semantics and the separate legacy mechanistic interface.

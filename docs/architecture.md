@@ -37,7 +37,8 @@ the tour's final report chapter and actual asynchronous report completion.
 | `phage_profile.py` | PhageProfile identity and retrieved / natural / engineered provenance |
 | `interaction_evidence.py`, `ranking.py` | Pairwise source signals and PHIST adapter |
 | `interaction_prediction.py` | Exact H(t)/phage predictions with uncertainty and model provenance |
-| `model_contract.py` | Versioned ModelRequest/ModelResult exchange and external-result admission |
+| `model_contract.py` | Legacy mechanistic ModelRequest/ModelResult exchange and external-result admission |
+| `model_input_bundle.py` | Frozen source-endpoint inputs, portable resources and PairPrediction validation |
 | `natural_phage_recommender.py` | CandidateSet, screening policy and single-phage spec conversion |
 | `cocktail_design.py` | CocktailDesign and conservative PHIST screening baseline |
 | `experiment_spec.py` | ExperimentSpec v2, arms, optional source references and abstract workflow |
@@ -86,6 +87,24 @@ PHIST reported/no-signal statuses are neither susceptibility verdicts nor infect
 probabilities. Cohort-relative rank stays in ranking/design context.
 
 ## External model boundary
+
+The design/decision system is larger than any one predictor. Its first delivery
+module is Candidate Phage Prioritization. The first model task is a source-defined
+binary outcome for one existing host–phage pair; batch calls form a pair matrix.
+
+| Responsibility | Owner and current boundary |
+| --- | --- |
+| Characterization | SDL sequence registry, HostState/PhageProfile, PADLOC and FeatureArtifact; model-specific embeddings stay with each model |
+| Prediction | External model consumes frozen ModelInputBundle and returns an exact source-endpoint PairPrediction |
+| Retrieval | SDL snapshot/candidate retrieval determines the available pool; retrieval itself asserts no susceptibility |
+| Decision | SDL owns screening/combination policies and ExperimentSpec; existing CandidateSet policy still requires compatible mechanistic predictions |
+| Execution | SDL executes frozen ExperimentSpec and records physical/virtual provenance |
+| Feedback | SDL QC, phenotype and explicit learning labels; models train/validate/release separately |
+
+Source-label scores cannot feed the productive-infection policy without reviewed
+endpoint mapping. Pair-matrix coverage is not mixture efficacy. Inverse feature
+requirements and engineering hypotheses remain later system capabilities.
+
 
 Model training, model-specific preprocessing/embeddings, evaluation and calibration
 live in a separate repository. This repository owns biological characterization
