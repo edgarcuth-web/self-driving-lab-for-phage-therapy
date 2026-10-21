@@ -51,6 +51,15 @@ belongs in this repository; the first real analyzer is PADLOC. Model-specific
 embeddings, training, calibration and inference live in the separate
 `phage-host-interaction-predictor` repository.
 
+The first scientific-control vertical slice now lives in
+`phage_lab/scientific_control/`. A deterministic `ScientificOrchestrator` invokes
+only the explicitly registered natural-phage recommender and records exact module,
+input and output lineage. An independent `ScientificReviewer` checks lineage,
+missing/unresolved evidence and unsupported semantic upgrades before approving a
+screening proposal. This slice does not create, mutate or execute an
+`ExperimentSpec`, and it has no workflow/device dependency. See
+[scientific control](docs/scientific-control.md).
+
 The first model exchange uses **ModelInputBundle v1 → PairPrediction v1**:
 SDL exports complete pair snapshots, explicit source-label/context semantics and
 selected local sequence/annotation payloads; model-side consumers verify actual
@@ -61,6 +70,7 @@ fields. See [model boundary](docs/model-interface.md).
 | Part | Implemented | Current limit |
 | --- | --- | --- |
 | Inputs and evidence | HostProfile, HostState, PhageProfile, reference snapshots, PHIST evidence | Unassessed features remain unknown; PHIST is not an infection probability |
+| Scientific control | ScientificObjective, trusted-module invocation, ScientificProposal, ScientificReview | v1 coordinates natural-phage screening only; no LLM planning, ExperimentSpec mutation or execution |
 | Scientific decision | InteractionPrediction contract, CandidateSet, PHIST cocktail baseline | Unresolved predictions remain unresolved; no validated efficacy optimizer yet |
 | Experiment design | ExperimentSpec v2, control/treatment arms, MaterialBatch binding | Records intent and material provenance; does not define experimental methods for the user |
 | Execution | Scheduling, logs, timeout reconciliation, cancellation/recovery, virtual device, HTTP adapter example | CLI has no configured real driver by default; virtual hardware produces no biological evidence |
@@ -69,6 +79,10 @@ fields. See [model boundary](docs/model-interface.md).
 Current software path:
 
 ```text
+ScientificObjective
+  → ScientificOrchestrator → trusted natural-phage recommender
+  → CandidateSet → ScientificProposal → ScientificReviewer
+
 HostState + PhageProfile + InteractionEvidence
   → InteractionPrediction → CandidateSet
   → ExperimentSpec → execution + MaterialBatch
@@ -188,6 +202,7 @@ Node 18+ is required only for the JavaScript presentation tests.
 
 - [CLI guide](docs/usage.md): commands, inputs and later-round workflows.
 - [Architecture and domain contracts](docs/architecture.md): system planes, object relationships, evidence semantics and validation boundaries.
+- [Scientific control](docs/scientific-control.md): the first bounded orchestrator/reviewer slice and its hard execution boundary.
 - [External model interface](docs/model-interface.md): versioned JSON boundary with `phage-host-interaction-predictor`.
 - [Device interface](docs/hardware.md): drivers, safe-state and HTTP adapter.
 - [OpenRouter configuration](docs/openrouter.md): optional constrained orchestration decisions.
