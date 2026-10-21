@@ -21,7 +21,12 @@ OBJECTIVE_KINDS = ("prioritize_natural_phages",)
 EVIDENCE_STATES = ("predicted", "mixed", "exploration_only", "empty")
 REVIEW_DECISIONS = ("approved", "revision_required", "abstained")
 TASK_STATES = ("ready", "blocked", "handoff_required")
-TASK_KINDS = (\n    "characterize_host_defense",\n    "admit_host_defense_characterization",\n    "obtain_pair_prediction",\n    "prioritize_natural_phages",\n)
+TASK_KINDS = (
+    "characterize_host_defense",
+    "admit_host_defense_characterization",
+    "obtain_pair_prediction",
+    "prioritize_natural_phages",
+)
 FINDING_SEVERITIES = ("info", "warning", "error")
 
 
