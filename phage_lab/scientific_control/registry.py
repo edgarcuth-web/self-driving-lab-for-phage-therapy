@@ -6,12 +6,15 @@ from typing import Callable
 
 from ..model_contract import new_model_request
 from ..natural_phage_recommender import recommend_natural_phages
+from ..padloc_adapter import run_padloc_host_defense
 
 
 NATURAL_PHAGE_RECOMMENDER_ID = "natural_phage_recommender"
 NATURAL_PHAGE_RECOMMENDER_VERSION = "1"
 MODEL_REQUEST_BUILDER_ID = "model_request_builder"
 MODEL_REQUEST_BUILDER_VERSION = "1"
+PADLOC_HOST_DEFENSE_ID = "padloc_host_defense"
+PADLOC_HOST_DEFENSE_VERSION = "1"
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,11 @@ TRUSTED_MODULES = MappingProxyType({
         module_id=MODEL_REQUEST_BUILDER_ID,
         version=MODEL_REQUEST_BUILDER_VERSION,
         call=new_model_request,
+    ),
+    PADLOC_HOST_DEFENSE_ID: TrustedModule(
+        module_id=PADLOC_HOST_DEFENSE_ID,
+        version=PADLOC_HOST_DEFENSE_VERSION,
+        call=run_padloc_host_defense,
     ),
 })
 
