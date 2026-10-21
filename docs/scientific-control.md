@@ -90,3 +90,48 @@ control contracts and reviewer semantics before adding model-driven decompositio
 or tool selection. A future LLM-facing planner can propose bounded tasks, but the
 same trusted-module registry, artifact lineage and reviewer gate should remain the
 authority boundary.
+
+
+## Task decomposition and model handoff
+
+The next bounded layer adds `ScientificPlan` and `ScientificTask` without adding
+a general-purpose agent loop.
+
+For natural-phage screening, the orchestrator inspects the exact supplied
+HostState, PhageProfiles and already-admitted InteractionPredictions. Eligible
+natural-first candidates with no InteractionPrediction produce one deterministic
+`obtain_pair_prediction` task and an exact legacy `ModelRequest` through the
+existing model contract. The task is marked `handoff_required`: SDL has prepared
+the scientific request but has not performed or claimed external model inference.
+
+The downstream `prioritize_natural_phages` task remains `blocked` while any
+required pair state is missing. Once every required pair has an explicit
+InteractionPrediction, including an explicit `not_estimated` result, that task
+becomes `ready`. This preserves the distinction between missing evidence and an
+explicit unresolved model result.
+
+Engineered phages do not generate model-request tasks in this natural-first slice.
+They remain outside the required pair set rather than silently entering the
+natural screening path.
+
+```text
+objective + exact scientific context
+             |
+             v
+       ScientificPlan
+             |
+       missing pair?
+        /         \
+      yes          no
+       |            |
+ModelRequest        |
+handoff_required    |
+       \            /
+        \          /
+      recommendation
+      blocked / ready
+```
+
+Planning still does not call the workflow scheduler, create an ExperimentSpec,
+dispatch hardware, or transform a model request into a prediction. The external
+predictor must return a separately admitted result before the plan can advance.

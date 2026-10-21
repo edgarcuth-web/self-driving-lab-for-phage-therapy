@@ -9,8 +9,10 @@ from .contracts import (
     ReviewFinding,
     ScientificClaim,
     ScientificObjective,
+    ScientificPlan,
     ScientificProposal,
     ScientificReview,
+    ScientificTask,
 )
 from .orchestrator import ScientificOrchestrator
 from .reviewer import ScientificReviewer
@@ -22,7 +24,9 @@ __all__ = [
     "ScientificClaim",
     "ScientificObjective",
     "ScientificOrchestrator",
+    "ScientificPlan",
     "ScientificProposal",
     "ScientificReview",
     "ScientificReviewer",
+    "ScientificTask",
 ]
