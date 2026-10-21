@@ -4,6 +4,7 @@ from pathlib import Path
 import unittest
 
 from fixtures_screening import T1, T3, phage, prediction, state
+from phage_lab.host_state import host_state_reference
 
 from phage_lab.scientific_control import (
     ScientificClaim,
