@@ -9,7 +9,7 @@ from .contracts import (
     ScientificProposal,
     ScientificReview,
 )
-from .orchestrator import TRUSTED_MODULE_IDENTITIES
+from .registry import TRUSTED_MODULE_IDENTITIES
 
 
 def _ref(artifact_type: str, artifact_id: str, content_sha256: str) -> ArtifactReference:
