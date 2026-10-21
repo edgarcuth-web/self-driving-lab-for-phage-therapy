@@ -135,3 +135,44 @@ handoff_required    |
 Planning still does not call the workflow scheduler, create an ExperimentSpec,
 dispatch hardware, or transform a model request into a prediction. The external
 predictor must return a separately admitted result before the plan can advance.
+
+
+## Host-defense characterization gate
+
+When the exact HostProfile is supplied, natural-phage screening planning can now
+gate pair-level work on the admitted `defense_systems` feature group.
+
+If `HostProfile.features["defense_systems"].status == "unknown"`, scientific
+control does not create pair-level ModelRequests. Instead it creates one of two
+tasks:
+
+```text
+HostProfile defense_systems = unknown
+          |
+          +-- no matching PADLOC FeatureArtifact
+          |      -> characterize_host_defense
+          |         state = ready
+          |         module = padloc_host_defense v1
+          |
+          +-- complete matching PADLOC FeatureArtifact exists
+                 -> admit_host_defense_characterization
+                    state = handoff_required
+```
+
+The first task may be executed through
+`ScientificOrchestrator.execute_host_defense_characterization()`. That entry
+point accepts only a ready task bound to the registered PADLOC module and calls
+the existing pinned real PADLOC adapter. The returned FeatureArtifact is recorded
+as a `ModuleInvocation` output with exact content hash.
+
+Execution of this computational analyzer is not HostProfile admission. A complete
+PADLOC FeatureArtifact remains computational annotation with its original
+limitations. Scientific control deliberately does not convert PADLOC rows into
+FeatureItems, does not set `defense_systems = assessed`, and does not interpret
+a no-hit result as absence of biological defense. Admission/mapping requires a
+separate reviewed HostProfile revision.
+
+While this gate is unresolved, the natural-phage recommendation task is
+`blocked` and no pair ModelRequests are emitted. After an explicitly admitted
+HostProfile revision marks defense systems as assessed, replanning resumes the
+existing missing-prediction handoff flow.
