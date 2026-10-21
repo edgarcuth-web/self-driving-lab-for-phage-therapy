@@ -20,7 +20,7 @@ class ScientificControlVerticalSliceTests(unittest.TestCase):
             revision=1,
             kind="prioritize_natural_phages",
             statement="Prioritize existing natural phages for the next screening experiment.",
-            host_state=state().reference,
+            host_state=host_state_reference(state()),
             created_at=T1,
         )
 
