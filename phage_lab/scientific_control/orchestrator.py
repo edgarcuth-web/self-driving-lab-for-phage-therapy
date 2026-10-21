@@ -1,6 +1,7 @@
 """Deterministic scientific orchestration over explicitly trusted modules."""
 
 from ..artifacts import parse_timestamp
+from ..host_profile import HostProfile
 from ..host_state import HostState, host_state_reference
 from ..interaction_prediction import InteractionPrediction, phage_profile_sha256
 from ..natural_phage_recommender import (
@@ -16,6 +17,7 @@ from .contracts import (
     ScientificPlan,
     ScientificProposal,
 )
+from .characterization import execute_host_defense_characterization
 from .planning import decompose_natural_phage_screening
 from .registry import NATURAL_PHAGE_RECOMMENDER_ID, TRUSTED_MODULES
 
@@ -118,6 +120,8 @@ class ScientificOrchestrator:
         plan_id: str,
         created_at: str,
         revision: int = 1,
+        host_profile: HostProfile | None = None,
+        feature_artifacts: tuple[dict, ...] | list[dict] = (),
     ):
         """Create an auditable plan and exact model-request handoffs."""
         return decompose_natural_phage_screening(
@@ -128,7 +132,13 @@ class ScientificOrchestrator:
             plan_id=plan_id,
             created_at=created_at,
             revision=revision,
+            host_profile=host_profile,
+            feature_artifacts=feature_artifacts,
         )
+
+    def execute_host_defense_characterization(self, task, **kwargs):
+        """Execute only a ready trusted computational host-defense task."""
+        return execute_host_defense_characterization(task, **kwargs)
 
 
     def prioritize_natural_phages(
