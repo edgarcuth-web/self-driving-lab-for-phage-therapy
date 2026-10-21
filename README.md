@@ -70,7 +70,7 @@ fields. See [model boundary](docs/model-interface.md).
 | Part | Implemented | Current limit |
 | --- | --- | --- |
 | Inputs and evidence | HostProfile, HostState, PhageProfile, reference snapshots, PHIST evidence | Unassessed features remain unknown; PHIST is not an infection probability |
-| Scientific control | ScientificObjective, ScientificPlan/Task, trusted ModelRequest handoff, ScientificProposal, ScientificReview | Natural-phage decomposition only; missing predictions block recommendation and no external inference, ExperimentSpec mutation or execution is claimed |
+| Scientific control | ScientificObjective, ScientificPlan/Task, trusted PADLOC characterization + ModelRequest handoffs, ScientificProposal, ScientificReview | Unknown host-defense characterization gates pair planning; PADLOC output still requires explicit HostProfile admission and no wet-lab execution is implied |
 | Scientific decision | InteractionPrediction contract, CandidateSet, PHIST cocktail baseline | Unresolved predictions remain unresolved; no validated efficacy optimizer yet |
 | Experiment design | ExperimentSpec v2, control/treatment arms, MaterialBatch binding | Records intent and material provenance; does not define experimental methods for the user |
 | Execution | Scheduling, logs, timeout reconciliation, cancellation/recovery, virtual device, HTTP adapter example | CLI has no configured real driver by default; virtual hardware produces no biological evidence |
@@ -81,9 +81,13 @@ Current software path:
 ```text
 ScientificObjective
   → ScientificOrchestrator → ScientificPlan
-  ├→ missing pair → exact ModelRequest handoff
-  └→ explicit pair states complete → trusted natural-phage recommender
-     → CandidateSet → ScientificProposal → ScientificReviewer
+  ├→ host defense unknown
+  │    → trusted PADLOC → FeatureArtifact → explicit admission required
+  ├→ missing pair after characterization
+  │    → exact ModelRequest handoff
+  └→ explicit pair states complete
+       → trusted natural-phage recommender
+       → CandidateSet → ScientificProposal → ScientificReviewer
 
 HostState + PhageProfile + InteractionEvidence
   → InteractionPrediction → CandidateSet
