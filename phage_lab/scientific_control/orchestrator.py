@@ -1,16 +1,11 @@
 """Deterministic scientific orchestration over explicitly trusted modules."""
 
-from dataclasses import dataclass
-from types import MappingProxyType
-from typing import Callable
-
 from ..artifacts import parse_timestamp
 from ..host_state import HostState, host_state_reference
 from ..interaction_prediction import InteractionPrediction, phage_profile_sha256
 from ..natural_phage_recommender import (
     CandidateSet,
     RecommendationPolicy,
-    recommend_natural_phages,
 )
 from ..phage_profile import PhageProfile
 from .contracts import (
@@ -18,32 +13,11 @@ from .contracts import (
     ModuleInvocation,
     ScientificClaim,
     ScientificObjective,
+    ScientificPlan,
     ScientificProposal,
 )
-
-
-NATURAL_PHAGE_RECOMMENDER_ID = "natural_phage_recommender"
-NATURAL_PHAGE_RECOMMENDER_VERSION = "1"
-
-
-@dataclass(frozen=True)
-class _TrustedModule:
-    module_id: str
-    version: str
-    call: Callable
-
-
-_TRUSTED_MODULES = MappingProxyType({
-    NATURAL_PHAGE_RECOMMENDER_ID: _TrustedModule(
-        module_id=NATURAL_PHAGE_RECOMMENDER_ID,
-        version=NATURAL_PHAGE_RECOMMENDER_VERSION,
-        call=recommend_natural_phages,
-    ),
-})
-
-TRUSTED_MODULE_IDENTITIES = frozenset(
-    (module.module_id, module.version) for module in _TRUSTED_MODULES.values()
-)
+from .planning import decompose_natural_phage_screening
+from .registry import NATURAL_PHAGE_RECOMMENDER_ID, TRUSTED_MODULES
 
 
 def _objective_reference(objective: ScientificObjective) -> ArtifactReference:
@@ -134,6 +108,29 @@ def _screening_claim(evidence_state: str) -> ScientificClaim:
 class ScientificOrchestrator:
     """Coordinate trusted science; never execute or mutate laboratory workflows."""
 
+    def decompose_natural_phage_screening(
+        self,
+        objective: ScientificObjective,
+        host_state: HostState,
+        phage_profiles: list[PhageProfile] | tuple[PhageProfile, ...],
+        predictions: list[InteractionPrediction] | tuple[InteractionPrediction, ...],
+        *,
+        plan_id: str,
+        created_at: str,
+        revision: int = 1,
+    ):
+        """Create an auditable plan and exact model-request handoffs."""
+        return decompose_natural_phage_screening(
+            objective,
+            host_state,
+            phage_profiles,
+            predictions,
+            plan_id=plan_id,
+            created_at=created_at,
+            revision=revision,
+        )
+
+
     def prioritize_natural_phages(
         self,
         objective: ScientificObjective,
@@ -161,7 +158,7 @@ class ScientificOrchestrator:
         ):
             raise ValueError("ScientificProposal cannot precede its objective.")
 
-        module = _TRUSTED_MODULES[NATURAL_PHAGE_RECOMMENDER_ID]
+        module = TRUSTED_MODULES[NATURAL_PHAGE_RECOMMENDER_ID]
         candidate_set = module.call(
             host_state,
             phage_profiles,
