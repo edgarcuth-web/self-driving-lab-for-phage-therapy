@@ -20,6 +20,8 @@ SCHEMA_VERSION = 1
 OBJECTIVE_KINDS = ("prioritize_natural_phages",)
 EVIDENCE_STATES = ("predicted", "mixed", "exploration_only", "empty")
 REVIEW_DECISIONS = ("approved", "revision_required", "abstained")
+TASK_STATES = ("ready", "blocked", "handoff_required")
+TASK_KINDS = ("obtain_pair_prediction", "prioritize_natural_phages")
 FINDING_SEVERITIES = ("info", "warning", "error")
 
 
@@ -218,6 +220,134 @@ class ScientificProposal:
             "evidence_state": self.evidence_state,
             "claim": self.claim.to_dict(),
             "limitations": list(self.limitations),
+            "created_at": self.created_at,
+        }
+
+    @property
+    def content_sha256(self) -> str:
+        return content_hash(self._content_dict())
+
+    def to_dict(self) -> dict:
+        return with_content_hash(self._content_dict())
+
+
+@dataclass(frozen=True)
+class ScientificTask:
+    """One derived task in a scientific plan.
+
+    Task state is structural: it records whether an existing trusted module can
+    run now, whether upstream evidence is missing, or whether an external model
+    handoff is required. It is not a free-form agent status.
+    """
+
+    task_id: str
+    kind: str
+    state: str
+    module_id: str
+    module_version: str
+    inputs: tuple[ArtifactReference, ...]
+    outputs: tuple[ArtifactReference, ...]
+    depends_on: tuple[str, ...]
+    reason: str
+    subject_phage_profile_id: str | None = None
+
+    def __post_init__(self) -> None:
+        require_text(self.task_id, "task_id")
+        if self.kind not in TASK_KINDS:
+            raise ValueError("Unsupported scientific task kind.")
+        if self.state not in TASK_STATES:
+            raise ValueError("Unsupported scientific task state.")
+        require_text(self.module_id, "module_id")
+        require_text(self.module_version, "module_version")
+        if (
+            not isinstance(self.inputs, tuple)
+            or any(not isinstance(item, ArtifactReference) for item in self.inputs)
+        ):
+            raise ValueError("task inputs must contain ArtifactReference objects.")
+        if (
+            not isinstance(self.outputs, tuple)
+            or any(not isinstance(item, ArtifactReference) for item in self.outputs)
+        ):
+            raise ValueError("task outputs must contain ArtifactReference objects.")
+        _text_tuple(self.depends_on, "task dependency")
+        require_text(self.reason, "task reason")
+        if self.subject_phage_profile_id is not None:
+            require_text(self.subject_phage_profile_id, "subject_phage_profile_id")
+        if self.task_id in self.depends_on:
+            raise ValueError("a ScientificTask cannot depend on itself.")
+
+    def to_dict(self) -> dict:
+        return {
+            "task_id": self.task_id,
+            "kind": self.kind,
+            "state": self.state,
+            "module_id": self.module_id,
+            "module_version": self.module_version,
+            "inputs": [item.to_dict() for item in self.inputs],
+            "outputs": [item.to_dict() for item in self.outputs],
+            "depends_on": list(self.depends_on),
+            "reason": self.reason,
+            "subject_phage_profile_id": self.subject_phage_profile_id,
+        }
+
+
+@dataclass(frozen=True)
+class ScientificPlan:
+    """Content-addressed task decomposition for one exact objective."""
+
+    plan_id: str
+    revision: int
+    objective: ArtifactReference
+    required_pair_profile_ids: tuple[str, ...]
+    tasks: tuple[ScientificTask, ...]
+    created_at: str
+    schema_version: int = SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        require_text(self.plan_id, "plan_id")
+        if type(self.revision) is not int or self.revision < 1:
+            raise ValueError("revision must be a positive integer.")
+        if self.schema_version != SCHEMA_VERSION:
+            raise ValueError("Unsupported ScientificPlan schema_version.")
+        if not isinstance(self.objective, ArtifactReference):
+            raise ValueError("objective must be an ArtifactReference.")
+        if self.objective.artifact_type != "ScientificObjective":
+            raise ValueError("objective must reference ScientificObjective.")
+        _text_tuple(self.required_pair_profile_ids, "required pair phage_profile_id")
+        if self.required_pair_profile_ids != tuple(sorted(self.required_pair_profile_ids)):
+            raise ValueError("required_pair_profile_ids must be sorted.")
+        if (
+            not isinstance(self.tasks, tuple)
+            or not self.tasks
+            or any(not isinstance(item, ScientificTask) for item in self.tasks)
+        ):
+            raise ValueError("tasks must contain at least one ScientificTask.")
+        task_ids = [item.task_id for item in self.tasks]
+        if len(set(task_ids)) != len(task_ids):
+            raise ValueError("ScientificPlan task IDs must be unique.")
+        available = set(task_ids)
+        for task in self.tasks:
+            unknown = set(task.depends_on) - available
+            if unknown:
+                raise ValueError(
+                    "ScientificTask depends on unknown task(s): "
+                    + ", ".join(sorted(unknown))
+                )
+        parse_timestamp(self.created_at, "created_at")
+
+    @property
+    def record_id(self) -> str:
+        return f"{self.plan_id}:v{self.revision}"
+
+    def _content_dict(self) -> dict:
+        return {
+            "schema_version": self.schema_version,
+            "record_id": self.record_id,
+            "plan_id": self.plan_id,
+            "revision": self.revision,
+            "objective": self.objective.to_dict(),
+            "required_pair_profile_ids": list(self.required_pair_profile_ids),
+            "tasks": [item.to_dict() for item in self.tasks],
             "created_at": self.created_at,
         }
 
