@@ -7,6 +7,10 @@ model-specific preprocessing, training, evaluation, calibration and inference.
 Neither side imports the other's private implementation. The exchange is
 versioned files with mirrored JSON Schemas and shared software fixtures.
 
+See [endpoint semantics](endpoint-semantics.md) for readout distinctions, the
+historical versus audited MLC labels, and review requirements before mapping a
+source result to a mechanistic target. This adds no new wire fields or mappings.
+
 ## Current first-task interface
 
 **ModelInputBundle v1 → PairPrediction v1** supports one existing host–phage pair
