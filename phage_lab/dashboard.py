@@ -107,7 +107,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._respond(202, self.server.report_service.start(body['snapshot'], body.get('retry', False)))
         except (ValueError, UnicodeError) as error:
             # JSON parse messages do not include request data; never echo configuration.
-            message = '请求 JSON 格式不正确。' if isinstance(error, (json.JSONDecodeError, UnicodeError)) else str(error)
+            message = (
+                '请求 JSON 格式不正确。'
+                if isinstance(error, (json.JSONDecodeError, UnicodeError))
+                else str(error)
+            )
             self._respond(400, {'error': message})
         except RuntimeError as error:
             self._respond(409, {'error': str(error)})

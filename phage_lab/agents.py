@@ -192,7 +192,9 @@ class OpenRouterAgent:
                 raise AgentError("Model response exceeds the response size limit.")
             body = json.loads(raw)
         except error.HTTPError as exc:
-            raise AgentError(f"OpenRouter API returned HTTP {exc.code}; check API access and model configuration.") from None
+            raise AgentError(
+                f"OpenRouter API returned HTTP {exc.code}; check API access and model configuration."
+            ) from None
         except (error.URLError, TimeoutError, OSError):
             raise AgentError("OpenRouter API connection failed or timed out; no offline fallback was used.") from None
         except ValueError:

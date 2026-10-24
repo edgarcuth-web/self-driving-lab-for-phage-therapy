@@ -22,15 +22,33 @@ def snapshot():
         'sample': {'sample_id': 'DEMO-001', 'sample_type': '模拟样本', 'collected_at': '2026-10-17T09:00'},
         'nodes': [{'id': n, 'status': 'succeeded', 'output': {}} for n in ids],
     }
-    data['nodes'][1]['output'] = {'isolates': [{'id': 'ISO-001', 'name': '模拟菌', 'species': 'Demo bacterium', 'library_key': 'unused'}]}
+    data['nodes'][1]['output'] = {
+        'isolates': [
+            {'id': 'ISO-001', 'name': '模拟菌', 'species': 'Demo bacterium', 'library_key': 'unused'}
+        ]
+    }
     for n in data['nodes'][2:4]:
-        n['output'] = {'matches': [{'isolate_id': 'ISO-001', 'name': '模拟菌', 'candidates': ['DEMO-01'], 'probability': 'not_estimated'}]}
+        n['output'] = {
+            'matches': [
+                {
+                    'isolate_id': 'ISO-001',
+                    'name': '模拟菌',
+                    'candidates': ['DEMO-01'],
+                    'probability': 'not_estimated',
+                }
+            ]
+        }
     return data
 
 
 def response(model='k3', finish='stop'):
-    content = {'summary': '模拟样本流程已完成，尚无临床疗效证据。',
-               'sections': [{'heading': title, 'content': '仅根据模拟输入整理；需医师复核。'} for title in ['样本概况', '细菌分离', '候选匹配', '证据边界', '复核事项']]}
+    content = {
+        'summary': '模拟样本流程已完成，尚无临床疗效证据。',
+        'sections': [
+            {'heading': title, 'content': '仅根据模拟输入整理；需医师复核。'}
+            for title in ['样本概况', '细菌分离', '候选匹配', '证据边界', '复核事项']
+        ],
+    }
     return BytesIO(json.dumps({'model': model, 'choices': [{'finish_reason': finish,
                               'message': {'content': json.dumps(content, ensure_ascii=False)}}]}).encode())
 
@@ -73,7 +91,8 @@ class ReportTests(unittest.TestCase):
             data = snapshot()
             if change == 'duplicate': data['nodes'][-1]['id'] = 'sample'
             if change == 'mismatched_isolate': data['nodes'][2]['output']['matches'][0]['isolate_id'] = 'OTHER'
-            if change == 'raw_candidate': data['nodes'][2]['output']['matches'][0]['candidates'] = [{'secret': 'hidden'}]
+            if change == 'raw_candidate':
+                data['nodes'][2]['output']['matches'][0]['candidates'] = [{'secret': 'hidden'}]
             with self.subTest(change=change), self.assertRaises(ValueError):
                 prepare_summary(data)
 
@@ -151,12 +170,40 @@ class ReportTests(unittest.TestCase):
 
     def test_detection_summary_retains_uncalibrated_support_but_never_fragment_bases(self):
         data = snapshot()
-        record = {'id':'DET-001', 'isolate_id':'ISO-001', 'classification':'candidate_species', 'species_assignment':'Demo bacterium',
-            'metrics':{'unique_reads':100, 'control_reads':10, 'covered_bases':150, 'reference_window_bp':300, 'identity_percent':98.3},
-            'confidence':{'score':49.2, 'method':'synthetic-support-v1', 'calibrated':False, 'clinical_probability':None},
-            'fragments':[{'id':'FRAG-DEMO-A', 'length_bp':60,'matched_bases':59,'sequence':'PRIVATE_BASES'},
-                         {'id':'FRAG-DEMO-B', 'length_bp':60,'matched_bases':59,'reference_sequence':'PRIVATE_REFERENCE'}]}
-        data['nodes'][1]['output']['detection'] = {'method':'synthetic-mngs-v1','simulated':True,'identified':[record],'unclassified':[]}
+        record = {
+            'id': 'DET-001',
+            'isolate_id': 'ISO-001',
+            'classification': 'candidate_species',
+            'species_assignment': 'Demo bacterium',
+            'metrics': {
+                'unique_reads': 100,
+                'control_reads': 10,
+                'covered_bases': 150,
+                'reference_window_bp': 300,
+                'identity_percent': 98.3,
+            },
+            'confidence': {
+                'score': 49.2,
+                'method': 'synthetic-support-v1',
+                'calibrated': False,
+                'clinical_probability': None,
+            },
+            'fragments': [
+                {'id': 'FRAG-DEMO-A', 'length_bp': 60, 'matched_bases': 59, 'sequence': 'PRIVATE_BASES'},
+                {
+                    'id': 'FRAG-DEMO-B',
+                    'length_bp': 60,
+                    'matched_bases': 59,
+                    'reference_sequence': 'PRIVATE_REFERENCE',
+                },
+            ],
+        }
+        data['nodes'][1]['output']['detection'] = {
+            'method': 'synthetic-mngs-v1',
+            'simulated': True,
+            'identified': [record],
+            'unclassified': [],
+        }
         summary = prepare_summary(data)
         self.assertEqual(summary['detection']['identified'][0]['confidence']['score'], 49.2)
         self.assertNotIn('PRIVATE', json.dumps(summary))

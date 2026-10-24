@@ -38,7 +38,9 @@ class ModelInputBundleTests(unittest.TestCase):
     def test_shared_fixture_preserves_partial_annotation_and_payloads(self):
         bundle = load_model_input_bundle(self.fixture / "bundle.json", required_sequences=("host",))
         self.assertEqual(bundle["feature_artifacts"][0]["manifest"]["status"], "partial")
-        self.assertEqual(bundle["feature_artifacts"][0]["manifest"]["analysis"]["tool"]["name"], "example-annotation-tool")
+        self.assertEqual(
+            bundle["feature_artifacts"][0]["manifest"]["analysis"]["tool"]["name"], "example-annotation-tool"
+        )
 
     def test_resealed_manifest_cannot_hide_wrong_identity_or_missing_files(self):
         changes = (
@@ -267,9 +269,16 @@ class ModelInputBundleTests(unittest.TestCase):
                                   snapshot_version="1", snapshot_sha256="c" * 64))
             options = dict(endpoint=endpoint(), assay_context={"status": "unknown", "conditions": {}, "evidence": []},
                            created_at=T2, sequence_registry=registry, include_sequences=("phage",))
-            path = export_model_input_bundle(state(), profile, bundle_id="phage-fixture", output_dir=root / "export", **options)
-            self.assertEqual(load_model_input_bundle(path, required_sequences=("phage",))["resources"][0]["accession"], "FIXTURE_001")
+            path = export_model_input_bundle(
+                state(), profile, bundle_id="phage-fixture", output_dir=root / "export", **options
+            )
+            self.assertEqual(
+                load_model_input_bundle(path, required_sequences=("phage",))["resources"][0]["accession"],
+                "FIXTURE_001",
+            )
             wrong = replace(profile, provenance=replace(profile.provenance, snapshot_sha256="d" * 64))
             with self.assertRaisesRegex(ValueError, "matching|snapshot"):
-                export_model_input_bundle(state(), wrong, bundle_id="wrong-snapshot", output_dir=root / "wrong", **options)
+                export_model_input_bundle(
+                    state(), wrong, bundle_id="wrong-snapshot", output_dir=root / "wrong", **options
+                )
             self.assertFalse((root / "wrong").exists())

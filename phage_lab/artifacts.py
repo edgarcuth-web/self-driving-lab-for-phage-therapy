@@ -8,7 +8,9 @@ from datetime import datetime, timezone
 from hashlib import sha256
 import json
 import math
+import os
 from pathlib import Path
+from uuid import uuid4
 
 
 def utc_now() -> str:
@@ -108,11 +110,24 @@ class ContentAddressed:
 
 
 def atomic_write_json(data, path: Path) -> None:
+    atomic_write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", path)
+
+
+def atomic_write_text(text: str, path: str | Path) -> None:
+    """Write UTF-8 text through a unique, fsynced sibling file, then atomically replace ``path``."""
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-                         encoding="utf-8")
-    temporary.replace(path)
+    # open(..., "x") keeps the process umask, unlike tempfile's owner-only files.
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        with temporary.open("x", encoding="utf-8") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def read_json(path: Path, label: str):

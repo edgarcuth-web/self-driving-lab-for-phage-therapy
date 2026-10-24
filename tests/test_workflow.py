@@ -299,9 +299,25 @@ class ApiContractTests(unittest.IsolatedAsyncioTestCase):
                     "device_assignments": {operation: f"virtual-{operation}-1"
                                            for operation in OPERATIONS},
                     "reason": "mock API decision"}
-        response = {"choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [{"type": "function", "function": {"name": "submit_plan", "arguments": json.dumps(decision)}}]}}]}
+        response = {
+            "choices": [
+                {
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "function": {"name": "submit_plan", "arguments": json.dumps(decision)},
+                            }
+                        ]
+                    },
+                }
+            ]
+        }
         with patch("phage_lab.agents.request.build_opener") as opener:
-            opener.return_value.open.return_value.__enter__.return_value.read.return_value = json.dumps(response).encode()
+            opener.return_value.open.return_value.__enter__.return_value.read.return_value = json.dumps(
+                response
+            ).encode()
             result = await agent.plan(context)
             req = opener.return_value.open.call_args.args[0]
             payload = json.loads(req.data)
@@ -332,7 +348,9 @@ class ApiContractTests(unittest.IsolatedAsyncioTestCase):
         bodies.append(response([{"type": "function", "function": {"name": "wrong", "arguments": "{}"}}]))
         for body in bodies:
             with self.subTest(body=body), patch("phage_lab.agents.request.build_opener") as opener:
-                opener.return_value.open.return_value.__enter__.return_value.read.return_value = json.dumps(body).encode()
+                opener.return_value.open.return_value.__enter__.return_value.read.return_value = json.dumps(
+                    body
+                ).encode()
                 with self.assertRaises(AgentError) as caught:
                     await agent.recover({"alternatives": []})
                 self.assertNotIn("secret-test-value", str(caught.exception))
@@ -354,7 +372,9 @@ class ApiContractTests(unittest.IsolatedAsyncioTestCase):
             {"type": "function", "function": {"name": "choose_recovery", "arguments": json.dumps(decision)}}]}}]}
         for model in ("gpt-6-astra", "claude-opus-5-5", "provider/model", "provider/model:free"):
             with self.subTest(model=model), patch("phage_lab.agents.request.build_opener") as opener:
-                opener.return_value.open.return_value.__enter__.return_value.read.return_value = json.dumps(body).encode()
+                opener.return_value.open.return_value.__enter__.return_value.read.return_value = json.dumps(
+                    body
+                ).encode()
                 self.assertEqual(await OpenRouterAgent("test", model).recover({"alternatives": []}), decision)
                 opener.return_value.open.assert_called_once()
                 req = opener.return_value.open.call_args.args[0]

@@ -334,8 +334,10 @@ class CalibrationReport(ContentAddressed):
     def limitations(self):
         return (
             "Descriptive evaluation only; this report does not fit, recalibrate or update a biological model.",
-            "Observed labels are assessor-declared mappings from physical Phenotype evidence, not automatically inferred ground truth.",
-            "Exact producer provenance is matched, but assay comparability and dataset independence remain caller responsibilities.",
+            "Observed labels are assessor-declared mappings from physical Phenotype evidence, not "
+            "automatically inferred ground truth.",
+            "Exact producer provenance is matched, but assay comparability and dataset "
+            "independence remain caller responsibilities.",
             "Selected or small samples can make calibration metrics misleading; no external validation is implied.",
         )
 

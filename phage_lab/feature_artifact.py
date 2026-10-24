@@ -12,13 +12,12 @@ from datetime import datetime, timezone
 from functools import lru_cache
 import hashlib
 import json
-import os
 from pathlib import Path, PurePosixPath
-import tempfile
 
 from jsonschema import Draft202012Validator, FormatChecker
 
 from .artifacts import (
+    atomic_write_text,
     canonical_content_sha256,
     canonical_json,
     parse_timestamp,
@@ -338,25 +337,4 @@ def write_feature_artifact(
     if verify_outputs:
         verify_feature_artifact_outputs(document, target)
     payload = json.dumps(document, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
-    temporary_name = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=target.parent,
-            prefix=f".{target.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as stream:
-            temporary_name = stream.name
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary_name, target)
-    except OSError:
-        if temporary_name is not None:
-            try:
-                os.unlink(temporary_name)
-            except OSError:
-                pass
-        raise
+    atomic_write_text(payload, target)

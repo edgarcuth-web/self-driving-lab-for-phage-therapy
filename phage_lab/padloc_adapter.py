@@ -53,10 +53,15 @@ _REQUIRED_DATABASE_FILES = (
 )
 _REQUIRED_CSV_COLUMNS = ("system.number", "seqid", "system", "target.name")
 _LIMITATIONS = [
-    "PADLOC searches known defense systems represented in PADLOC-DB v2.0.0; no hits do not prove that the genome lacks anti-phage defense systems.",
-    "The --fna workflow predicts protein-coding genes with Prodigal. This run did not supply separate CRISPR-array or ncRNA annotations, so those feature classes may be incomplete.",
-    "The result is computational annotation, not experimental validation. Review native PADLOC outputs and source evidence before admitting calls into HostProfile.",
-    "PADLOC and PADLOC-DB are pinned; transitive dependency versions are recorded in the dependency-check log and environment metadata rather than all being independently pinned by this adapter.",
+    "PADLOC searches known defense systems represented in PADLOC-DB v2.0.0; no hits do not prove "
+    "that the genome lacks anti-phage defense systems.",
+    "The --fna workflow predicts protein-coding genes with Prodigal. This run did not supply "
+    "separate CRISPR-array or ncRNA annotations, so those feature classes may be incomplete.",
+    "The result is computational annotation, not experimental validation. Review native PADLOC "
+    "outputs and source evidence before admitting calls into HostProfile.",
+    "PADLOC and PADLOC-DB are pinned; transitive dependency versions are recorded in the "
+    "dependency-check log and environment metadata rather than all being independently pinned by "
+    "this adapter.",
 ]
 
 

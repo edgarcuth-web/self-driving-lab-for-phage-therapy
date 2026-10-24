@@ -231,12 +231,15 @@ class ActiveLearningDecision(ContentAddressed):
     def limitations(self):
         return (
             "Feedback-driven screening heuristic; no model fitting, probability update or information-gain guarantee.",
-            "Retirement is specific to the exact pool, supplied assay context and declared criterion; it is not permanent resistance or efficacy.",
+            "Retirement is specific to the exact pool, supplied assay context and declared "
+            "criterion; it is not permanent resistance or efficacy.",
             "Inconclusive/conflicting reviews require explicit review; no automatic retest or causal inference.",
             "Cocktail reviews are retained but never allocated to individual members.",
-            "Declared matching conditions cannot establish that physical host state remained unchanged; no H(t) is updated.",
+            "Declared matching conditions cannot establish that physical host state remained "
+            "unchanged; no H(t) is updated.",
             "Feedback history is explicit; pass previous_decision to carry it forward. Missing results remain unknown.",
-            "Source CandidateSet exclusions and prediction comparability limits remain in force; no safety or material readiness assessment.",
+            "Source CandidateSet exclusions and prediction comparability limits remain in force; "
+            "no safety or material readiness assessment.",
         )
 
     def _content_dict(self):
