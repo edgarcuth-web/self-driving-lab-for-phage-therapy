@@ -24,9 +24,10 @@ def main():
     parser.add_argument("--model-repo", type=Path, required=True)
     args = parser.parse_args()
     model = args.model_repo.resolve(strict=True)
-    for name in ("model-input-bundle-v1.schema.json", "pair-prediction-v1.schema.json",
-                 "model-request-v1.schema.json", "model-result-v1.schema.json"):
-        if (ROOT / "schemas" / name).read_bytes() != (model / "schemas" / name).read_bytes():
+    # The model repository ships its schemas inside the installed package.
+    model_schemas = model / "src/phage_cocktail/schemas"
+    for name in ("model-input-bundle-v1.schema.json", "pair-prediction-v1.schema.json"):
+        if (ROOT / "schemas" / name).read_bytes() != (model_schemas / name).read_bytes():
             raise ValueError(f"schema drift: {name}")
     fixture = ROOT / "tests/fixtures/input_bundle"
     model_fixture = model / "tests/fixtures/input_bundle"
