@@ -9,13 +9,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .artifacts import (
+    ContentAddressed,
     atomic_write_json,
-    content_hash,
     parse_timestamp as _validate_timestamp,
     read_json,
     require_text as _require_text,
+    require_text_tuple,
     utc_now,
-    with_content_hash,
 )
 
 from .experiment_spec import ExperimentSpec
@@ -26,15 +26,6 @@ SOURCE_KINDS = ("acquired", "local_collection", "built")
 QUALITY_STATUSES = ("pending", "released", "rejected")
 AVAILABILITY_STATUSES = ("available", "reserved", "consumed", "unavailable")
 USABLE_AVAILABILITY = ("available", "reserved")
-
-
-def _validate_text_tuple(values: tuple[str, ...], field_name: str) -> None:
-    if not isinstance(values, tuple):
-        raise ValueError(f"{field_name} must be a tuple.")
-    for value in values:
-        _require_text(value, field_name)
-    if len(set(values)) != len(values):
-        raise ValueError(f"{field_name} values must be unique.")
 
 
 @dataclass(frozen=True)
@@ -58,7 +49,7 @@ class MaterialSource:
 
 
 @dataclass(frozen=True)
-class MaterialBatch:
+class MaterialBatch(ContentAddressed):
     """Immutable material-batch record tied to one versioned profile."""
 
     batch_id: str
@@ -95,7 +86,7 @@ class MaterialBatch:
             raise ValueError(
                 f"availability_status must be one of {AVAILABILITY_STATUSES}."
             )
-        _validate_text_tuple(self.quality_evidence, "quality_evidence")
+        require_text_tuple(self.quality_evidence, "quality_evidence")
         if (
             self.quality_status in {"released", "rejected"}
             and not self.quality_evidence
@@ -130,13 +121,6 @@ class MaterialBatch:
             "quality_evidence": list(self.quality_evidence),
             "created_at": self.created_at,
         }
-
-    @property
-    def content_sha256(self) -> str:
-        return content_hash(self._content_dict())
-
-    def to_dict(self) -> dict:
-        return with_content_hash(self._content_dict())
 
 
 @dataclass(frozen=True)

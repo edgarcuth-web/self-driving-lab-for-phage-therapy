@@ -10,13 +10,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .artifacts import (
+    ContentAddressed,
     atomic_write_json,
-    content_hash,
     parse_timestamp as _validate_timestamp,
     read_json,
     require_text as _require_text,
+    require_text_tuple,
     utc_now,
-    with_content_hash,
+    validate_scalar_mapping,
 )
 
 from .host_profile import HostProfile
@@ -30,26 +31,6 @@ from .phage_profile import PhageProfile
 SCHEMA_VERSION = 1
 
 
-def _validate_scalar_mapping(value: dict, field_name: str) -> None:
-    if not isinstance(value, dict):
-        raise ValueError(f"{field_name} must be an object.")
-    for key, item in value.items():
-        _require_text(key, f"{field_name} key")
-        if item is not None and not isinstance(item, (str, int, float, bool)):
-            raise ValueError(
-                f"{field_name} values must be scalar values or null."
-            )
-
-
-def _validate_text_tuple(values: tuple[str, ...], field_name: str) -> None:
-    if not isinstance(values, tuple):
-        raise ValueError(f"{field_name} must be a tuple.")
-    for value in values:
-        _require_text(value, field_name)
-    if len(set(values)) != len(values):
-        raise ValueError(f"{field_name} values must be unique.")
-
-
 @dataclass(frozen=True)
 class DesignProducer:
     """Identity of the policy/model that produced a CocktailDesign."""
@@ -61,7 +42,7 @@ class DesignProducer:
     def __post_init__(self) -> None:
         _require_text(self.name, "designer name")
         _require_text(self.version, "designer version")
-        _validate_scalar_mapping(self.parameters, "designer parameters")
+        validate_scalar_mapping(self.parameters, "designer parameters")
 
     def to_dict(self) -> dict:
         return {
@@ -98,8 +79,8 @@ class CocktailMember:
         _require_text(self.phage_profile_id, "member phage_profile_id")
         if not self.evidence_ids:
             raise ValueError("CocktailMember requires at least one evidence_id.")
-        _validate_text_tuple(self.evidence_ids, "member evidence_id")
-        _validate_scalar_mapping(self.selection_context, "selection_context")
+        require_text_tuple(self.evidence_ids, "member evidence_id")
+        validate_scalar_mapping(self.selection_context, "selection_context")
 
     def to_dict(self) -> dict:
         return {
@@ -110,7 +91,7 @@ class CocktailMember:
 
 
 @dataclass(frozen=True)
-class CocktailDesign:
+class CocktailDesign(ContentAddressed):
     """Immutable scientific proposal for a host-targeted phage combination."""
 
     cocktail_id: str
@@ -202,8 +183,8 @@ class CocktailDesign:
         if len(set(objective_names)) != len(objective_names):
             raise ValueError("objective names must be unique.")
 
-        _validate_text_tuple(self.assumptions, "assumption")
-        _validate_text_tuple(self.unresolved_gaps, "unresolved gap")
+        require_text_tuple(self.assumptions, "assumption")
+        require_text_tuple(self.unresolved_gaps, "unresolved gap")
         _require_text(self.rationale, "rationale")
         if not isinstance(self.designer, DesignProducer):
             raise ValueError("designer must be a DesignProducer.")
@@ -231,25 +212,6 @@ class CocktailDesign:
             "designer": self.designer.to_dict(),
             "created_at": self.created_at,
         }
-
-    @property
-    def content_sha256(self) -> str:
-        return content_hash(self._content_dict())
-
-    def to_dict(self) -> dict:
-        return with_content_hash(self._content_dict())
-
-
-def _host_reference_from_dict(data: dict) -> HostReference:
-    if not isinstance(data, dict):
-        raise ValueError("target_host must be an object.")
-    allowed = {"genome_sha256", "profile_id"}
-    if set(data) - allowed:
-        raise ValueError("target_host contains unknown fields.")
-    return HostReference(
-        genome_sha256=data.get("genome_sha256"),
-        profile_id=data.get("profile_id"),
-    )
 
 
 def _member_from_dict(data: dict) -> CocktailMember:
@@ -325,7 +287,7 @@ def cocktail_design_from_dict(data: dict) -> CocktailDesign:
         schema_version=data["schema_version"],
         cocktail_id=data["cocktail_id"],
         revision=data["revision"],
-        target_host=_host_reference_from_dict(data["target_host"]),
+        target_host=HostReference.from_dict(data["target_host"]),
         members=tuple(_member_from_dict(item) for item in data["members"]),
         supporting_evidence=tuple(
             interaction_evidence_from_dict(item)

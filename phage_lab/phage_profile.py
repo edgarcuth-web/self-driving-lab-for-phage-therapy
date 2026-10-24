@@ -8,7 +8,6 @@ into properties of the phage itself.
 
 from dataclasses import dataclass
 from pathlib import Path
-import re
 
 from .artifacts import (
     atomic_write_json,
@@ -16,16 +15,11 @@ from .artifacts import (
     read_json,
     require_text as _require_text,
     utc_now,
+    validate_digest,
 )
 
 SCHEMA_VERSION = 1
 PROVENANCE_KINDS = ("retrieved", "natural", "engineered")
-SHA256_PATTERN = re.compile(r"\A[0-9a-f]{64}\Z")
-
-
-def _validate_sha256(value: str, field_name: str) -> None:
-    if not isinstance(value, str) or not SHA256_PATTERN.match(value):
-        raise ValueError(f"{field_name} must be a SHA-256 digest.")
 
 
 @dataclass(frozen=True)
@@ -48,7 +42,7 @@ class SequenceRef:
         if self.accession is not None:
             _require_text(self.accession, "sequence accession")
         if self.sha256 is not None:
-            _validate_sha256(self.sha256, "sequence sha256")
+            validate_digest(self.sha256, "sequence sha256")
         if self.length is not None and (
             type(self.length) is not int or self.length < 1
         ):
@@ -97,7 +91,7 @@ class RetrievedProvenance:
                 raise ValueError(
                     "snapshot_version and snapshot_sha256 must be provided together."
                 )
-            _validate_sha256(self.snapshot_sha256, "snapshot_sha256")
+            validate_digest(self.snapshot_sha256, "snapshot_sha256")
 
     def to_dict(self) -> dict:
         result = {

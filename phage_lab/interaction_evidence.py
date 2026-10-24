@@ -17,30 +17,15 @@ from .artifacts import (
     parse_timestamp as _validate_timestamp,
     read_json,
     require_text as _require_text,
+    validate_digest,
+    validate_scalar_mapping,
 )
 
 SCHEMA_VERSION = 1
 EVIDENCE_KINDS = ("source_annotation", "computational")
-SHA256_PATTERN = re.compile(r"\A[0-9a-f]{64}\Z")
 _SUSPECT_PROBABILITY = re.compile(
     r"(probab|likelihood|efficacy|infectivity|success_rate)", re.I
 )
-
-
-def _validate_sha256(value: str, field_name: str) -> None:
-    if not isinstance(value, str) or not SHA256_PATTERN.match(value):
-        raise ValueError(f"{field_name} must be a SHA-256 digest.")
-
-
-def _validate_scalar_mapping(value: dict, field_name: str) -> None:
-    if not isinstance(value, dict):
-        raise ValueError(f"{field_name} must be an object.")
-    for key, item in value.items():
-        _require_text(key, f"{field_name} key")
-        if item is not None and not isinstance(item, (str, int, float, bool)):
-            raise ValueError(
-                f"{field_name} values must be scalar values or null."
-            )
 
 
 @dataclass(frozen=True)
@@ -51,7 +36,7 @@ class HostReference:
     profile_id: str | None = None
 
     def __post_init__(self) -> None:
-        _validate_sha256(self.genome_sha256, "host genome_sha256")
+        validate_digest(self.genome_sha256, "host genome_sha256")
         if self.profile_id is not None:
             _require_text(self.profile_id, "host profile_id")
 
@@ -60,6 +45,14 @@ class HostReference:
         if self.profile_id is not None:
             result["profile_id"] = self.profile_id
         return result
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HostReference":
+        if not isinstance(data, dict):
+            raise ValueError("target_host must be an object.")
+        if set(data) - {"genome_sha256", "profile_id"}:
+            raise ValueError("target_host contains unknown fields.")
+        return cls(genome_sha256=data.get("genome_sha256"), profile_id=data.get("profile_id"))
 
 
 @dataclass(frozen=True)
@@ -73,7 +66,7 @@ class EvidenceProducer:
     def __post_init__(self) -> None:
         _require_text(self.name, "producer name")
         _require_text(self.version, "producer version")
-        _validate_scalar_mapping(self.parameters, "producer parameters")
+        validate_scalar_mapping(self.parameters, "producer parameters")
 
     def to_dict(self) -> dict:
         return {
@@ -115,8 +108,8 @@ class InteractionEvidence:
         _validate_timestamp(self.observed_at, "observed_at")
         if not isinstance(self.producer, EvidenceProducer):
             raise ValueError("producer must be an EvidenceProducer.")
-        _validate_scalar_mapping(self.result, "result")
-        _validate_scalar_mapping(self.input_provenance, "input_provenance")
+        validate_scalar_mapping(self.result, "result")
+        validate_scalar_mapping(self.input_provenance, "input_provenance")
         offenders = [
             key for key in self.result if _SUSPECT_PROBABILITY.search(key)
         ]

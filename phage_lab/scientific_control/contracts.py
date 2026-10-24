@@ -7,11 +7,11 @@ language-model interface. They do not describe device execution.
 from dataclasses import dataclass
 
 from ..artifacts import (
-    content_hash,
+    ContentAddressed,
     parse_timestamp,
     require_text,
+    require_text_tuple,
     validate_digest,
-    with_content_hash,
 )
 from ..host_state import HostStateReference
 
@@ -28,17 +28,6 @@ TASK_KINDS = (
     "prioritize_natural_phages",
 )
 FINDING_SEVERITIES = ("info", "warning", "error")
-
-
-def _text_tuple(values: tuple[str, ...], field_name: str, *, nonempty: bool = False) -> None:
-    if not isinstance(values, tuple):
-        raise ValueError(f"{field_name} must be a tuple.")
-    if nonempty and not values:
-        raise ValueError(f"{field_name} must not be empty.")
-    for value in values:
-        require_text(value, field_name)
-    if len(set(values)) != len(values):
-        raise ValueError(f"{field_name} values must be unique.")
 
 
 @dataclass(frozen=True)
@@ -63,7 +52,7 @@ class ArtifactReference:
 
 
 @dataclass(frozen=True)
-class ScientificObjective:
+class ScientificObjective(ContentAddressed):
     """One bounded scientific intent, before any experiment execution."""
 
     objective_id: str
@@ -102,13 +91,6 @@ class ScientificObjective:
             "host_state": self.host_state.to_dict(),
             "created_at": self.created_at,
         }
-
-    @property
-    def content_sha256(self) -> str:
-        return content_hash(self._content_dict())
-
-    def to_dict(self) -> dict:
-        return with_content_hash(self._content_dict())
 
 
 @dataclass(frozen=True)
@@ -167,7 +149,7 @@ class ModuleInvocation:
 
 
 @dataclass(frozen=True)
-class ScientificProposal:
+class ScientificProposal(ContentAddressed):
     """Content-addressed proposal produced from trusted scientific outputs."""
 
     proposal_id: str
@@ -200,12 +182,12 @@ class ScientificProposal:
             raise ValueError("candidate_set must reference CandidateSet.")
         if self.invocation.output != self.candidate_set:
             raise ValueError("module output must be the proposal CandidateSet.")
-        _text_tuple(self.selected_phage_profile_ids, "selected phage_profile_id")
+        require_text_tuple(self.selected_phage_profile_ids, "selected phage_profile_id")
         if self.evidence_state not in EVIDENCE_STATES:
             raise ValueError("Unsupported evidence_state.")
         if not isinstance(self.claim, ScientificClaim):
             raise ValueError("claim must be a ScientificClaim.")
-        _text_tuple(self.limitations, "limitation", nonempty=True)
+        require_text_tuple(self.limitations, "limitation", nonempty=True)
         parse_timestamp(self.created_at, "created_at")
 
     @property
@@ -227,13 +209,6 @@ class ScientificProposal:
             "limitations": list(self.limitations),
             "created_at": self.created_at,
         }
-
-    @property
-    def content_sha256(self) -> str:
-        return content_hash(self._content_dict())
-
-    def to_dict(self) -> dict:
-        return with_content_hash(self._content_dict())
 
 
 @dataclass(frozen=True)
@@ -274,7 +249,7 @@ class ScientificTask:
             or any(not isinstance(item, ArtifactReference) for item in self.outputs)
         ):
             raise ValueError("task outputs must contain ArtifactReference objects.")
-        _text_tuple(self.depends_on, "task dependency")
+        require_text_tuple(self.depends_on, "task dependency")
         require_text(self.reason, "task reason")
         if self.subject_phage_profile_id is not None:
             require_text(self.subject_phage_profile_id, "subject_phage_profile_id")
@@ -297,7 +272,7 @@ class ScientificTask:
 
 
 @dataclass(frozen=True)
-class ScientificPlan:
+class ScientificPlan(ContentAddressed):
     """Content-addressed task decomposition for one exact objective."""
 
     plan_id: str
@@ -318,7 +293,7 @@ class ScientificPlan:
             raise ValueError("objective must be an ArtifactReference.")
         if self.objective.artifact_type != "ScientificObjective":
             raise ValueError("objective must reference ScientificObjective.")
-        _text_tuple(self.required_pair_profile_ids, "required pair phage_profile_id")
+        require_text_tuple(self.required_pair_profile_ids, "required pair phage_profile_id")
         if self.required_pair_profile_ids != tuple(sorted(self.required_pair_profile_ids)):
             raise ValueError("required_pair_profile_ids must be sorted.")
         if (
@@ -356,13 +331,6 @@ class ScientificPlan:
             "created_at": self.created_at,
         }
 
-    @property
-    def content_sha256(self) -> str:
-        return content_hash(self._content_dict())
-
-    def to_dict(self) -> dict:
-        return with_content_hash(self._content_dict())
-
 
 @dataclass(frozen=True)
 class ReviewFinding:
@@ -385,7 +353,7 @@ class ReviewFinding:
 
 
 @dataclass(frozen=True)
-class ScientificReview:
+class ScientificReview(ContentAddressed):
     """Immutable reviewer decision about a specific proposal revision."""
 
     review_id: str
@@ -431,9 +399,3 @@ class ScientificReview:
             "reviewed_at": self.reviewed_at,
         }
 
-    @property
-    def content_sha256(self) -> str:
-        return content_hash(self._content_dict())
-
-    def to_dict(self) -> dict:
-        return with_content_hash(self._content_dict())

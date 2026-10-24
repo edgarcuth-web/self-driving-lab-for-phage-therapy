@@ -8,14 +8,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .artifacts import (
+    ContentAddressed,
     atomic_write_json,
-    content_hash,
     parse_timestamp,
     read_json,
     require_text,
+    require_text_tuple,
     utc_now,
     validate_digest,
-    with_content_hash,
 )
 from .host_state import HostState, HostStateReference, host_state_reference
 from .interaction_evidence import InteractionEvidence
@@ -38,17 +38,6 @@ PREDICTION_TARGETS = (
 )
 
 
-def _text_tuple(values, field_name, *, nonempty=False):
-    if not isinstance(values, tuple) or (nonempty and not values):
-        raise ValueError(
-            f"{field_name} must be a {'nonempty ' if nonempty else ''}tuple."
-        )
-    for value in values:
-        require_text(value, field_name)
-    if len(set(values)) != len(values):
-        raise ValueError(f"{field_name} values must be unique.")
-
-
 def _host_reference_from_dict(data):
     expected = {
         "record_id",
@@ -63,7 +52,7 @@ def _host_reference_from_dict(data):
 
 
 @dataclass(frozen=True)
-class ModelRequest:
+class ModelRequest(ContentAddressed):
     """Exact scientific input identity handed to an external model system."""
 
     request_id: str
@@ -82,7 +71,7 @@ class ModelRequest:
             raise ValueError("host_state must be a HostStateReference.")
         require_text(self.phage_profile_id, "phage_profile_id")
         validate_digest(self.phage_profile_sha256, "phage_profile_sha256")
-        _text_tuple(self.requested_targets, "requested target", nonempty=True)
+        require_text_tuple(self.requested_targets, "requested target", nonempty=True)
         if any(target not in PREDICTION_TARGETS for target in self.requested_targets):
             raise ValueError(
                 "requested_targets must contain only "
@@ -109,13 +98,6 @@ class ModelRequest:
             "requested_targets": list(self.requested_targets),
             "created_at": self.created_at,
         }
-
-    @property
-    def content_sha256(self):
-        return content_hash(self._content_dict())
-
-    def to_dict(self):
-        return with_content_hash(self._content_dict())
 
 
 def new_model_request(
@@ -181,7 +163,7 @@ def load_model_request(path: Path):
 
 
 @dataclass(frozen=True)
-class ModelResult:
+class ModelResult(ContentAddressed):
     """External model output still awaiting admission as InteractionPrediction."""
 
     result_id: str
@@ -216,7 +198,7 @@ class ModelResult:
                 raise ValueError(f"{name} must be a ProbabilityEstimate.")
             estimates.append(estimate)
         require_text(self.mechanistic_explanation, "mechanistic_explanation")
-        _text_tuple(self.limitations, "limitation")
+        require_text_tuple(self.limitations, "limitation")
         if not isinstance(self.producer, PredictionProducer):
             raise ValueError("producer must be a PredictionProducer.")
         predicted = parse_timestamp(self.predicted_at, "ModelResult predicted_at")
@@ -253,13 +235,6 @@ class ModelResult:
             "producer": self.producer.to_dict(),
             "predicted_at": self.predicted_at,
         }
-
-    @property
-    def content_sha256(self):
-        return content_hash(self._content_dict())
-
-    def to_dict(self):
-        return with_content_hash(self._content_dict())
 
 
 def model_result_from_dict(data):

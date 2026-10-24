@@ -7,6 +7,7 @@ primitive validation, canonical hashing and file I/O; serialized formats stay st
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import math
 from pathlib import Path
 
 
@@ -30,10 +31,51 @@ def parse_timestamp(value: str, field_name: str = "Timestamp") -> datetime:
     return parsed
 
 
+def is_sha256(value) -> bool:
+    """True for a lowercase 64-character hexadecimal SHA-256 digest."""
+    return (isinstance(value, str) and len(value) == 64
+            and all(char in "0123456789abcdef" for char in value))
+
+
 def validate_digest(value: str, field_name: str) -> None:
-    if (not isinstance(value, str) or len(value) != 64
-            or any(char not in "0123456789abcdef" for char in value)):
+    if not is_sha256(value):
         raise ValueError(f"{field_name} must be a SHA-256 digest.")
+
+
+def require_text_tuple(values: tuple[str, ...], field_name: str, *, nonempty: bool = False) -> None:
+    if not isinstance(values, tuple):
+        raise ValueError(f"{field_name} must be a tuple.")
+    if nonempty and not values:
+        raise ValueError(f"{field_name} must not be empty.")
+    for value in values:
+        require_text(value, field_name)
+    if len(set(values)) != len(values):
+        raise ValueError(f"{field_name} values must be unique.")
+
+
+def validate_scalar(value, field_name: str, *, allow_none: bool = True, allow_bool: bool = True) -> None:
+    """Accept a finite JSON scalar; null and booleans can be disallowed per field."""
+    if value is None:
+        if allow_none:
+            return
+        raise ValueError(f"{field_name} must not be null; omit unknown values.")
+    if isinstance(value, bool):
+        if allow_bool:
+            return
+        raise ValueError(f"{field_name} must not be a boolean.")
+    if isinstance(value, (str, int)) or (isinstance(value, float) and math.isfinite(value)):
+        return
+    suffix = " or null" if allow_none else ""
+    raise ValueError(f"{field_name} must be a finite JSON scalar{suffix}.")
+
+
+def validate_scalar_mapping(value: dict, field_name: str, *, allow_bool: bool = True) -> None:
+    """Require text keys and finite JSON scalar or null values."""
+    if not isinstance(value, dict):
+        raise ValueError(f"{field_name} must be an object.")
+    for key, item in value.items():
+        require_text(key, f"{field_name} key")
+        validate_scalar(item, field_name, allow_bool=allow_bool)
 
 
 def canonical_json(data) -> str:
@@ -47,6 +89,22 @@ def content_hash(data) -> str:
 def with_content_hash(content: dict) -> dict:
     """Hash the exact content being exported, without rebuilding it."""
     return {"content_sha256": content_hash(content), **content}
+
+
+class ContentAddressed:
+    """Mixin for records whose content_sha256 covers exactly ``_content_dict()``."""
+
+    __slots__ = ()
+
+    def _content_dict(self) -> dict:
+        raise NotImplementedError
+
+    @property
+    def content_sha256(self) -> str:
+        return content_hash(self._content_dict())
+
+    def to_dict(self) -> dict:
+        return with_content_hash(self._content_dict())
 
 
 def atomic_write_json(data, path: Path) -> None:
