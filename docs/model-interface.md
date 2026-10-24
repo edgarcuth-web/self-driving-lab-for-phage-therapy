@@ -5,7 +5,9 @@ retrieval, decisions, execution and feedback. Each model repository owns its
 model-specific preprocessing, training, evaluation, calibration and inference.
 
 Neither side imports the other's private implementation. The exchange is
-versioned files with mirrored JSON Schemas and shared software fixtures.
+versioned files with mirrored JSON Schemas and shared software fixtures. Only the
+ModelInputBundle and PairPrediction v1 schemas are mirrored; the model repository
+packages them under `src/phage_cocktail/schemas/`.
 
 See [endpoint semantics](endpoint-semantics.md) for readout distinctions, the
 historical versus audited MLC labels, and review requirements before mapping a
@@ -87,7 +89,8 @@ For real inputs SDL's `export-model-bundle` takes `--host-state`, `--phage-profi
 copies sequences. Repeated `--feature-artifact` includes validated annotation
 outputs. See SDL `docs/usage.md` for an export example.
 
-Cross-check both repositories from SDL:
+Cross-check both repositories from SDL (schemas, the shared fixture and the model
+CLI round trip):
 
 ```bash
 python tests/integration/check_model_bundle.py --model-repo ../phage-host-interaction-predictor
@@ -95,8 +98,9 @@ python tests/integration/check_model_bundle.py --model-repo ../phage-host-intera
 
 ## Legacy mechanistic interface
 
-ModelRequest v1 / ModelResult v1 and their existing fixtures remain supported.
-They request adsorption, productive infection and resistance emergence and bind
+ModelRequest v1 / ModelResult v1 and their existing fixtures remain supported in
+SDL; the model repository has removed its copy and no longer emits them. They
+request adsorption, productive infection and resistance emergence and bind
 identities, rather than carrying usable input data. Existing admission into
 InteractionPrediction and CandidateSet is unchanged.
 

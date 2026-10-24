@@ -6,17 +6,17 @@ This repository owns the schemas for scientific characterization and its provena
 - `feature-artifact-v1.schema.json`: provenance and output-integrity manifest for computed feature analyses.
 - `padloc-host-defense-result-v1.schema.json`: structured result from the pinned PADLOC host-defense adapter.
 
-The ModelRequest v1 and ModelResult v1 schemas are mirrored with
-`phage-host-interaction-predictor` because both repositories validate the exchange.
-Biological analyzer outputs, source registries and FeatureArtifact records remain
+The ModelRequest v1 and ModelResult v1 schemas are SDL-owned; the model repository
+no longer carries them. Biological analyzer outputs, source registries and FeatureArtifact records remain
 SDL-owned; model-specific embeddings, tensors, preprocessing and checkpoints do
 not belong in this directory.
 
 
 `model-input-bundle-v1.schema.json` and `pair-prediction-v1.schema.json` define
 the current source-endpoint exchange. Bundle resources carry readable payloads;
-legacy request hashes alone do not. These schemas and
-`tests/fixtures/input_bundle/` are mirrored in both repositories. Embedded
+legacy request hashes alone do not. These two schemas and
+`tests/fixtures/input_bundle/` are mirrored in `phage-host-interaction-predictor`
+(packaged there under `src/phage_cocktail/schemas/`). Embedded
 FeatureArtifact definitions mirror SDL's owned v1 schema; no analyzer code moves
 into the model repository. The cross-repository check is documented in
 `docs/model-interface.md`.
