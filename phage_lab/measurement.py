@@ -11,30 +11,21 @@ import math
 from pathlib import Path
 
 from .artifacts import (
+    ContentAddressed,
     atomic_write_json,
-    content_hash,
     parse_timestamp as _validate_timestamp,
     read_json,
     require_text as _require_text,
+    require_text_tuple,
     utc_now,
     validate_digest as _validate_digest,
-    with_content_hash,
 )
 
-from .experiment_spec import ExperimentArm, experiment_spec_from_dict
+from .experiment_spec import ExperimentArm, arm_by_id, experiment_spec_from_dict
 
 SCHEMA_VERSION = 2
 ORIGINS = ("physical_run", "virtual_run")
 QC_STATUSES = ("pending", "valid", "invalid")
-
-
-def _validate_text_tuple(values: tuple[str, ...], field_name: str) -> None:
-    if not isinstance(values, tuple):
-        raise ValueError(f"{field_name} must be a tuple.")
-    for value in values:
-        _require_text(value, field_name)
-    if len(set(values)) != len(values):
-        raise ValueError(f"{field_name} values must be unique.")
 
 
 def _validate_json(value, field_name: str = "data") -> None:
@@ -57,7 +48,7 @@ def _validate_json(value, field_name: str = "data") -> None:
 
 
 @dataclass(frozen=True)
-class Measurement:
+class Measurement(ContentAddressed):
     measurement_id: str
     revision: int
     run_id: str
@@ -114,10 +105,10 @@ class Measurement:
             raise ValueError(
                 "arm/host/phage lineage requires ExperimentSpec lineage."
             )
-        _validate_text_tuple(self.phage_profile_ids, "phage_profile_id")
+        require_text_tuple(self.phage_profile_ids, "phage_profile_id")
         _require_text(self.source_step, "source_step")
         _require_text(self.device_id, "device_id")
-        _validate_text_tuple(self.material_batch_ids, "material_batch_id")
+        require_text_tuple(self.material_batch_ids, "material_batch_id")
         if self.origin not in ORIGINS:
             raise ValueError(f"origin must be one of {ORIGINS}.")
         if not isinstance(self.physical_execution, bool):
@@ -132,7 +123,7 @@ class Measurement:
             )
         if self.qc_status not in QC_STATUSES:
             raise ValueError(f"qc_status must be one of {QC_STATUSES}.")
-        _validate_text_tuple(self.qc_evidence, "qc_evidence")
+        require_text_tuple(self.qc_evidence, "qc_evidence")
         if self.qc_status in {"valid", "invalid"} and not self.qc_evidence:
             raise ValueError(
                 f"qc_status={self.qc_status!r} requires qc_evidence."
@@ -177,21 +168,6 @@ class Measurement:
             "recorded_at": self.recorded_at,
             "created_at": self.created_at,
         }
-
-    @property
-    def content_sha256(self) -> str:
-        return content_hash(self._content_dict())
-
-    def to_dict(self) -> dict:
-        return with_content_hash(self._content_dict())
-
-
-def _arm_by_id(spec, arm_id: str) -> ExperimentArm:
-    arm_id = _require_text(arm_id, "arm_id")
-    matches = [arm for arm in spec.arms if arm.arm_id == arm_id]
-    if not matches:
-        raise ValueError(f"ExperimentSpec has no arm {arm_id!r}.")
-    return matches[0]
 
 
 def _arm_material_batch_ids(report: dict, arm: ExperimentArm) -> tuple[str, ...]:
@@ -306,7 +282,7 @@ def measurement_from_run_report(
             raise ValueError(
                 "spec-bound Measurement ingestion requires arm_id."
             )
-        arm = _arm_by_id(spec, arm_id)
+        arm = arm_by_id(spec, arm_id)
         arm_results = result.get("arms")
         if not isinstance(arm_results, dict):
             raise ValueError(

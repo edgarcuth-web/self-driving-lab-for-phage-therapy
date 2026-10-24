@@ -10,18 +10,18 @@ no instrument-specific commands or wet-lab procedure parameters.
 """
 
 from dataclasses import dataclass
-import math
 from pathlib import Path
 
 from .artifacts import (
+    ContentAddressed,
     atomic_write_json,
-    content_hash,
     parse_timestamp as _validate_timestamp,
     read_json,
     require_text as _require_text,
+    require_text_tuple,
     utc_now,
     validate_digest as _validate_digest,
-    with_content_hash,
+    validate_scalar,
 )
 
 from .cocktail_design import CocktailDesign
@@ -37,36 +37,12 @@ DEFAULT_EXECUTION_CONSTRAINTS = (
 )
 
 
-def _validate_text_tuple(
-    values: tuple[str, ...],
-    field_name: str,
-    *,
-    nonempty: bool = False,
-) -> None:
-    if not isinstance(values, tuple):
-        raise ValueError(f"{field_name} must be a tuple.")
-    if nonempty and not values:
-        raise ValueError(f"{field_name} must not be empty.")
-    for value in values:
-        _require_text(value, field_name)
-    if len(set(values)) != len(values):
-        raise ValueError(f"{field_name} values must be unique.")
-
-
-def _validate_scalar(value, field_name: str) -> None:
-    if value is None or isinstance(value, (str, int, bool)):
-        return
-    if isinstance(value, float) and math.isfinite(value):
-        return
-    raise ValueError(f"{field_name} must be a finite scalar value or null.")
-
-
 def _validate_conditions(value: dict) -> None:
     if not isinstance(value, dict):
         raise ValueError("arm conditions must be an object.")
     for key, item in value.items():
         _require_text(key, "condition key")
-        _validate_scalar(item, f"condition {key!r}")
+        validate_scalar(item, f"condition {key!r}")
 
 
 @dataclass(frozen=True)
@@ -133,11 +109,11 @@ class ExperimentArm:
             raise ValueError("arm target_host must be a HostReference.")
         if self.target_host.profile_id is None:
             raise ValueError("ExperimentArm requires a target HostProfile ID.")
-        _validate_text_tuple(self.phage_profile_ids, "arm phage_profile_id")
+        require_text_tuple(self.phage_profile_ids, "arm phage_profile_id")
         if self.role == "treatment" and not self.phage_profile_ids:
             raise ValueError("treatment arm requires at least one phage_profile_id.")
         _validate_conditions(self.conditions)
-        _validate_text_tuple(
+        require_text_tuple(
             self.expected_readouts,
             "expected readout",
             nonempty=True,
@@ -163,7 +139,7 @@ class ExperimentStep:
 
     def __post_init__(self) -> None:
         _require_text(self.name, "step name")
-        _validate_text_tuple(self.depends_on, "step dependency")
+        require_text_tuple(self.depends_on, "step dependency")
         if self.name in self.depends_on:
             raise ValueError("a workflow step cannot depend on itself.")
 
@@ -202,7 +178,7 @@ def _steps_from_workflow(workflow: dict) -> tuple[ExperimentStep, ...]:
 
 
 @dataclass(frozen=True)
-class ExperimentSpec:
+class ExperimentSpec(ContentAddressed):
     """Versioned, arm-aware experimental intent."""
 
     experiment_id: str
@@ -244,12 +220,12 @@ class ExperimentSpec:
 
         _validate_steps(self.workflow)
         _require_text(self.objective, "objective")
-        _validate_text_tuple(
+        require_text_tuple(
             self.scientific_questions,
             "scientific question",
             nonempty=True,
         )
-        _validate_text_tuple(
+        require_text_tuple(
             self.execution_constraints,
             "execution constraint",
             nonempty=True,
@@ -331,25 +307,6 @@ class ExperimentSpec:
             "created_at": self.created_at,
         }
 
-    @property
-    def content_sha256(self) -> str:
-        return content_hash(self._content_dict())
-
-    def to_dict(self) -> dict:
-        return with_content_hash(self._content_dict())
-
-
-def _host_reference_from_dict(data: dict) -> HostReference:
-    if not isinstance(data, dict):
-        raise ValueError("target_host must be an object.")
-    allowed = {"genome_sha256", "profile_id"}
-    if set(data) - allowed:
-        raise ValueError("target_host contains unknown fields.")
-    return HostReference(
-        genome_sha256=data.get("genome_sha256"),
-        profile_id=data.get("profile_id"),
-    )
-
 
 def source_reference_from_dict(data: dict) -> SourceReference:
     if not isinstance(data, dict) or set(data) != {
@@ -384,7 +341,7 @@ def experiment_arm_from_dict(data: dict) -> ExperimentArm:
     return ExperimentArm(
         arm_id=data["arm_id"],
         role=data["role"],
-        target_host=_host_reference_from_dict(data["target_host"]),
+        target_host=HostReference.from_dict(data["target_host"]),
         phage_profile_ids=tuple(data["phage_profile_ids"]),
         conditions=data["conditions"],
         expected_readouts=tuple(data["expected_readouts"]),
@@ -398,6 +355,14 @@ def _step_from_dict(data: dict) -> ExperimentStep:
     if not isinstance(dependencies, list):
         raise ValueError("workflow step depends_on must be an array.")
     return ExperimentStep(name=data["name"], depends_on=tuple(dependencies))
+
+
+def arm_by_id(spec: "ExperimentSpec", arm_id: str) -> ExperimentArm:
+    arm_id = _require_text(arm_id, "arm_id")
+    matches = [arm for arm in spec.arms if arm.arm_id == arm_id]
+    if not matches:
+        raise ValueError(f"ExperimentSpec has no arm {arm_id!r}.")
+    return matches[0]
 
 
 def experiment_spec_from_dict(data: dict) -> ExperimentSpec:
@@ -515,7 +480,7 @@ def experiment_spec_from_cocktail(
 
     if not isinstance(design, CocktailDesign):
         raise ValueError("design must be a CocktailDesign.")
-    _validate_text_tuple(
+    require_text_tuple(
         expected_readouts,
         "expected readout",
         nonempty=True,

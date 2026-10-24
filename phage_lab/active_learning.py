@@ -10,12 +10,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .artifacts import (
+    ContentAddressed,
     atomic_write_json,
-    content_hash,
     parse_timestamp as _time,
     read_json,
     require_text as _text,
-    with_content_hash,
 )
 
 from .experiment_spec import (
@@ -68,7 +67,7 @@ def _check_spec(spec, pool, anchor):
 
 
 @dataclass(frozen=True)
-class ActiveLearningDecision:
+class ActiveLearningDecision(ContentAddressed):
     decision_id: str
     revision: int
     candidate_set: CandidateSet
@@ -257,13 +256,6 @@ class ActiveLearningDecision:
             "selected_phage_profile_ids": list(selected),
             "status": status, "limitations": list(self.limitations),
         }
-
-    @property
-    def content_sha256(self):
-        return content_hash(self._content_dict())
-
-    def to_dict(self):
-        return with_content_hash(self._content_dict())
 
 
 def plan_next_screen(candidate_set, screening_spec, feedback, *, decision_id, criterion,

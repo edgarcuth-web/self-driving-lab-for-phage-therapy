@@ -9,14 +9,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .artifacts import (
+    ContentAddressed,
     atomic_write_json,
     canonical_json as _canonical,
-    content_hash,
     parse_timestamp as _time,
     read_json,
     require_text as _text,
     validate_digest as _digest,
-    with_content_hash,
 )
 
 from .host_state import HostState, HostStateReference, host_state_reference
@@ -158,7 +157,7 @@ def _select(entries, policy):
 
 
 @dataclass(frozen=True)
-class CandidateSet:
+class CandidateSet(ContentAddressed):
     """Content-addressed screening decision for an exact H(t) and input pool."""
 
     candidate_set_id: str
@@ -244,13 +243,6 @@ class CandidateSet:
             "limitations": list(self.limitations),
             "created_at": self.created_at,
         }
-
-    @property
-    def content_sha256(self):
-        return content_hash(self._content_dict())
-
-    def to_dict(self):
-        return with_content_hash(self._content_dict())
 
 
 def recommend_natural_phages(

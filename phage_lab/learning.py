@@ -10,14 +10,14 @@ import math
 from pathlib import Path
 
 from .artifacts import (
+    ContentAddressed,
     atomic_write_json,
     canonical_json,
-    content_hash,
     parse_timestamp as _time,
     read_json,
     require_text as _text,
+    require_text_tuple,
     utc_now,
-    with_content_hash,
 )
 from .experiment_spec import ExperimentSpec, experiment_spec_from_dict
 from .interaction_prediction import (
@@ -35,25 +35,8 @@ PREDICTION_TARGETS = (
 )
 
 
-def _texts(values, name, *, nonempty=False):
-    if not isinstance(values, tuple) or (nonempty and not values):
-        raise ValueError(f"{name} must be a {'nonempty ' if nonempty else ''}tuple.")
-    for value in values:
-        _text(value, name)
-    if len(set(values)) != len(values):
-        raise ValueError(f"{name} values must be unique.")
-
-
-def _assessor_from_dict(data):
-    if not isinstance(data, dict) or set(data) != {"name", "version", "parameters"}:
-        raise ValueError("assessor has missing or unknown fields.")
-    return PhenotypeAssessor(
-        name=data["name"], version=data["version"], parameters=data["parameters"]
-    )
-
-
 @dataclass(frozen=True)
-class LearningObservation:
+class LearningObservation(ContentAddressed):
     """One explicit label for one prediction target and physical phenotype."""
 
     observation_id: str
@@ -88,7 +71,7 @@ class LearningObservation:
         _text(self.interpretation, "interpretation")
         if not isinstance(self.assessor, PhenotypeAssessor):
             raise ValueError("assessor must be a PhenotypeAssessor.")
-        _texts(self.limitations, "limitations", nonempty=True)
+        require_text_tuple(self.limitations, "limitations", nonempty=True)
 
         # Re-admit nested artifacts before crossing the learning boundary.
         interaction_prediction_from_dict(self.prediction.to_dict())
@@ -177,13 +160,6 @@ class LearningObservation:
             "assessed_at": self.assessed_at,
         }
 
-    @property
-    def content_sha256(self):
-        return content_hash(self._content_dict())
-
-    def to_dict(self):
-        return with_content_hash(self._content_dict())
-
 
 def new_learning_observation(
     prediction,
@@ -248,7 +224,7 @@ def learning_observation_from_dict(data):
         target=data["target"],
         observed=data["observed"],
         interpretation=data["interpretation"],
-        assessor=_assessor_from_dict(data["assessor"]),
+        assessor=PhenotypeAssessor.from_dict(data["assessor"]),
         limitations=tuple(data["limitations"]),
         assessed_at=data["assessed_at"],
         schema_version=data["schema_version"],
@@ -269,7 +245,7 @@ def load_learning_observation(path: Path):
 
 
 @dataclass(frozen=True)
-class CalibrationReport:
+class CalibrationReport(ContentAddressed):
     """Descriptive proper-scoring metrics for one exact prediction cohort."""
 
     report_id: str
@@ -379,13 +355,6 @@ class CalibrationReport:
             "limitations": list(self.limitations),
             "created_at": self.created_at,
         }
-
-    @property
-    def content_sha256(self):
-        return content_hash(self._content_dict())
-
-    def to_dict(self):
-        return with_content_hash(self._content_dict())
 
 
 def calibration_report_from_observations(

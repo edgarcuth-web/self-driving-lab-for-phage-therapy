@@ -7,18 +7,19 @@ an earlier snapshot but never inherits or overwrites its components implicitly.
 """
 
 from dataclasses import dataclass, field
-import math
 from pathlib import Path
 
 from .artifacts import (
+    ContentAddressed,
     atomic_write_json,
-    content_hash,
     parse_timestamp as _parse_timestamp,
     read_json,
     require_text as _require_text,
+    require_text_tuple,
     utc_now,
     validate_digest as _validate_digest,
-    with_content_hash,
+    validate_scalar,
+    validate_scalar_mapping,
 )
 
 from .host_profile import HostProfile
@@ -43,41 +44,6 @@ EVIDENCE_KINDS = (
     "host_profile",
     "external_observation",
 )
-
-
-def _validate_scalar(value, field_name: str) -> None:
-    if isinstance(value, (str, int, bool)):
-        return
-    if isinstance(value, float) and math.isfinite(value):
-        return
-    raise ValueError(
-        f"{field_name} must be a finite JSON scalar; use omission for unknown state."
-    )
-
-
-def _validate_scalar_mapping(value: dict, field_name: str) -> None:
-    if not isinstance(value, dict):
-        raise ValueError(f"{field_name} must be an object.")
-    for key, item in value.items():
-        _require_text(key, f"{field_name} key")
-        if item is not None:
-            _validate_scalar(item, field_name)
-
-
-def _validate_text_tuple(
-    values: tuple[str, ...],
-    field_name: str,
-    *,
-    nonempty: bool = False,
-) -> None:
-    if not isinstance(values, tuple):
-        raise ValueError(f"{field_name} must be a tuple.")
-    if nonempty and not values:
-        raise ValueError(f"{field_name} must not be empty.")
-    for value in values:
-        _require_text(value, field_name)
-    if len(set(values)) != len(values):
-        raise ValueError(f"{field_name} values must be unique.")
 
 
 @dataclass(frozen=True)
@@ -105,7 +71,7 @@ class HostStateEvidence:
         _require_text(self.relation, "relation")
         if self.reference_sha256 is not None:
             _validate_digest(self.reference_sha256, "reference_sha256")
-        _validate_scalar_mapping(self.details, "evidence details")
+        validate_scalar_mapping(self.details, "evidence details")
 
     def to_dict(self) -> dict:
         return {
@@ -138,14 +104,14 @@ class HostStateComponent:
                 "state domain must be one of " + ", ".join(STATE_DOMAINS) + "."
             )
         _require_text(self.name, "component name")
-        _validate_scalar(self.value, "component value")
+        validate_scalar(self.value, "component value", allow_none=False)
         if self.basis not in COMPONENT_BASES:
             raise ValueError(
                 "component basis must be one of "
                 + ", ".join(COMPONENT_BASES)
                 + "."
             )
-        _validate_text_tuple(
+        require_text_tuple(
             self.evidence_ids,
             "component evidence_id",
             nonempty=True,
@@ -202,7 +168,7 @@ class HostStateReference:
 
 
 @dataclass(frozen=True)
-class HostState:
+class HostState(ContentAddressed):
     """Content-addressed, time-indexed dynamic state for one HostProfile."""
 
     host_state_id: str
@@ -238,7 +204,7 @@ class HostState:
             not isinstance(item, HostStateEvidence) for item in self.evidence
         ):
             raise ValueError("evidence must contain HostStateEvidence objects.")
-        _validate_text_tuple(self.limitations, "limitation")
+        require_text_tuple(self.limitations, "limitation")
 
         component_keys = [item.key for item in self.components]
         if len(set(component_keys)) != len(component_keys):
@@ -309,13 +275,6 @@ class HostState:
             ),
             "created_at": self.created_at,
         }
-
-    @property
-    def content_sha256(self) -> str:
-        return content_hash(self._content_dict())
-
-    def to_dict(self) -> dict:
-        return with_content_hash(self._content_dict())
 
     def component(self, domain: str, name: str) -> HostStateComponent | None:
         for item in self.components:

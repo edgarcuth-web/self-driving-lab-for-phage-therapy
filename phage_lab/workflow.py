@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 import re
 
+from .artifacts import is_sha256
 from .biology import read_fasta
 from .devices import (
     Command,
@@ -45,7 +46,6 @@ SNAPSHOT_PROVENANCE_FIELDS = ("snapshot_version", "snapshot_sha256")
 # it is not a ranking, so these fields are all required once the block exists.
 RANKING_REQUIRED_FIELDS = ("tool", "tool_version", "ranked_at", "host_genome_sha256",
                            "statistic", "interpretation", "reported")
-SHA256_PATTERN = re.compile(r"\A[0-9a-f]{64}\Z")
 
 # Inclusive (minimum, maximum) candidates a plan may select when the caller
 # does not state its own bound.
@@ -172,7 +172,7 @@ def _validate_snapshot_provenance(candidate: dict, identifier: str, *,
     for field in SNAPSHOT_PROVENANCE_FIELDS:
         if not isinstance(candidate[field], str) or not candidate[field].strip():
             raise WorkflowError(f"Candidate {identifier!r} has a non-string {field}.")
-    if not SHA256_PATTERN.match(candidate["snapshot_sha256"]):
+    if not is_sha256(candidate["snapshot_sha256"]):
         raise WorkflowError(
             f"Candidate {identifier!r} has a snapshot_sha256 that is not a SHA-256 digest.")
 
@@ -195,7 +195,7 @@ def _validate_ranking(candidate: dict, identifier: str) -> tuple[str, str] | Non
             raise WorkflowError(f"Candidate {identifier!r} has an empty ranking {field}.")
     if not isinstance(block["reported"], bool):
         raise WorkflowError(f"Candidate {identifier!r} has a non-boolean ranking.reported.")
-    if not SHA256_PATTERN.match(block["host_genome_sha256"]):
+    if not is_sha256(block["host_genome_sha256"]):
         raise WorkflowError(
             f"Candidate {identifier!r} ranking names a host genome digest that is not SHA-256.")
     rank = block.get("rank")

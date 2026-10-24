@@ -28,6 +28,7 @@ from .artifacts import (
     canonical_json,
     read_json_object,
     sha256_file,
+    utc_now,
 )
 from .feature_artifact import build_feature_artifact, write_feature_artifact
 from .host_state import load_host_state
@@ -66,10 +67,6 @@ def _result_validator() -> Draft202012Validator:
     )
     Draft202012Validator.check_schema(schema)
     return Draft202012Validator(schema, format_checker=FormatChecker())
-
-
-def _timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _write_text(path: Path, text: str) -> None:
@@ -421,7 +418,7 @@ def run_padloc_host_defense(
             "the upstream wrapper expands the FASTA basename without quoting it."
         )
 
-    started_at = _timestamp()
+    started_at = utc_now()
     stdout = ""
     stderr = ""
     with tempfile.TemporaryDirectory(
@@ -470,7 +467,7 @@ def run_padloc_host_defense(
         except OSError as exc:
             raise ValueError(f"cannot execute PADLOC: {exc}") from exc
 
-    finished_at = _timestamp()
+    finished_at = utc_now()
     _write_text(logs_dir / "padloc.stdout.txt", stdout)
     _write_text(logs_dir / "padloc.stderr.txt", stderr)
     if run.returncode != 0:
@@ -515,7 +512,7 @@ def run_padloc_host_defense(
     summary = {
         "schema_version": 1,
         "artifact_id": artifact_id,
-        "created_at": _timestamp(),
+        "created_at": utc_now(),
         "subject": {
             "id": host_state.record_id,
             "record_sha256": host_state.content_sha256,
@@ -627,7 +624,7 @@ def run_padloc_host_defense(
         outputs=output_specs,
         started_at=started_at,
         finished_at=finished_at,
-        created_at=_timestamp(),
+        created_at=utc_now(),
         status="complete",
         environment={
             "python_version": platform.python_version(),

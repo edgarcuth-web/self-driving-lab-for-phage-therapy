@@ -21,6 +21,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from .artifacts import (
     canonical_content_sha256,
     canonical_json,
+    parse_timestamp,
     read_json_object,
     read_json_object_with_digest,
 )
@@ -43,18 +44,6 @@ def _feature_artifact_validator() -> Draft202012Validator:
 
 def _parameters_sha256(parameters: dict) -> str:
     return hashlib.sha256(canonical_json(parameters).encode("utf-8")).hexdigest()
-
-
-def _timestamp(value: str, field_name: str) -> datetime:
-    if not isinstance(value, str):
-        raise ValueError(f"{field_name} must be an ISO-8601 timestamp.")
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        raise ValueError(f"{field_name} must be an ISO-8601 timestamp.") from None
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
-        raise ValueError(f"{field_name} must include a timezone.")
-    return parsed
 
 
 def _relative_path(value: str, *, field_name: str) -> PurePosixPath:
@@ -187,9 +176,9 @@ def validate_feature_artifact(document: dict) -> dict:
             f"{analysis['parameters_sha256']!r}."
         )
 
-    started_at = _timestamp(analysis["started_at"], "analysis.started_at")
-    finished_at = _timestamp(analysis["finished_at"], "analysis.finished_at")
-    created_at = _timestamp(document["created_at"], "created_at")
+    started_at = parse_timestamp(analysis["started_at"], "analysis.started_at")
+    finished_at = parse_timestamp(analysis["finished_at"], "analysis.finished_at")
+    created_at = parse_timestamp(document["created_at"], "created_at")
     if finished_at < started_at:
         raise ValueError("analysis.finished_at cannot predate analysis.started_at.")
     if created_at < finished_at:

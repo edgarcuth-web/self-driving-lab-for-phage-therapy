@@ -10,10 +10,10 @@ Raw FASTA content is never stored in the profile.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-import re
 
 from .artifacts import (
     atomic_write_json,
+    is_sha256,
     parse_timestamp as _validate_timestamp,
     read_json,
     require_text as _require_text,
@@ -31,7 +31,6 @@ FEATURE_GROUPS = (
     "virulence",
 )
 FEATURE_STATUSES = ("unknown", "assessed")
-SHA256_PATTERN = re.compile(r"\A[0-9a-f]{64}\Z")
 
 
 @dataclass(frozen=True)
@@ -109,9 +108,7 @@ class AnalysisRun:
         _require_text(self.analyzer, "analyzer")
         _require_text(self.version, "analysis version")
         _validate_timestamp(self.analyzed_at, "analyzed_at")
-        if not isinstance(self.input_sha256, str) or not SHA256_PATTERN.match(
-            self.input_sha256
-        ):
+        if not is_sha256(self.input_sha256):
             raise ValueError("analysis input_sha256 must be a SHA-256 digest.")
         if not isinstance(self.parameters, dict):
             raise ValueError("analysis parameters must be an object.")
@@ -162,8 +159,7 @@ class HostProfile:
         if any(not isinstance(group, FeatureGroup) for group in self.features.values()):
             raise ValueError("features values must be FeatureGroup objects.")
         if (
-            not isinstance(self.genome.sha256, str)
-            or not SHA256_PATTERN.match(self.genome.sha256)
+            not is_sha256(self.genome.sha256)
             or type(self.genome.bases) is not int
             or self.genome.bases < 1
             or type(self.genome.contigs) is not int
@@ -306,8 +302,7 @@ def host_profile_from_dict(data: dict) -> HostProfile:
         contigs=genome_data["contigs"],
     )
     if (
-        not isinstance(genome.sha256, str)
-        or not SHA256_PATTERN.match(genome.sha256)
+        not is_sha256(genome.sha256)
         or type(genome.bases) is not int
         or genome.bases < 1
         or type(genome.contigs) is not int

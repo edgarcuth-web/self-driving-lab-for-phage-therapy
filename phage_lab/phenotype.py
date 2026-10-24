@@ -7,53 +7,27 @@ threshold or biological conclusion is inferred automatically.
 """
 
 from dataclasses import dataclass, field
-import math
 from pathlib import Path
 
 from .artifacts import (
+    ContentAddressed,
     atomic_write_json,
-    content_hash,
     parse_timestamp as _validate_timestamp,
     read_json,
     require_text as _require_text,
+    require_text_tuple,
     utc_now,
     validate_digest as _validate_digest,
-    with_content_hash,
+    validate_scalar,
+    validate_scalar_mapping,
 )
 
-from .experiment_spec import ExperimentSpec
+from .experiment_spec import ExperimentSpec, arm_by_id
 from .measurement import Measurement
 
 SCHEMA_VERSION = 2
 COMPARISON_SCHEMA_VERSION = 1
 OUTCOMES = ("positive", "negative", "graded")
-
-
-def _validate_text_tuple(values: tuple[str, ...], field_name: str) -> None:
-    if not isinstance(values, tuple):
-        raise ValueError(f"{field_name} must be a tuple.")
-    for value in values:
-        _require_text(value, field_name)
-    if len(set(values)) != len(values):
-        raise ValueError(f"{field_name} values must be unique.")
-
-
-def _validate_scalar(value, field_name: str) -> None:
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name} must not be a boolean.")
-    if value is None or isinstance(value, (str, int)):
-        return
-    if isinstance(value, float) and math.isfinite(value):
-        return
-    raise ValueError(f"{field_name} must be a finite scalar value or null.")
-
-
-def _validate_scalar_mapping(value: dict, field_name: str) -> None:
-    if not isinstance(value, dict):
-        raise ValueError(f"{field_name} must be an object.")
-    for key, item in value.items():
-        _require_text(key, f"{field_name} key")
-        _validate_scalar(item, field_name)
 
 
 @dataclass(frozen=True)
@@ -65,7 +39,7 @@ class PhenotypeAssessor:
     def __post_init__(self) -> None:
         _require_text(self.name, "assessor name")
         _require_text(self.version, "assessor version")
-        _validate_scalar_mapping(self.parameters, "assessor parameters")
+        validate_scalar_mapping(self.parameters, "assessor parameters", allow_bool=False)
 
     def to_dict(self) -> dict:
         return {
@@ -74,9 +48,15 @@ class PhenotypeAssessor:
             "parameters": dict(self.parameters),
         }
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "PhenotypeAssessor":
+        if not isinstance(data, dict) or set(data) != {"name", "version", "parameters"}:
+            raise ValueError("assessor has missing or unknown fields.")
+        return cls(name=data["name"], version=data["version"], parameters=data["parameters"])
+
 
 @dataclass(frozen=True)
-class Phenotype:
+class Phenotype(ContentAddressed):
     phenotype_id: str
     revision: int
     experiment_spec_id: str
@@ -110,19 +90,19 @@ class Phenotype:
         )
         _require_text(self.experiment_arm_id, "experiment_arm_id")
         _require_text(self.target_host_profile_id, "target_host_profile_id")
-        _validate_text_tuple(self.phage_profile_ids, "phage_profile_id")
-        _validate_text_tuple(self.material_batch_ids, "material_batch_id")
+        require_text_tuple(self.phage_profile_ids, "phage_profile_id")
+        require_text_tuple(self.material_batch_ids, "material_batch_id")
         if not self.material_batch_ids:
             raise ValueError(
                 "Phenotype requires material_batch_ids from physical execution."
             )
-        _validate_text_tuple(self.measurement_ids, "measurement_id")
+        require_text_tuple(self.measurement_ids, "measurement_id")
         if not self.measurement_ids:
             raise ValueError("Phenotype requires at least one Measurement.")
         _require_text(self.phenotype_type, "phenotype_type")
         if self.outcome not in OUTCOMES:
             raise ValueError(f"outcome must be one of {OUTCOMES}.")
-        _validate_scalar(self.value, "value")
+        validate_scalar(self.value, "value", allow_bool=False)
         if self.outcome == "graded" and self.value is None:
             raise ValueError("graded phenotype requires a value.")
         if self.unit is not None:
@@ -158,16 +138,9 @@ class Phenotype:
             "assessed_at": self.assessed_at,
         }
 
-    @property
-    def content_sha256(self) -> str:
-        return content_hash(self._content_dict())
-
-    def to_dict(self) -> dict:
-        return with_content_hash(self._content_dict())
-
 
 @dataclass(frozen=True)
-class PhenotypeComparison:
+class PhenotypeComparison(ContentAddressed):
     comparison_id: str
     revision: int
     experiment_spec_id: str
@@ -214,7 +187,7 @@ class PhenotypeComparison:
         )
         _require_text(self.comparison_type, "comparison_type")
         _require_text(self.outcome, "comparison outcome")
-        _validate_scalar(self.value, "value")
+        validate_scalar(self.value, "value", allow_bool=False)
         if self.unit is not None:
             _require_text(self.unit, "unit")
         _require_text(self.interpretation, "interpretation")
@@ -249,21 +222,6 @@ class PhenotypeComparison:
             "assessed_at": self.assessed_at,
         }
 
-    @property
-    def content_sha256(self) -> str:
-        return content_hash(self._content_dict())
-
-    def to_dict(self) -> dict:
-        return with_content_hash(self._content_dict())
-
-
-def _arm_by_id(spec: ExperimentSpec, arm_id: str):
-    arm_id = _require_text(arm_id, "arm_id")
-    matches = [arm for arm in spec.arms if arm.arm_id == arm_id]
-    if not matches:
-        raise ValueError(f"ExperimentSpec has no arm {arm_id!r}.")
-    return matches[0]
-
 
 def phenotype_from_measurements(
     spec: ExperimentSpec,
@@ -291,7 +249,7 @@ def phenotype_from_measurements(
     if any(not isinstance(item, Measurement) for item in measurements):
         raise ValueError("measurements must contain Measurement objects.")
 
-    arm = _arm_by_id(spec, arm_id)
+    arm = arm_by_id(spec, arm_id)
     expected_spec_id = spec.spec_id
     expected_spec_sha = spec.content_sha256
     material_sets = set()
@@ -397,7 +355,7 @@ def phenotype_comparison_from_phenotypes(
             raise ValueError(
                 "PhenotypeComparison source phenotype does not match ExperimentSpec."
             )
-        _arm_by_id(spec, phenotype.experiment_arm_id)
+        arm_by_id(spec, phenotype.experiment_arm_id)
     if baseline.experiment_arm_id == comparator.experiment_arm_id:
         raise ValueError("PhenotypeComparison requires phenotypes from distinct arms.")
     if baseline.phenotype_type != comparator.phenotype_type:
@@ -427,20 +385,6 @@ def phenotype_comparison_from_phenotypes(
             parameters=assessor_parameters or {},
         ),
         assessed_at=assessed_at or utc_now(),
-    )
-
-
-def _assessor_from_dict(data: dict) -> PhenotypeAssessor:
-    if not isinstance(data, dict) or set(data) != {
-        "name",
-        "version",
-        "parameters",
-    }:
-        raise ValueError("assessor has missing or unknown fields.")
-    return PhenotypeAssessor(
-        name=data["name"],
-        version=data["version"],
-        parameters=data["parameters"],
     )
 
 
@@ -498,7 +442,7 @@ def phenotype_from_dict(data: dict) -> Phenotype:
         value=data["value"],
         unit=data["unit"],
         interpretation=data["interpretation"],
-        assessor=_assessor_from_dict(data["assessor"]),
+        assessor=PhenotypeAssessor.from_dict(data["assessor"]),
         assessed_at=data["assessed_at"],
     )
     if data["record_id"] != phenotype.record_id:
@@ -556,7 +500,7 @@ def phenotype_comparison_from_dict(data: dict) -> PhenotypeComparison:
         value=data["value"],
         unit=data["unit"],
         interpretation=data["interpretation"],
-        assessor=_assessor_from_dict(data["assessor"]),
+        assessor=PhenotypeAssessor.from_dict(data["assessor"]),
         assessed_at=data["assessed_at"],
     )
     if data["record_id"] != comparison.record_id:

@@ -17,14 +17,15 @@ import math
 from pathlib import Path
 
 from .artifacts import (
+    ContentAddressed,
     atomic_write_json,
-    content_hash,
     parse_timestamp as _parse_timestamp,
     read_json,
     require_text as _require_text,
+    require_text_tuple,
     utc_now,
     validate_digest as _validate_digest,
-    with_content_hash,
+    validate_scalar_mapping,
 )
 
 from .host_state import HostState, HostStateReference, host_state_reference
@@ -43,27 +44,6 @@ def _validate_probability(value: float, field_name: str) -> None:
         or not 0.0 <= float(value) <= 1.0
     ):
         raise ValueError(f"{field_name} must be a finite probability in [0, 1].")
-
-
-def _validate_scalar_mapping(value: dict, field_name: str) -> None:
-    if not isinstance(value, dict):
-        raise ValueError(f"{field_name} must be an object.")
-    for key, item in value.items():
-        _require_text(key, f"{field_name} key")
-        if item is None or isinstance(item, (str, int, bool)):
-            continue
-        if isinstance(item, float) and math.isfinite(item):
-            continue
-        raise ValueError(f"{field_name} values must be finite JSON scalars or null.")
-
-
-def _validate_text_tuple(values: tuple[str, ...], field_name: str) -> None:
-    if not isinstance(values, tuple):
-        raise ValueError(f"{field_name} must be a tuple.")
-    for value in values:
-        _require_text(value, field_name)
-    if len(set(values)) != len(values):
-        raise ValueError(f"{field_name} values must be unique.")
 
 
 @dataclass(frozen=True)
@@ -146,7 +126,7 @@ class PredictionProducer:
     def __post_init__(self) -> None:
         _require_text(self.name, "producer name")
         _require_text(self.version, "producer version")
-        _validate_scalar_mapping(self.parameters, "producer parameters")
+        validate_scalar_mapping(self.parameters, "producer parameters")
         if self.artifact_sha256 is not None:
             _validate_digest(self.artifact_sha256, "artifact_sha256")
 
@@ -174,7 +154,7 @@ def phage_profile_sha256(profile: PhageProfile) -> str:
 
 
 @dataclass(frozen=True)
-class InteractionPrediction:
+class InteractionPrediction(ContentAddressed):
     """Content-addressed prediction for one exact H(t)-phage pair."""
 
     prediction_id: str
@@ -204,7 +184,7 @@ class InteractionPrediction:
             raise ValueError("host_state must be a HostStateReference.")
         _require_text(self.phage_profile_id, "phage_profile_id")
         _validate_digest(self.phage_profile_sha256, "phage_profile_sha256")
-        _validate_text_tuple(
+        require_text_tuple(
             self.supporting_evidence_ids,
             "supporting evidence_id",
         )
@@ -218,7 +198,7 @@ class InteractionPrediction:
                     f"{field_name} must be a ProbabilityEstimate."
                 )
         _require_text(self.mechanistic_explanation, "mechanistic_explanation")
-        _validate_text_tuple(self.limitations, "limitation")
+        require_text_tuple(self.limitations, "limitation")
         if all(
             estimate.status == "not_estimated"
             for estimate in (
@@ -262,13 +242,6 @@ class InteractionPrediction:
             "producer": self.producer.to_dict(),
             "predicted_at": self.predicted_at,
         }
-
-    @property
-    def content_sha256(self) -> str:
-        return content_hash(self._content_dict())
-
-    def to_dict(self) -> dict:
-        return with_content_hash(self._content_dict())
 
 
 def _validate_supporting_evidence(

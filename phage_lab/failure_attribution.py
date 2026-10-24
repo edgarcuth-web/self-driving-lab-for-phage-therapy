@@ -12,12 +12,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .artifacts import (
+    ContentAddressed,
     atomic_write_json,
-    content_hash,
     parse_timestamp as _time,
     read_json,
     require_text as _text,
-    with_content_hash,
+    require_text_tuple,
 )
 
 from .experiment_spec import ExperimentSpec, experiment_spec_from_dict
@@ -31,15 +31,6 @@ from .phenotype import (
 SCHEMA_VERSION = 1
 FAILURE_OUTCOMES = ("failure_observed", "failure_not_observed", "inconclusive")
 MECHANISM_CATEGORIES = ("adsorption", "intracellular", "kinetics", "other")
-
-
-def _texts(value, name, *, nonempty=False):
-    if not isinstance(value, tuple) or (nonempty and not value):
-        raise ValueError(f"{name} must be a {'nonempty ' if nonempty else ''}tuple.")
-    for item in value:
-        _text(item, name)
-    if len(set(value)) != len(value):
-        raise ValueError(f"{name} must be unique.")
 
 
 def _index(items, kind, name, *, nonempty=False):
@@ -67,11 +58,11 @@ class MechanismHypothesis:
         if self.category not in MECHANISM_CATEGORIES:
             raise ValueError(f"category must be one of {MECHANISM_CATEGORIES}.")
         _text(self.rationale, "hypothesis rationale")
-        _texts(self.supporting_phenotype_ids, "supporting_phenotype_ids")
-        _texts(self.supporting_comparison_ids, "supporting_comparison_ids")
+        require_text_tuple(self.supporting_phenotype_ids, "supporting_phenotype_ids")
+        require_text_tuple(self.supporting_comparison_ids, "supporting_comparison_ids")
         if not (self.supporting_phenotype_ids or self.supporting_comparison_ids):
             raise ValueError("A hypothesis must reference a reviewed result.")
-        _texts(self.limitations, "hypothesis limitations", nonempty=True)
+        require_text_tuple(self.limitations, "hypothesis limitations", nonempty=True)
 
     def to_dict(self):
         return {
@@ -97,7 +88,7 @@ def mechanism_hypothesis_from_dict(data):
 
 
 @dataclass(frozen=True)
-class FailureAttribution:
+class FailureAttribution(ContentAddressed):
     attribution_id: str
     revision: int
     experiment_spec: ExperimentSpec
@@ -131,7 +122,7 @@ class FailureAttribution:
             raise ValueError(f"outcome must be one of {FAILURE_OUTCOMES}.")
         _text(self.criterion, "criterion")
         _text(self.interpretation, "interpretation")
-        _texts(self.limitations, "limitations", nonempty=True)
+        require_text_tuple(self.limitations, "limitations", nonempty=True)
         if not isinstance(self.assessor, PhenotypeAssessor):
             raise ValueError("assessor must be a PhenotypeAssessor.")
         assessed = _time(self.assessed_at)
@@ -245,13 +236,6 @@ class FailureAttribution:
             "limitations": list(self.limitations),
             "assessed_at": self.assessed_at,
         }
-
-    @property
-    def content_sha256(self):
-        return content_hash(self._content_dict())
-
-    def to_dict(self):
-        return with_content_hash(self._content_dict())
 
 
 def failure_attribution_from_results(
