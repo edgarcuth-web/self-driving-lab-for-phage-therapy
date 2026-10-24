@@ -7,6 +7,7 @@ from statistics import mean
 from uuid import uuid4
 
 from .artifacts import (
+    atomic_write_text,
     utc_now,
 )
 
@@ -38,9 +39,7 @@ class RunRecords:
         report["events_file"] = "events.jsonl"
         for name, content in (("report.json", json.dumps(report, ensure_ascii=False, indent=2) + "\n"),
                               ("report.md", render_report(report))):
-            temporary = self.directory / (name + ".tmp")
-            temporary.write_text(content, encoding="utf-8")
-            temporary.replace(self.directory / name)
+            atomic_write_text(content, self.directory / name)
 
     def close(self) -> None:
         self._events.close()
@@ -97,10 +96,9 @@ def render_report(report: dict) -> str:
     physical = report.get("physical_execution") is True
     lines = ["# 实验运行报告" if physical else "# 虚拟硬件运行报告", ""]
     if not physical:
-        lines.extend([
-            "> 本次运行使用软件设备 twin；没有执行物理湿实验。虚拟设备输出不能作为实验或疗效证据。",
-            "",
-        ])
+        lines.extend(
+            ["> 本次运行使用软件设备 twin；没有执行物理湿实验。虚拟设备输出不能作为实验或疗效证据。", ""]
+        )
     lines.extend([f"- 运行编号：`{report['run_id']}`", f"- 流程状态：`{report['status']}`",
                   f"- 决策模式：`{report.get('agent', 'unknown')}`"])
     if mode:

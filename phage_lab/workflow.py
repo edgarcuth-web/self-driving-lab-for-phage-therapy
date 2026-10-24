@@ -734,7 +734,8 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
             "Instrument actions and resulting device outputs are virtual; no wet-lab experiment occurred.")
         if bound_materials is not None:
             report["limitations"].append(
-                "MaterialBatch metadata was bound for lineage only; virtual execution did not consume physical material."
+                "MaterialBatch metadata was bound for lineage only; virtual execution did not "
+                "consume physical material."
             )
     ledger = PhysicalStateLedger(records.emit)
     try:
@@ -848,4 +849,3 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
         finally:
             records.close()
     return report, records.directory
-

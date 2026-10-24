@@ -21,7 +21,8 @@ def _experiment_spec(args, parser) -> int:
     if sum(bool(source) for source in (args.cocktail_design, args.arms, args.candidate_set,
                                        args.active_learning_decision)) != 1:
         parser.error(
-            "experiment-spec requires exactly one of --cocktail-design, --arms, --candidate-set or --active-learning-decision"
+            "experiment-spec requires exactly one of --cocktail-design, --arms, --candidate-set or "
+            "--active-learning-decision"
         )
     if args.active_learning_decision and any((args.objective, args.workflow, args.conditions,
                                               args.expected_readout, args.scientific_question,

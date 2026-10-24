@@ -217,10 +217,14 @@ class CandidateSet(ContentAddressed):
     def limitations(self):
         result = [
             "This is a screening policy, not a calibrated predictor, efficacy claim or cocktail optimizer.",
-            "Only productive-infection lower bounds guide predicted selection; adsorption and resistance estimates remain in source predictions.",
-            "Matching model provenance is necessary but does not establish calibration or comparable assay contexts; the caller must establish these.",
-            "Profile-ID tie-breaking and exploration ordering have no biological meaning or information-gain guarantee.",
-            "Material availability, safety, receptor diversity and phage-phage compatibility are not assessed by this policy.",
+            "Only productive-infection lower bounds guide predicted selection; adsorption and "
+            "resistance estimates remain in source predictions.",
+            "Matching model provenance is necessary but does not establish calibration or "
+            "comparable assay contexts; the caller must establish these.",
+            "Profile-ID tie-breaking and exploration ordering have no biological meaning or "
+            "information-gain guarantee.",
+            "Material availability, safety, receptor diversity and phage-phage compatibility are "
+            "not assessed by this policy.",
         ]
         if any(e.provenance_kind == "retrieved" for e in self.evaluations):
             result.append("Retrieved records do not establish natural biological origin.")

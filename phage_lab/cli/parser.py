@@ -90,7 +90,9 @@ def _add_shared(parser, *names):
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(description="Closed-loop phage R&D tools and laboratory orchestration.", allow_abbrev=False)
+    parser = argparse.ArgumentParser(
+        description="Closed-loop phage R&D tools and laboratory orchestration.", allow_abbrev=False
+    )
     commands = parser.add_subparsers(dest="command", required=True)
 
     sub = commands.add_parser("export-model-bundle", allow_abbrev=False,
@@ -124,7 +126,8 @@ def build_parser():
 
     sub = commands.add_parser('run', allow_abbrev=False)
     sub.set_defaults(handler=_run, command_parser=sub)
-    _add_shared(sub, 'genome', 'candidates', 'snapshot', 'host', 'limit', 'sample_id', 'workflow', 'experiment_spec', 'skip_verify')
+    _add_shared(sub, 'genome', 'candidates', 'snapshot', 'host', 'limit', 'sample_id',
+                'workflow', 'experiment_spec', 'skip_verify')
     sub.add_argument("--execution-mode", choices=EXECUTION_MODES,
                         help="Required for a run. No default: state which hardware you expect.")
     sub.add_argument("--require-snapshot", action="store_true",
@@ -314,7 +317,8 @@ def build_parser():
 
     sub = commands.add_parser('phenotype', allow_abbrev=False)
     sub.set_defaults(handler=_phenotype, command_parser=sub)
-    _add_shared(sub, 'out', 'experiment_spec', 'arm_id', 'measurements', 'unit', 'interpretation', 'assessor', 'assessor_version')
+    _add_shared(sub, 'out', 'experiment_spec', 'arm_id', 'measurements', 'unit',
+                'interpretation', 'assessor', 'assessor_version')
     sub.add_argument("--phenotype-id", help="Caller-owned Phenotype identifier.")
     sub.add_argument("--phenotype-type", help="Phenotype semantic type.")
     sub.add_argument("--phenotype-outcome",

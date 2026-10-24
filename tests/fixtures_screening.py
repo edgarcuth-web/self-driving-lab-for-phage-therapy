@@ -7,7 +7,12 @@ from dataclasses import replace
 from phage_lab.biology import GenomeSummary
 from phage_lab.host_profile import new_host_profile
 from phage_lab.host_state import new_host_state
-from phage_lab.interaction_prediction import PredictionProducer, ProbabilityEstimate, evidence_only_unresolved_prediction, new_interaction_prediction
+from phage_lab.interaction_prediction import (
+    PredictionProducer,
+    ProbabilityEstimate,
+    evidence_only_unresolved_prediction,
+    new_interaction_prediction,
+)
 from phage_lab.natural_phage_recommender import recommend_natural_phages
 from phage_lab.phage_profile import new_natural_phage_profile
 

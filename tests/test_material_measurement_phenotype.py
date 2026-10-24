@@ -20,8 +20,18 @@ from phage_lab.phenotype import (
 from phage_lab.workflow import WorkflowError, run_experiment
 from support import CANDIDATES, RealDeviceDouble, WORKFLOW
 
-from fixtures_results import GENOME, STAMP, experiment_spec, arm, material_batches, arm_batch_ids, virtual_report, physical_report, physical_measurement, phenotype_for_arm
-
+from fixtures_results import (
+    GENOME,
+    STAMP,
+    experiment_spec,
+    arm,
+    material_batches,
+    arm_batch_ids,
+    virtual_report,
+    physical_report,
+    physical_measurement,
+    phenotype_for_arm,
+)
 
 class MaterialBatchTests(unittest.TestCase):
     def test_released_batch_requires_quality_evidence(self):

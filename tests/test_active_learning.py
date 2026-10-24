@@ -141,17 +141,35 @@ class ActiveLearningTests(unittest.TestCase):
     def test_different_contexts_sources_criteria_and_host_are_rejected(self):
         variants = [
             replace(self.spec, experiment_id="wrong-objective", objective="Other objective"),
-            replace(self.spec, experiment_id="wrong-workflow", workflow=(replace(self.spec.workflow[0], name="other"),)),
-            replace(self.spec, experiment_id="wrong-source", source_references=(
-                replace(self.spec.source_references[0], content_sha256="f" * 64),)),
+            replace(
+                self.spec,
+                experiment_id="wrong-workflow",
+                workflow=(replace(self.spec.workflow[0], name="other"),),
+            ),
+            replace(
+                self.spec,
+                experiment_id="wrong-source",
+                source_references=(replace(self.spec.source_references[0], content_sha256="f" * 64),),
+            ),
             replace(self.spec, experiment_id="no-source", source_references=()),
-            replace(self.spec, experiment_id="wrong-condition", arms=tuple(
-                replace(a, conditions={"assay_context": "other"}) for a in self.spec.arms)),
-            replace(self.spec, experiment_id="wrong-readout", arms=tuple(
-                replace(a, expected_readouts=("other",)) for a in self.spec.arms)),
-            replace(self.spec, experiment_id="wrong-host", arms=tuple(
-                replace(a, target_host=replace(a.target_host, genome_sha256="f" * 64))
-                for a in self.spec.arms)),
+            replace(
+                self.spec,
+                experiment_id="wrong-condition",
+                arms=tuple(replace(a, conditions={"assay_context": "other"}) for a in self.spec.arms),
+            ),
+            replace(
+                self.spec,
+                experiment_id="wrong-readout",
+                arms=tuple(replace(a, expected_readouts=("other",)) for a in self.spec.arms),
+            ),
+            replace(
+                self.spec,
+                experiment_id="wrong-host",
+                arms=tuple(
+                    replace(a, target_host=replace(a.target_host, genome_sha256="f" * 64))
+                    for a in self.spec.arms
+                ),
+            ),
         ]
         for spec in variants:
             with self.subTest(spec=spec.experiment_id), self.assertRaises(ValueError):
