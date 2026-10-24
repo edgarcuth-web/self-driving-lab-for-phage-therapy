@@ -629,22 +629,7 @@ async def _plan_for_run(agent, *, spec, genome, candidates, devices, workflow,
     return plan
 
 
-async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str,
-                         candidates: list[dict], devices: dict | None, workflow: dict, agent,
-                         execution_mode: str, selection_size: tuple[int, int] = DEFAULT_SELECTION_SIZE,
-                         require_snapshot: bool = False, timeout_seconds: float = 60.0,
-                         echo: bool = True, on_event=None,
-                         experiment_spec: ExperimentSpec | None = None,
-                         material_batches: list[MaterialBatch] | None = None) -> tuple[dict, Path]:
-    """Run an experiment plan against physical or explicitly virtual hardware.
-
-    ``execution_mode`` is required: there is no default, because a caller that
-    did not state which kind of hardware it expects should not be given either.
-
-    Candidate records must always be externally supplied and carry traceable
-    provenance. ``virtual_hardware`` may emulate instruments, but its outputs
-    are not physical measurements and must never be represented as evidence.
-    """
+def _validate_run_request(*, sample_id, execution_mode, experiment_spec, material_batches) -> None:
     if not isinstance(sample_id, str) or not sample_id.strip():
         raise ValueError("sample_id must be a nonempty string.")
     if execution_mode not in EXECUTION_MODES:
@@ -663,63 +648,62 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
             raise ValueError(
                 "material_batches must be a list of MaterialBatch objects."
             )
+
+
+def _bind_spec_run(experiment_spec, *, workflow, candidates, material_batches, execution_mode,
+                   require_snapshot):
+    """Check runtime inputs against the frozen spec; return (candidates, operations, materials)."""
+    spec_workflow = experiment_spec.workflow_dict()
+    normalized_workflow = {
+        operation: tuple(dependencies)
+        for operation, dependencies in workflow.items()
+    }
+    if normalized_workflow != spec_workflow:
+        raise WorkflowError(
+            "Runtime workflow does not match the locked ExperimentSpec."
+        )
+    try:
+        candidates = bind_candidates_to_spec(experiment_spec, candidates)
+    except ValueError as exc:
+        raise WorkflowError(str(exc)) from None
+    operations = _validate_workflow(spec_workflow)
+    locked_member_count = len(experiment_spec.member_phage_profile_ids)
+    if locked_member_count < 1:
+        raise WorkflowError(
+            "The current run executor requires at least one phage across ExperimentSpec arms."
+        )
+    _validate_candidates(
+        candidates,
+        min_candidates=locked_member_count,
+        max_candidates=locked_member_count,
+        require_snapshot=require_snapshot,
+    )
     bound_materials: ExperimentMaterials | None = None
-    if experiment_spec is not None:
-        spec_workflow = experiment_spec.workflow_dict()
-        normalized_workflow = {
-            operation: tuple(dependencies)
-            for operation, dependencies in workflow.items()
-        }
-        if normalized_workflow != spec_workflow:
-            raise WorkflowError(
-                "Runtime workflow does not match the locked ExperimentSpec."
-            )
+    if material_batches is not None:
         try:
-            candidates = bind_candidates_to_spec(experiment_spec, candidates)
+            bound_materials = bind_material_batches_to_spec(
+                experiment_spec,
+                material_batches,
+            )
         except ValueError as exc:
             raise WorkflowError(str(exc)) from None
-        operations = _validate_workflow(spec_workflow)
-        locked_member_count = len(experiment_spec.member_phage_profile_ids)
-        if locked_member_count < 1:
-            raise WorkflowError(
-                "The current run executor requires at least one phage across ExperimentSpec arms."
-            )
-        _validate_candidates(
-            candidates,
-            min_candidates=locked_member_count,
-            max_candidates=locked_member_count,
-            require_snapshot=require_snapshot,
+    if execution_mode == "real_hardware" and bound_materials is None:
+        raise WorkflowError(
+            "ExperimentSpec-bound real_hardware requires test-ready MaterialBatch records "
+            "for the host and every phage member."
         )
-        if material_batches is not None:
-            try:
-                bound_materials = bind_material_batches_to_spec(
-                    experiment_spec,
-                    material_batches,
-                )
-            except ValueError as exc:
-                raise WorkflowError(str(exc)) from None
-        if execution_mode == "real_hardware" and bound_materials is None:
-            raise WorkflowError(
-                "ExperimentSpec-bound real_hardware requires test-ready MaterialBatch records "
-                "for the host and every phage member."
-            )
-    else:
-        operations = _validate_workflow(workflow)
-        _validate_candidates(candidates, min_candidates=selection_size[0],
-                             require_snapshot=require_snapshot)
-    if execution_mode == "real_hardware" and not devices:
-        raise WorkflowError("real_hardware requires configured physical device drivers.")
-    if devices:
-        validate_experiment_inputs(candidates, devices, execution_mode,
-                                   require_snapshot=require_snapshot)
+    return candidates, operations, bound_materials
 
-    records = RunRecords(output_root, echo, on_event=on_event)
-    if execution_mode == "virtual_hardware" and not devices:
-        from .virtual_hardware import make_virtual_devices
-        devices = make_virtual_devices(operations, records.emit)
-        validate_experiment_inputs(candidates, devices, execution_mode,
-                                   require_snapshot=require_snapshot)
 
+def _bind_legacy_run(*, workflow, candidates, selection_size, require_snapshot):
+    """Candidate-based runs keep their own checks, isolated from the spec path."""
+    operations = _validate_workflow(workflow)
+    _validate_candidates(candidates, min_candidates=selection_size[0],
+                         require_snapshot=require_snapshot)
+    return operations
+
+
+def _new_report(*, agent, execution_mode, sample_id, experiment_spec, bound_materials) -> dict:
     physical_execution = execution_mode == "real_hardware"
     report = {"schema_version": 4, "started_at": utc_now(), "status": "running",
               "simulated": not physical_execution, "execution_mode": execution_mode,
@@ -737,54 +721,156 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
                 "MaterialBatch metadata was bound for lineage only; virtual execution did not "
                 "consume physical material."
             )
+    return report
+
+
+def _record_run_inputs(report, records, *, genome_path, experiment_spec, bound_materials,
+                       candidates, devices, execution_mode):
+    """Read and record the genome, spec, materials, candidates and devices; return the genome."""
+    records.emit("run_started", agent=report["agent"], execution_mode=execution_mode,
+                 physical_execution=report["physical_execution"], sample_id=report["sample_id"])
+    report["source"] = source_identity()
+    records.emit("source_identified", **report["source"])
+    genome = read_fasta(genome_path)
+    report["genome"] = genome.public_metadata()
+    if (
+        experiment_spec is not None
+        and genome.sha256 != experiment_spec.target_host.genome_sha256
+    ):
+        raise WorkflowError(
+            "Runtime host genome does not match the locked ExperimentSpec."
+        )
+    records.emit("input_validated", **report["genome"])
+    if experiment_spec is not None:
+        report["experiment_spec"] = experiment_spec.to_dict()
+        source_design = experiment_spec.source_design
+        records.emit(
+            "experiment_spec_bound",
+            spec_id=experiment_spec.spec_id,
+            source_design_id=(
+                source_design.design_id if source_design is not None else None
+            ),
+            arm_ids=[arm.arm_id for arm in experiment_spec.arms],
+            members=list(experiment_spec.member_phage_profile_ids),
+        )
+    report["material_batch_ids"] = (
+        list(bound_materials.batch_ids) if bound_materials is not None else []
+    )
+    if bound_materials is not None:
+        report["material_batches"] = bound_materials.to_dict()
+        records.emit(
+            "material_batches_bound",
+            spec_id=experiment_spec.spec_id,
+            batch_ids=list(bound_materials.batch_ids),
+            physical_execution=report["physical_execution"],
+        )
+    report["candidates"] = candidates
+    report["candidate_sources"] = sorted({candidate["source_db"] for candidate in candidates})
+    report["candidate_ranking"] = _ranking_summary(candidates)
+    report["candidate_snapshots"] = sorted(
+        {f"{candidate['source_db']} {candidate['snapshot_version']} "
+         f"({candidate['snapshot_sha256'][:12]})"
+         for candidate in candidates if candidate.get("snapshot_version")})
+    manifests = [device.describe() for device in devices.values()]
+    records.emit("devices_discovered", count=len(manifests), execution_mode=execution_mode)
+    return genome
+
+
+def _execution_payload(sample_id, plan, experiment_spec, bound_materials) -> dict:
+    """The controller-to-device payload; spec-bound runs add the full lineage block."""
+    payload = {"sample_id": sample_id, "candidate_ids": list(plan["candidate_ids"])}
+    if experiment_spec is not None:
+        payload.update({
+            "experiment_spec_id": experiment_spec.spec_id,
+            "experiment_spec_sha256": experiment_spec.content_sha256,
+            "phage_profile_ids": list(experiment_spec.member_phage_profile_ids),
+            "experiment_arms": [arm.to_dict() for arm in experiment_spec.arms],
+        })
+        source_design = experiment_spec.source_design
+        if source_design is not None:
+            payload["cocktail_design_id"] = source_design.design_id
+        if bound_materials is not None:
+            payload["material_batch_ids"] = list(bound_materials.batch_ids)
+    return payload
+
+
+async def _finish_run(report, records, ledger, devices) -> None:
+    # A run that did not finish may have left an instrument mid-step. Ask
+    # every device that did physical work to reach its declared safe state,
+    # before releasing the drivers, and record what each one confirmed.
+    if report["status"] != "succeeded":
+        try:
+            await ledger.settle(f"run {report['status']}: {report['error'] or 'stopped'}")
+        except Exception as exc:  # never let this mask the original failure
+            records.emit("safe_state_settle_failed", error=f"{type(exc).__name__}: {exc}")
+    report["physical_state"] = ledger.summary(physical_execution=report["physical_execution"])
+    if report["physical_state"]["operator_action_required"]:
+        report["limitations"].append(
+            "A device did not confirm a hazard-free safe state; see physical_state "
+            "before approaching the apparatus.")
+    for device in devices.values():
+        close = getattr(device, "close", None)
+        if close is not None:
+            await close()
+    report["evaluation"] = evaluate(report["results"])
+    records.emit("run_finished", status=report["status"], error=report["error"])
+    try:
+        records.finish(report)
+    finally:
+        records.close()
+
+
+async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str,
+                         candidates: list[dict], devices: dict | None, workflow: dict, agent,
+                         execution_mode: str, selection_size: tuple[int, int] = DEFAULT_SELECTION_SIZE,
+                         require_snapshot: bool = False, timeout_seconds: float = 60.0,
+                         echo: bool = True, on_event=None,
+                         experiment_spec: ExperimentSpec | None = None,
+                         material_batches: list[MaterialBatch] | None = None) -> tuple[dict, Path]:
+    """Run an experiment plan against physical or explicitly virtual hardware.
+
+    ``execution_mode`` is required: there is no default, because a caller that
+    did not state which kind of hardware it expects should not be given either.
+
+    Candidate records must always be externally supplied and carry traceable
+    provenance. ``virtual_hardware`` may emulate instruments, but its outputs
+    are not physical measurements and must never be represented as evidence.
+    """
+    _validate_run_request(sample_id=sample_id, execution_mode=execution_mode,
+                          experiment_spec=experiment_spec, material_batches=material_batches)
+    bound_materials = None
+    if experiment_spec is not None:
+        candidates, operations, bound_materials = _bind_spec_run(
+            experiment_spec, workflow=workflow, candidates=candidates,
+            material_batches=material_batches, execution_mode=execution_mode,
+            require_snapshot=require_snapshot,
+        )
+    else:
+        operations = _bind_legacy_run(workflow=workflow, candidates=candidates,
+                                      selection_size=selection_size,
+                                      require_snapshot=require_snapshot)
+    if execution_mode == "real_hardware" and not devices:
+        raise WorkflowError("real_hardware requires configured physical device drivers.")
+    if devices:
+        validate_experiment_inputs(candidates, devices, execution_mode,
+                                   require_snapshot=require_snapshot)
+
+    records = RunRecords(output_root, echo, on_event=on_event)
+    if execution_mode == "virtual_hardware" and not devices:
+        from .virtual_hardware import make_virtual_devices
+        devices = make_virtual_devices(operations, records.emit)
+        validate_experiment_inputs(candidates, devices, execution_mode,
+                                   require_snapshot=require_snapshot)
+
+    report = _new_report(agent=agent, execution_mode=execution_mode, sample_id=sample_id,
+                         experiment_spec=experiment_spec, bound_materials=bound_materials)
     ledger = PhysicalStateLedger(records.emit)
     try:
-        records.emit("run_started", agent=report["agent"], execution_mode=execution_mode,
-                     physical_execution=physical_execution, sample_id=sample_id)
-        report["source"] = source_identity()
-        records.emit("source_identified", **report["source"])
-        genome = read_fasta(genome_path)
-        report["genome"] = genome.public_metadata()
-        if (
-            experiment_spec is not None
-            and genome.sha256 != experiment_spec.target_host.genome_sha256
-        ):
-            raise WorkflowError(
-                "Runtime host genome does not match the locked ExperimentSpec."
-            )
-        records.emit("input_validated", **report["genome"])
-        if experiment_spec is not None:
-            report["experiment_spec"] = experiment_spec.to_dict()
-            source_design = experiment_spec.source_design
-            records.emit(
-                "experiment_spec_bound",
-                spec_id=experiment_spec.spec_id,
-                source_design_id=(
-                    source_design.design_id if source_design is not None else None
-                ),
-                arm_ids=[arm.arm_id for arm in experiment_spec.arms],
-                members=list(experiment_spec.member_phage_profile_ids),
-            )
-        report["material_batch_ids"] = (
-            list(bound_materials.batch_ids) if bound_materials is not None else []
+        genome = _record_run_inputs(
+            report, records, genome_path=genome_path, experiment_spec=experiment_spec,
+            bound_materials=bound_materials, candidates=candidates, devices=devices,
+            execution_mode=execution_mode,
         )
-        if bound_materials is not None:
-            report["material_batches"] = bound_materials.to_dict()
-            records.emit(
-                "material_batches_bound",
-                spec_id=experiment_spec.spec_id,
-                batch_ids=list(bound_materials.batch_ids),
-                physical_execution=physical_execution,
-            )
-        report["candidates"] = candidates
-        report["candidate_sources"] = sorted({candidate["source_db"] for candidate in candidates})
-        report["candidate_ranking"] = _ranking_summary(candidates)
-        report["candidate_snapshots"] = sorted(
-            {f"{candidate['source_db']} {candidate['snapshot_version']} "
-             f"({candidate['snapshot_sha256'][:12]})"
-             for candidate in candidates if candidate.get("snapshot_version")})
-        manifests = [device.describe() for device in devices.values()]
-        records.emit("devices_discovered", count=len(manifests), execution_mode=execution_mode)
         plan = await _plan_for_run(
             agent, spec=experiment_spec, genome=genome, candidates=candidates,
             devices=devices, workflow=workflow, execution_mode=execution_mode,
@@ -800,19 +886,7 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
                                "but nothing supports them either."))
         scheduler = Scheduler(devices, agent, records, report,
                               timeout_seconds=timeout_seconds, ledger=ledger)
-        payload = {"sample_id": sample_id, "candidate_ids": list(plan["candidate_ids"])}
-        if experiment_spec is not None:
-            payload.update({
-                "experiment_spec_id": experiment_spec.spec_id,
-                "experiment_spec_sha256": experiment_spec.content_sha256,
-                "phage_profile_ids": list(experiment_spec.member_phage_profile_ids),
-                "experiment_arms": [arm.to_dict() for arm in experiment_spec.arms],
-            })
-            source_design = experiment_spec.source_design
-            if source_design is not None:
-                payload["cocktail_design_id"] = source_design.design_id
-            if bound_materials is not None:
-                payload["material_batch_ids"] = list(bound_materials.batch_ids)
+        payload = _execution_payload(sample_id, plan, experiment_spec, bound_materials)
         for operation in operations:
             result = await scheduler.execute(operation, plan["device_assignments"][operation], payload)
             report["results"][operation] = result
@@ -825,27 +899,5 @@ async def run_experiment(genome_path: Path, output_root: Path, *, sample_id: str
         report["status"] = "failed"
         report["error"] = f"{type(exc).__name__}: {exc}"
     finally:
-        # A run that did not finish may have left an instrument mid-step. Ask
-        # every device that did physical work to reach its declared safe state,
-        # before releasing the drivers, and record what each one confirmed.
-        if report["status"] != "succeeded":
-            try:
-                await ledger.settle(f"run {report['status']}: {report['error'] or 'stopped'}")
-            except Exception as exc:  # never let this mask the original failure
-                records.emit("safe_state_settle_failed", error=f"{type(exc).__name__}: {exc}")
-        report["physical_state"] = ledger.summary(physical_execution=physical_execution)
-        if report["physical_state"]["operator_action_required"]:
-            report["limitations"].append(
-                "A device did not confirm a hazard-free safe state; see physical_state "
-                "before approaching the apparatus.")
-        for device in devices.values():
-            close = getattr(device, "close", None)
-            if close is not None:
-                await close()
-        report["evaluation"] = evaluate(report["results"])
-        records.emit("run_finished", status=report["status"], error=report["error"])
-        try:
-            records.finish(report)
-        finally:
-            records.close()
+        await _finish_run(report, records, ledger, devices)
     return report, records.directory
