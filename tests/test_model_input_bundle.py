@@ -10,6 +10,9 @@ import shutil
 
 from phage_lab.artifacts import canonical_content_sha256
 from phage_lab.model_input_bundle import export_model_input_bundle, load_model_input_bundle, load_pair_prediction
+from phage_lab.model_contract import admit_model_result, model_result_from_dict, new_model_request
+from phage_lab.interaction_prediction import interaction_prediction_from_dict
+from phage_lab.natural_phage_recommender import recommend_natural_phages
 from phage_lab.sequence_registry import create_sequence_registry
 from phage_lab.phage_profile import SequenceRef, RetrievedProvenance
 from fixtures_screening import T2, phage, state
@@ -119,6 +122,81 @@ class ModelInputBundleTests(unittest.TestCase):
             bundle_id="test-bundle", output_dir=root / "export", created_at=T2,
             **kwargs,
         )
+
+    def test_admitted_source_outputs_cannot_enter_mechanistic_decisions(self):
+        # Even a verified source probability is not a productive-infection label.
+        # All verification/calibration claims here are synthetic software fixtures.
+        host, profile = state(), phage("source-only")
+        source_endpoint = {**endpoint(), "assay_definition_status": "verified"}
+        request = new_model_request(host, profile, request_id="legacy", created_at=T2)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = export_model_input_bundle(
+                host, profile, endpoint=source_endpoint,
+                assay_context={"status": "unknown", "conditions": {}, "evidence": []},
+                bundle_id="verified-source-fixture", output_dir=root / "bundle", created_at=T2,
+            )
+            bundle = load_model_input_bundle(path)
+            for status in ("uncalibrated_score", "probability"):
+                with self.subTest(status=status):
+                    result = {
+                        "schema_version": 1, "kind": "pair_prediction", "prediction_id": status,
+                        "bundle_id": bundle["bundle_id"], "bundle_sha256": bundle["content_sha256"],
+                        "created_at": T2,
+                        "estimate": {"status": status, "value": 0.7, "reason": "Software fixture only.",
+                                     "uncertainty": {"lower": 0.6, "upper": 0.8, "method": "fixture"}},
+                        "producer": {"name": "fixture", "version": "1", "artifact_sha256": "a" * 64,
+                                     "preprocessing_sha256": "b" * 64, "calibration_sha256": "c" * 64},
+                        "limitations": ["Software fixture only; no biological verification."],
+                    }
+                    result["content_sha256"] = canonical_content_sha256(result)
+                    out = root / "result.json"
+                    out.write_text(json.dumps(result))
+                    admitted = load_pair_prediction(out, path)
+                    self.assertEqual(admitted["estimate"]["status"], status)
+                    with self.assertRaisesRegex(ValueError, "ModelResult"):
+                        model_result_from_dict(admitted)
+                    with self.assertRaisesRegex(ValueError, "InteractionPrediction"):
+                        interaction_prediction_from_dict(admitted)
+                    with self.assertRaisesRegex(ValueError, "ModelResult"):
+                        admit_model_result(request, admitted, host, profile, prediction_id="invalid")
+                    with self.assertRaisesRegex(ValueError, "InteractionPrediction"):
+                        recommend_natural_phages(
+                            host, [profile], [admitted], candidate_set_id="invalid", created_at=T2,
+                        )
+
+    def test_resealed_endpoint_or_context_cannot_reuse_a_source_result(self):
+        original_path = self.fixture / "bundle.json"
+        original = load_model_input_bundle(original_path)
+        result = {
+            "schema_version": 1, "kind": "pair_prediction", "prediction_id": "unresolved",
+            "bundle_id": original["bundle_id"], "bundle_sha256": original["content_sha256"],
+            "created_at": "2026-10-19T12:00:00Z",
+            "estimate": {"status": "not_estimated", "value": None, "uncertainty": None,
+                         "reason": "Software fixture only."},
+            "producer": {"name": "fixture", "version": "1", "artifact_sha256": None,
+                         "preprocessing_sha256": None, "calibration_sha256": None},
+            "limitations": ["Software fixture only."],
+        }
+        result["content_sha256"] = canonical_content_sha256(result)
+        for field, value in (
+            ("endpoint", {**original["endpoint"], "endpoint_id": "different-source:v2"}),
+            ("assay_context", {"status": "declared", "conditions": {"fixture": True},
+                               "evidence": ["software-fixture"]}),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                shutil.copytree(self.fixture, root / "bundle")
+                path = root / "bundle/bundle.json"
+                changed = copy.deepcopy(original)
+                changed[field] = value
+                changed["content_sha256"] = canonical_content_sha256(changed)
+                path.write_text(json.dumps(changed))
+                load_model_input_bundle(path)  # Valid changed input, not a corrupt manifest.
+                out = root / "result.json"
+                out.write_text(json.dumps(result))
+                with self.assertRaisesRegex(ValueError, "exact bundle"):
+                    load_pair_prediction(out, path)
 
     def test_freezes_values_and_unknowns_not_only_fingerprints(self):
         with tempfile.TemporaryDirectory() as directory:

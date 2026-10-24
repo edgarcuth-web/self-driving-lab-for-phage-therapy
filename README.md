@@ -1,14 +1,13 @@
 # SELF-DRIVING PHAGE THERAPY
 ### Observe → Model → Design → Test → Learn → Adapt
 
-A closed-loop system that:
-- learns the evolving phage–host arms race
-- converts experimental evidence into the next decision
-- updates its models and decision policy as new experimental outcomes arrive
+A research software system for traceable phage characterization, screening,
+experimental intent, execution records, result review and next-round selection.
 
-The project connects scientific characterization, phage–host interaction modeling,
-candidate and cocktail design, experimental execution, phenotype interpretation,
-failure analysis, and feedback into one traceable loop.
+The long-term goal is an autonomous phage R&D loop that improves predictions and
+decisions using experimental evidence. The current software records explicit
+learning labels and supports feedback screening; model retraining, calibration
+and release remain separate, reviewed model-side actions.
 
 Engineering is an escalation path — not the default. The fast path evaluates
 existing natural phages and cocktails first; engineering requires an explicit
@@ -66,6 +65,12 @@ selected local sequence/annotation payloads; model-side consumers verify actual
 bytes. This implements exchange and abstention, not trained inference. Source
 scores cannot enter the existing productive-infection screening policy by renaming
 fields. See [model boundary](docs/model-interface.md).
+
+The current external host baseline predicts audited source-coded `MLC > 0` and
+returns uncalibrated research scores. It is not served through this bundle path
+or admitted to SDL candidate decisions. Source positivity, clearing, plaque
+formation, productive infection and growth suppression are distinct endpoints;
+see [endpoint semantics](docs/endpoint-semantics.md).
 
 | Part | Implemented | Current limit |
 | --- | --- | --- |
@@ -226,9 +231,9 @@ Each run writes `report.json`, `report.md` and `events.jsonl` under
 
 ## Next steps
 
-1. Accumulate real LearningObservation records and establish independent training/validation splits.
-2. Complete reproducible fitting, held-out evaluation and calibration in `phage-host-interaction-predictor`; this repository only accepts results through the versioned model boundary.
-3. Add validated prediction-driven cocktail optimization after predictor evaluation, then evaluate evidence-gated engineering escalation.
+1. Resolve source-label and assay-context review before adding endpoint mappings or a source-endpoint screening policy; retain the current mechanistic decision boundary.
+2. Evaluate host–phage pair models and available pretrained representations in `phage-host-interaction-predictor`, using explicit generalization regimes and an independent release holdout.
+3. Make characterization requirements model-declared, then extend validated prediction-driven decisions and curated experimental feedback.
 
 ## License
 
