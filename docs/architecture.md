@@ -129,6 +129,85 @@ baseline is deliberately conservative and does not establish these properties.
 Mechanism/risk hypotheses before an experiment are also distinct from
 post-experiment FailureAttribution. A predicted risk is not an observed cause.
 
+## Proposed two-lane candidate discovery (not implemented end-to-end)
+
+The research goal is to accept an admitted bacterial genome plus the exact
+HostProfile and time-indexed HostState, then discover and prioritize **existing**
+phages from a versioned reference library. This is different from making a
+pairwise probability for a pool that an earlier mechanism rule has already
+irreversibly filtered.
+
+```text
+Bacterial genome + HostProfile + HostState H(t)
+                   |
+         declared phage-library scope
+                   |
+        +----------+-----------+
+        v                      v
+ evidence-based         learned sequence-based
+ broad retrieval        host-conditioned retrieval
+ (snapshot, PHIST,       (external predictor,
+  available features)     library-specific scores)
+        |                      |
+        +----------+-----------+
+                   v
+            provenance-aware
+          candidate-pool UNION
+            + unknowns/gaps
+                   |
+            evidence / policy
+                 review
+                   |
+        CandidateSet for screening
+                   |
+           CocktailDesign (optional)
+```
+
+**Retrieval and selection are different stages.** Evidence retrieval finds
+entries with source annotation or computational signals; learned retrieval may
+add candidates not explained by available receptor/defense annotations.
+One route must not silently discard a candidate found by the other route.
+Mechanism annotation that is unavailable, unknown, or has no tool hit is
+**not a negative biological test**. Only explicit, justified source/safety
+constraints may act as hard eligibility filters, with reasons preserved.
+
+The proposed model-side retrieval result is an **endpoint-specific research
+score/rank with provenance and abstention**, not an automatically calibrated
+`productive_infection` probability or a claim of an unknown causal gene.
+Source-activity prediction does not pass into the current mechanistic
+`InteractionPrediction` or `CandidateSet` selection policy without a
+separately reviewed endpoint mapping and policy. A mechanism-only hit is
+also not proof of infection; experiments remain necessary.
+
+Ownership and currently missing implementation:
+
+- **SDL:** database snapshots, phage records, HostProfile/HostState, PHIST and
+  characterized evidence; explicit candidate union/coverage, applicability
+  rules, candidate reviews, experimental choices and QC feedback.
+- **External predictor:** learned host/phage representations, indexed-library
+  scores, model training and model-specific evaluation. A simple full-library
+  pairwise scoring baseline may precede dual-encoder/ANN indexing.
+- **Not yet implemented:** a versioned learned-retrieval request/result
+  contract, a model-origin retrieval adapter, the union policy, and a
+  scientifically validated candidate-selection policy for source-activity
+  scores. The current INPHARED `candidates --host` query uses a supplied
+  host-name string, not the whole HostProfile/HostState.
+- **Existing control gate:** the current scientific planning slice may block
+  pair-level requests while host defense annotation is unadmitted. That is
+  the **existing v1 policy**, not a scientifically justified blanket gate for
+  future learned retrieval; revising it requires new contracts, tests and
+  review, not a silent bypass.
+
+A new discovery protocol must report comparable candidate pools, source-label
+coverage/missingness, the positives recovered by learned retrieval but missed
+by the evidence route, grouped host/phage holdouts and abstention. Predicted
+positives are not new mechanism discoveries by themselves; causal claims need
+independent biological evidence.
+
+**No code or frozen scientific artifact contract changes in this architecture
+update.** The existing natural-phage recommender and PHIST cocktail baseline
+continue to behave as documented; neither becomes a trained optimizer.
+
 ## Experimental closed loop
 
 ```text
