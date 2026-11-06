@@ -40,6 +40,30 @@ all-encompassing diagram. See [architecture](docs/architecture.md) for the
 scientific control plane, decision/model layer, experimental loop, engineering
 escalation path, and stable domain contracts.
 
+## Proposed next capability: host-conditioned candidate discovery
+
+We aim to go beyond candidate lists obtained only from known and annotated
+host–phage mechanisms. For an exact bacterial genome and HostProfile/HostState,
+**learned retrieval** should search a versioned library of existing phages
+alongside **evidence-based retrieval** (INPHARED metadata, PHIST and available
+mechanistic annotations). Candidate sets should preserve the **union of both
+routes**, model/evidence provenance, unknowns and reviewable exclusions.
+Missing or unannotated mechanisms must not silently eliminate potentially
+useful candidates.
+
+This is a **future research direction, not a deployed trained capability**.
+Current INPHARED lookup still uses an explicit host-name string, the PHIST
+baseline reports shared-k-mer evidence rather than infection probability, and
+the current mechanistic CandidateSet policy cannot consume source-MLC scores
+from the external predictor. We have not trained or validated the new
+sequence-conditioned retrieval model or a mixture-efficacy optimizer.
+
+The external [phage-host-interaction-predictor](https://github.com/edgarcuth-web/phage-host-interaction-predictor)
+owns genome representations, learned retrieval and its evaluation; SDL owns
+library/source evidence, retrieval-route union, scientific review and
+decision/experiment/feedback policies. The [proposed discovery architecture](docs/architecture.md#proposed-two-lane-candidate-discovery-not-implemented-end-to-end)
+records exact implementation boundaries and acceptance questions.
+
 ## Current implementation status
 
 The current implementation is a **feedback-driven screening software loop**:
@@ -232,7 +256,7 @@ Each run writes `report.json`, `report.md` and `events.jsonl` under
 ## Next steps
 
 1. Resolve source-label and assay-context review before adding endpoint mappings or a source-endpoint screening policy; retain the current mechanistic decision boundary.
-2. Evaluate host–phage pair models and available pretrained representations in `phage-host-interaction-predictor`, using explicit generalization regimes and an independent release holdout.
+2. Study host-conditioned **learned retrieval** alongside evidence-based retrieval in `phage-host-interaction-predictor`, first on a frozen phage library and source-defined assay endpoint. Compare equal-budget recall, rescued positives and cold-host/cold-phage failures before adding model-origin retrieval to SDL. Existing pair-model studies and the independent release holdout remain necessary.
 3. Make characterization requirements model-declared, then extend validated prediction-driven decisions and curated experimental feedback.
 
 ## License

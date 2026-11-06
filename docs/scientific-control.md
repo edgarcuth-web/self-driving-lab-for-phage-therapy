@@ -176,3 +176,26 @@ While this gate is unresolved, the natural-phage recommendation task is
 `blocked` and no pair ModelRequests are emitted. After an explicitly admitted
 HostProfile revision marks defense systems as assessed, replanning resumes the
 existing missing-prediction handoff flow.
+
+## Proposed learned-retrieval handoff (future work; no v1 behavior change)
+
+The existing planner accepts a **pre-supplied** phage pool, then creates
+pair-model handoffs and waits for explicit pair prediction states. It does not
+discover phages from a learned genome/library index. The current
+host-defense-characterization gate is a prerequisite in this **implemented v1
+planning path only**. It must not be treated as evidence that a phage without
+known receptor/defense annotations cannot infect a host.
+
+A future host-conditioned discovery task would receive the exact admitted
+HostProfile/HostState and library snapshot, request an **endpoint-specific**
+learned-retrieval result from the external predictor, and combine that with
+evidence-retrieved candidates under a separately reviewed union/eligibility
+policy. Missing mechanism annotation must remain unknown. Source-label scores
+must not be inserted into the existing productive-infection CandidateSet policy
+as calibrated mechanistic probabilities.
+
+The feature and result schemas, scientific task kinds, orchestration execution,
+and experiment-admission rules are **not** changed by this proposal. Any actual
+integration requires a new issue/scope, tests, versioned source/evidence identity
+and explicit scientific review. See
+[proposed candidate discovery](architecture.md#proposed-two-lane-candidate-discovery-not-implemented-end-to-end).
